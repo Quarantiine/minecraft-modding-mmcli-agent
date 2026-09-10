@@ -1,0 +1,4 @@
+# Minovative Mind CLI Data & Temp Folders
+.minovativemind/
+.tmp/
+scratch/

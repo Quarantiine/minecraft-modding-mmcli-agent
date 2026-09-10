@@ -1,0 +1,13 @@
+{
+  "files.watcherExclude": {
+    "**/.minovativemind/**": true,
+    "**/.tmp/**": true,
+    "**/tmp/**": true,
+    "**/scratch/**": true
+  },
+  "search.exclude": {
+    "**/.minovativemind": true,
+    "**/.tmp": true,
+    "**/scratch": true
+  }
+}
