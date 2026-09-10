@@ -2,3 +2,21 @@
 .minovativemind/
 .tmp/
 scratch/
+
+# Gradle & Build Files
+.gradle/
+build/
+
+# Fabric Loom & Run directory
+run/
+.loom/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+bin/
