@@ -1,6 +1,7 @@
 package com.example.entity.ai.goal;
 
 import com.example.component.SquadGroup;
+import com.example.construction.ConstructionManager;
 import com.example.construction.TraversalScaffoldingManager;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
@@ -93,6 +94,11 @@ public class MinionSapperGoal extends Goal {
 			return false;
 		}
 		if (!(this.minion.getWorld() instanceof ServerWorld serverWorld)) {
+			return false;
+		}
+
+		// Suppress sapper behavior if this minion is engaged in construction or near an active construction session
+		if (isSuppressedByConstruction()) {
 			return false;
 		}
 
@@ -200,6 +206,9 @@ public class MinionSapperGoal extends Goal {
 	@Override
 	public boolean shouldContinue() {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
+			return false;
+		}
+		if (isSuppressedByConstruction()) {
 			return false;
 		}
 		if (this.state == SapperState.CLIMBING) {
@@ -363,6 +372,22 @@ public class MinionSapperGoal extends Goal {
 	}
 
 	/**
+	 * Checks whether this minion's sapper behavior should be suppressed because the minion
+	 * is a BUILDER or MINER currently engaged in or near an active construction session.
+	 * Prevents minions from misidentifying structure walls as natural cliffs and deploying
+	 * erratic traversal bridges instead of executing their planned construction/dismantle tasks.
+	 *
+	 * @return True if sapper behavior should be suppressed in favor of construction AI.
+	 */
+	public boolean isSuppressedByConstruction() {
+		MinionRole role = this.minion.getRole();
+		if (role == MinionRole.BUILDER || role == MinionRole.MINER) {
+			return ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion);
+		}
+		return false;
+	}
+
+	/**
 	 * Searches for an allied minion with the {@link MinionRole#BUILDER} role within 24 blocks.
 	 */
 	public MinionEntity findNearbySquadBuilder(ServerWorld world) {
@@ -376,6 +401,7 @@ public class MinionSapperGoal extends Goal {
 			m -> m != this.minion && m.isAlive() && m.isTamed() && !m.isSitting()
 				&& m.isOwner(owner)
 				&& m.getRole() == MinionRole.BUILDER
+				&& !ConstructionManager.getInstance().isMinionEngagedInConstruction(m)
 				&& (this.minion.getSquad() == SquadGroup.ALL || m.getSquad() == SquadGroup.ALL || m.getSquad() == this.minion.getSquad())
 		);
 		return candidates.isEmpty() ? null : candidates.get(0);

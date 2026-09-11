@@ -29,6 +29,10 @@ This document provides a comprehensive breakdown of all features, items, entitie
 21. [Long-Range Crosshair Targeting & Combat Raycasting (`CommandScepterItem`)](#21-long-range-crosshair-targeting--combat-raycasting-commandscepteritem)
 22. [Combat Sappers & Ephemeral Traversal Scaffolding (`MinionSapperGoal` & `TraversalScaffoldingManager`)](#22-combat-sappers--ephemeral-traversal-scaffolding-minionsappergoal--traversalscaffoldingmanager)
 23. [Structure Deconstruction & Dismantling Mode (`SessionMode.DISMANTLE`)](#23-structure-deconstruction--dismantling-mode-sessionmodedismantle)
+24. [RTS Minion Selection, Selective Ground Waypoints & Decoupled Guard Stance](#24-rts-minion-selection-selective-ground-waypoints--decoupled-guard-stance)
+25. [Formation Yaw Anchoring, Rank Resolution & Two-Pass Badge Rendering](#25-formation-yaw-anchoring-rank-resolution--two-pass-badge-rendering)
+26. [Architectural Scaffolding Navigation, Platform Kinematics & Multi-Minion Coordination](#26-architectural-scaffolding-navigation-platform-kinematics--multi-minion-coordination)
+27. [Shift-to-Close GUI Architecture, Open-State Guard & Fast Dismissals (`CommandScepterScreen`)](#27-shift-to-close-gui-architecture-open-state-guard--fast-dismissals-commandscepterscreen)
 
 ---
 
@@ -92,42 +96,50 @@ The **Loki Command Scepter** is a high-tier tactical relic that allows players t
 
 ### Interaction Matrix
 
-| Action                         | Condition / Mode       | Behavior                                                                                                                                                                                                                                                                                                                                                            |
-| :----------------------------- | :--------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Shift + Right-Click**        | Any Mode               | Opens the interactive **Command Hub GUI** (`CommandScepterScreen`) allowing direct mode selection, paginated blueprint catalog inspection, directive execution, and broadcast dismissal.                                                                                                                                                                         |
-| **Press [V] Key**              | Scepter in Inventory   | Keybind shortcut opening the Command Hub GUI if a scepter is equipped in main hand, off hand, or player inventory.                                                                                                                                                                                                                                                  |
-| **Right-Click Owned Minion**   | Any Mode               | **Individual Minion Follow (`commandIndividualMinionFollow`)**: Direct or 32-block crosshair quick-tap on an owned minion orders that specific unit to break its station, clear sitting/guard anchors, and sprint to the master at 1.35D. Emits 6x `HEART` particles, note block chime SFX (`BLOCK_NOTE_BLOCK_CHIME`), and an actionbar notification.         |
-| **Hold Right-Click (Channel)** | Any Mode               | **Banner of Courage Rally Ring**: Charges an expanding circular particle ring (`PORTAL` and `FLAME`, radius 3.0 to 16.0 blocks). Releasing triggers goat horn sound, gathers all enclosed minions into the selected squad channel, and orders them to `FOLLOW`. Quick-taps (<8 ticks) evaluate 32-block crosshair raycasting: instant blueprint cycling (`BUILD`), long-range focus-fire entity pings, or 32-block RTS ground waypoint pings. |
-| **Right-Click Ground**         | Non-`BUILD`/`MINE` Modes| **Ground Waypoint Ping / Crosshair Raycast**: Crosshair raycasts up to 32.0 blocks (`MINION_COMMAND_RADIUS`). If cursor aligns with a hostile entity, prioritizes focus-fire. Otherwise, emits a vertical beacon beam (`END_ROD` and `GLOW` particles) with beacon SFX (`SoundEvents.BLOCK_BEACON_ACTIVATE`). Active squad minions that are **not sitting** (`!m.isSitting()`) sprint at 1.35D to that coordinate and hold position (`WaypointHoldGoal` / `SentinelGuardGoal`). Stationed/holding minions are preserved. |
-| **Right-Click Hostile Entity** | Any Mode (non-Recruit) | **Hostile Entity Focus-Fire Ping**: Line-of-sight raycasted up to 32.0 blocks (bypassing 3.0 vanilla reach limitations). Emits lock-on particles (`ANGRY_VILLAGER` and `CRIT`) with note block drum cadence SFX (`BLOCK_NOTE_BLOCK_BASEDRUM`). All matching squad minions focus-fire that specific target. |
-| **Right-Click Ground**         | `BUILD` Mode           | Anchors a new multiblock `ConstructionSession` (`SessionMode.BUILD`) at the clicked block face using the active blueprint. Emits beacon sound and enchantment particle blast.                                                                                                                                                                                      |
-| **Shift + Right-Click Ground** | `BUILD` Mode           | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block face, commanding builders and miners to dismantle the active blueprint top-down.                                                                                                                                                                                       |
-| **Right-Click Ground / Box**   | `MINE` Mode            | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block or existing active structure bounding box. If an active session is clicked, targets its blueprint; otherwise targets the held blueprint.                                                                                                                             |
-| **Shift + Left-Click**         | `BUILD` Mode           | Intercepted via `AttackBlockCallback.EVENT`: Cycles active blueprint (`WATCHTOWER` → `OBELISK` → `BARRICADE`), plays bell sound, and displays action-bar notification without breaking blocks.                                                                                                                                                                      |
-| **Right-Click Air**            | `BUILD` Mode           | Alternate blueprint cycling trigger without targeting a block.                                                                                                                                                                                                                                                                                                      |
-| **Right-Click Mob**            | `RECRUIT` Mode         | Enthralls target living mob into an obedient `MinionEntity` thrall primed in standby (supports up to 32-block crosshair alignment).                                                                                                                                                                                                                                 |
-| **Right-Click Ground / Air**   | `FOLLOW` Mode          | Orders all owned minions within 32 blocks to stand up and follow the player (`speed: 1.25`). Quick-taps evaluate 32-block crosshair hits.                                                                                                                                                                                                                            |
-| **Right-Click Ground / Air**   | `STAY` Mode            | Orders all owned minions within 32 blocks to sit down, hold position, and clear targets. Quick-taps evaluate 32-block crosshair hits.                                                                                                                                                                                                                               |
-| **Right-Click Mob / Ground**   | `ATTACK` Mode          | Crosshair raycast up to 32 blocks: prioritizes target entity in crosshairs, acquires closest hostile along cursor ray near clicked block/player, or broadcasts attack directive within 32 blocks to active (non-sitting) matching squad thralls.                                                                                                                   |
+| Action                                    | Condition / Mode         | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| :---------------------------------------- | :----------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shift + Right-Click**                   | Any Mode                 | Opens the interactive **Command Hub GUI** (`CommandScepterScreen`) allowing direct mode selection, paginated blueprint catalog inspection, directive execution, and broadcast dismissal.                                                                                                                                                                                                                                                                    |
+| **Press [V] Key**                         | Scepter in Inventory     | Keybind shortcut opening the Command Hub GUI if a scepter is equipped in main hand, off hand, or player inventory.                                                                                                                                                                                                                                                                                                                                          |
+| **Right-Click / Left-Click Owned Minion** | Any Mode                 | **Minion Selection Toggle (`toggleMinionSelection`)**: Clicking an owned minion with the Scepter toggles its tactical selection (`isSelected()`). Selecting clears guard anchor and starts following (chime SFX, hearts). Deselecting anchors the minion at its current post without sitting (bass SFX, smoke). Left-clicking cancels vanilla attack and prevents friendly-fire damage.                                                                     |
+| **Shift + Left-Click (Block/Air/Mob)**    | Non-`BUILD` Modes        | **Deselect All Minions (`deselectAllMinions`)**: Deselects all owned minions across a 64-block battlefield radius, anchoring them at their current posts without sitting. Works when clicking blocks, mobs, or open air (in main or offhand).                                                                                                                                                                                                               |
+| **Hold Right-Click (Channel)**            | Any Mode                 | **Banner of Courage Rally Ring**: Charges an expanding circular particle ring (`PORTAL` and `FLAME`, radius 3.0 to 16.0 blocks). Releasing triggers goat horn sound, gathers all enclosed minions into the selected squad channel, selects them, and orders them to `FOLLOW`. Quick-taps (<8 ticks) evaluate 32-block crosshair raycasting: instant blueprint cycling (`BUILD`), long-range focus-fire entity pings, or 32-block RTS ground waypoint pings. |
+| **Right-Click Ground**                    | Non-`BUILD`/`MINE` Modes | **Ground Waypoint Ping / Crosshair Raycast**: Crosshair raycasts up to 32.0 blocks (`MINION_COMMAND_RADIUS`). If cursor aligns with a hostile entity, prioritizes focus-fire. Otherwise, emits a vertical beacon beam (`END_ROD` and `GLOW` particles) with beacon SFX (`SoundEvents.BLOCK_BEACON_ACTIVATE`). Moves **ONLY currently selected minions** matching the active squad channel filter, anchoring them to hold the waypoint post.                 |
+| **Right-Click Hostile Entity**            | Any Mode (non-Recruit)   | **Hostile Entity Focus-Fire Ping**: Line-of-sight raycasted up to 32.0 blocks (bypassing 3.0 vanilla reach limitations). Emits lock-on particles (`ANGRY_VILLAGER` and `CRIT`) with note block drum cadence SFX (`BLOCK_NOTE_BLOCK_BASEDRUM`). All matching selected squad minions focus-fire that specific target.                                                                                                                                         |
+| **Right-Click Ground**                    | `BUILD` Mode             | Anchors a new multiblock `ConstructionSession` (`SessionMode.BUILD`) at the clicked block face using the active blueprint. Emits beacon sound and enchantment particle blast.                                                                                                                                                                                                                                                                               |
+| **Shift + Right-Click Ground**            | `BUILD` Mode             | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block face, commanding builders and miners to dismantle the active blueprint top-down.                                                                                                                                                                                                                                                                                 |
+| **Right-Click Ground / Box**              | `MINE` Mode              | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block or existing active structure bounding box. If an active session is clicked, targets its blueprint; otherwise targets the held blueprint.                                                                                                                                                                                                                         |
+| **Shift + Left-Click**                    | `BUILD` Mode             | Intercepted via `AttackBlockCallback.EVENT` / air click: Cycles active blueprint (`WATCHTOWER` → `OBELISK` → `BARRICADE`), plays bell sound, and displays action-bar notification without breaking blocks. Supported in main or offhand.                                                                                                                                                                                                                    |
+| **Right-Click Air**                       | `BUILD` Mode             | Alternate blueprint cycling trigger without targeting a block.                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Right-Click Mob**                       | `RECRUIT` Mode           | Enthralls target living mob into an obedient `MinionEntity` thrall primed in standby (supports up to 32-block crosshair alignment).                                                                                                                                                                                                                                                                                                                         |
+| **Right-Click Ground / Air**              | `FOLLOW` Mode            | Orders all owned minions within 32 blocks to stand up, selects them, and follows the player (`speed: 1.25`). Quick-taps evaluate 32-block crosshair hits.                                                                                                                                                                                                                                                                                                   |
+| **Right-Click Ground / Air**              | `STAY` Mode              | Orders all owned minions within 32 blocks to deselect, sit down, hold position, and clear targets. Quick-taps evaluate 32-block crosshair hits.                                                                                                                                                                                                                                                                                                             |
+| **Right-Click Mob / Ground**              | `ATTACK` Mode            | Crosshair raycast up to 32 blocks: prioritizes target entity in crosshairs, acquires closest hostile along cursor ray near clicked block/player, or broadcasts attack directive within 32 blocks to active matching squad thralls.                                                                                                                                                                                                                          |
 
-### 2.1 Individual Minion Follow & Tactical Hold Safeguards
+### 2.1 Tactical Unit Selection, Decoupled Guard Stance & Faction Teammates
 
-1. **Individual Follow Ordering**:
-   - Commanders can address specific thralls without disrupting surrounding squads or issuing blanket march orders.
-   - Right-clicking directly on an owned minion (`useOnEntity`) or aiming within 32 blocks and quick-tapping triggers `CommandScepterItem.commandIndividualMinionFollow(player, minion)`.
-   - The targeted minion immediately breaks its holding stance (`setSitting(false)`), clears any tether anchor (`setGuardAnchorPos(null)`), clears target, and sprints to the player at $1.35\times$ movement speed.
-   - Distinct audiovisual feedback: 6 floating hearts (`ParticleTypes.HEART`), note block chime SFX (`SoundEvents.BLOCK_NOTE_BLOCK_CHIME`), and an actionbar message: `"§a✦ Minion §f<Name> §ais now following you."`.
+1. **Discrete Unit Selection & Glowing Outlines**:
+   - Commanders select specific units by left-clicking or right-clicking owned minions with the Command Scepter, or charging the Banner of Courage.
+   - Selected minions glow with their squad's distinct team outline color (`0xE74C3C` Red for Alpha, `0x3498DB` Blue for Bravo, `0x2ECC71` Green for Charlie, `0xF39C12` Gold for Delta, `0xFFFFFF` White for All).
+   - Unselected units remain stationary and undisturbed during ground waypoint pings.
 
-2. **Squad Hold Safeguards (`!m.isSitting()`)**:
-   - Previously, global ground waypoint pings and attack broadcasts queried all owned minions matching the squad filter and forcibly unseated them (`setSitting(false)`), pulling stationed defenders and sentinels into unintended marches.
-   - Both `executeGroundWaypointPing` and `broadcastAttack` now strictly verify `!m.isSitting()`. Stationed minions holding posts remain locked at their stations, protected against stray command pings until given an explicit follow or rally directive.
+2. **Decoupled Standing Guard Stance**:
+   - Deselecting a unit assigns an anchor position (`setGuardAnchorPos(pos)`) while keeping `isSitting() == false`. Units stand upright at attention like sentinels rather than forcing an unnatural sitting posture.
+   - `MinionEntity` synchronizes `GUARDING` via `DataTracker`. Both sitting units and standing sentinels report `isHoldingPosition() == true`.
+   - The overhead badge displays `[HOLD]` above their heads, rendered in fullbright (`LightmapTextureManager.MAX_LIGHT_COORDINATE`) for pitch-black visibility.
+
+3. **Faction Teammates & Friendly-Fire Immunity**:
+   - `MinionEntity.isTeammate(Entity other)` binds owner and minions under one faction.
+   - Prevents Ranger minion arrows from injuring allies and prevents player Sweeping Edge attacks from striking minions.
+   - `MinionEntity.damage` cancels any incoming friendly fire damage from the owner or allied thralls.
 
 ### 2.2 Command Hub GUI & Blueprint Catalog Pagination (`CommandScepterScreen`)
 
 To eliminate GUI overflow where large blueprint catalogs overlapped bottom action buttons on higher GUI scales:
+
 - **Fixed 3-Item Viewport (`BLUEPRINT_PAGE_SIZE = 3`)**: Blueprints render in a structured 3-card vertical stack on the right side of the screen (`startX + 165`).
 - **Pagination Navigation**: Previous (`<`) and Next (`>`) button widgets appear dynamically when total blueprints exceed 3.
 - **Action Bar Clearance**: Bottom controls (`Execute`, `Teleport All`, `Dismiss All`, `Close`) are safely positioned below the catalog viewport (`startY + 222`), guaranteeing zero overlap across all screen resolutions and GUI scale settings.
+- **Fast-Dismissal & Ergonomic Close Bindings**: Command Hub modal supports intuitive fast-closing via `Shift` tap once already opened, alongside standard `V` (toggle), `E` (inventory), and `Esc` (vanilla exit) bindings, guarded against immediate dismissal during sneak-right-click opens (see [Section 27](#27-shift-to-close-gui-architecture-open-state-guard--fast-dismissals-commandscepterscreen)).
 
 ---
 
@@ -200,13 +212,13 @@ The **Minion Entity** is an autonomous worker and combat thrall bound to a playe
 
 ### Minion Player Interaction Matrix
 
-| Interaction                 | Condition      | Behavior                                                                                                                                                                                                             |
-| :-------------------------- | :------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Sneak + Right-Click**     | Owned Minion   | Opens the interactive **Minion Management GUI** (`MinionScreen`) displaying 6 equipment slots, 9-slot inventory, live 3D preview, and Dismiss button. Direct item drop onto the minion is retired.                   |
-| **Empty Hand Right-Click**  | Owned Minion   | Toggles holding position state (updates both `sitting` and `inSittingPose`). Clears targets and plays frame rotate / orb audio.                                                                                      |
-| **Right-Click with Scepter**| Owned Minion   | Orders the individual minion to break holding stance and follow master at 1.35D, emitting `HEART` particles, note block chime SFX, and an actionbar message.                                                          |
-| **Food / Gold Right-Click** | Injured Minion | Heals the wounded minion: <br>• Food restores health equal to food nutrition.<br>• Gold Nugget heals 1.0 HP, Gold Ingot heals 4.0 HP, Gold Block heals 20.0 HP.<br>• Emits `ParticleTypes.HEART` and level-up audio. |
-| **Gold Ingot Right-Click**  | Untamed Minion | Binds the wild minion to the player as its permanent owner.                                                                                                                                                          |
+| Interaction                  | Condition      | Behavior                                                                                                                                                                                                             |
+| :--------------------------- | :------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sneak + Right-Click**      | Owned Minion   | Opens the interactive **Minion Management GUI** (`MinionScreen`) displaying 6 equipment slots, 9-slot inventory, live 3D preview, and Dismiss button. Direct item drop onto the minion is retired.                   |
+| **Empty Hand Right-Click**   | Owned Minion   | Toggles holding position state (updates both `sitting` and `inSittingPose`). Clears targets and plays frame rotate / orb audio.                                                                                      |
+| **Right-Click with Scepter** | Owned Minion   | Orders the individual minion to break holding stance and follow master at 1.35D, emitting `HEART` particles, note block chime SFX, and an actionbar message.                                                         |
+| **Food / Gold Right-Click**  | Injured Minion | Heals the wounded minion: <br>• Food restores health equal to food nutrition.<br>• Gold Nugget heals 1.0 HP, Gold Ingot heals 4.0 HP, Gold Block heals 20.0 HP.<br>• Emits `ParticleTypes.HEART` and level-up audio. |
+| **Gold Ingot Right-Click**   | Untamed Minion | Binds the wild minion to the player as its permanent owner.                                                                                                                                                          |
 
 ### 4.1 Standby Summoning & At-Ease Priming
 
@@ -226,6 +238,7 @@ In previous versions, minions spawned from `MinionSpawnEggItem` or recruited via
 In vanilla Minecraft, `MobEntity` instances cannot climb `Blocks.SCAFFOLDING` upward autonomously because the ascending mechanic relies on player client jump input packets (`Input.jumping`), which AI pathing mobs do not send.
 
 - **Travel Physics Override**: `MinionEntity.travel(Vec3d)` detects when a minion is inside a scaffolding block (`getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)`) and navigating towards an elevated waypoint or climbing shaft:
+
   ```java
   boolean ascendingScaffolding = this.isAlive()
       && this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)
@@ -238,6 +251,7 @@ In vanilla Minecraft, `MobEntity` instances cannot climb `Blocks.SCAFFOLDING` up
       this.velocityModified = true;
   }
   ```
+
 - **Continuous Impulse & Fall Distance Suppression**: Applies a continuous $+0.25\text{D}$ upward impulse while actively traversing vertical scaffolding columns, resetting `fallDistance = 0.0F` to eliminate impact damage on descent.
 - **`isClimbing()` Alignment**: Overrides `isClimbing()` to return true whenever `climbingScaffolding || isNavigatingUpwardInScaffolding()`, ensuring entity animation controllers reflect climbing posture.
 
@@ -417,20 +431,33 @@ The minion client rendering pipeline has been fully transitioned from the restri
    - Adapted to `PlayerEntityModel` to ensure hat, jacket, sleeve, and pant outer layers render properly on biped models.
 6. **Overhead Billboard Crest Badge Feature (`MinionOverheadBadgeFeatureRenderer`)**:
    - Renders a floating, camera-facing billboard badge directly above each minion's head using `EntityRenderDispatcher.getRotation()`.
-   - **Squad Banner (Top Line)**: Displays squad channel flag, name, and Roman numeral designation (`⚑ SQUAD ALPHA [I]`, `⚑ SQUAD BRAVO [II]`, `⚑ SQUAD CHARLIE [III]`, `⚑ SQUAD DELTA [IV]`, `⚑ SQUAD ALL [*]`) styled with each squad's signature color.
+   - **Squad Banner (Top Line)**: Displays squad channel flag, name, Roman numeral designation (`⚑ SQUAD ALPHA [I]`, `⚑ SQUAD BRAVO [II]`, `⚑ SQUAD CHARLIE [III]`, `⚑ SQUAD DELTA [IV]`, `⚑ SQUAD ALL [*]`), and an amber gold star prefix (`§6★ `) when the minion is actively selected by the commander.
    - **Role Crest & Lettering (Bottom Line)**: Displays tactical archetype icon and uppercase lettering (`⚔ WARRIOR`, `🛡 SENTINEL`, `🔨 BUILDER`, `⛏ MINER`, `🏹 RANGER`), appended with `[HOLD]` when holding position.
-   - **Overhead Y-Translation & Coordinate Inversion Fix**:
-     - In vanilla Minecraft's `LivingEntityRenderer`, the model matrix is subjected to an inverted scale transformation `(-1.0F, -1.0F, 1.0F)` in `setupTransforms`.
-     - In earlier versions, a positive Y translation (`+baseHeight / MODEL_SCALE`) erroneously translated the badge downward into the ground at the minion's feet.
-     - The renderer inverts the Y translation in `getOverheadYTranslation(entityHeight, hasCustomName, isSneaking)`:
+   - **Exact LIFO Matrix Reversal & Upright Coordinate System**:
+     - Vanilla Minecraft's `LivingEntityRenderer` applies four cumulative transformations before feature rendering: body yaw rotation (`setupTransforms`), `scale(-1.0F, -1.0F, 1.0F)`, `scale(MODEL_SCALE)`, and `translate(0.0F, -1.501F, 0.0F)`.
+     - In previous versions, naive translations in model space compounded with `LivingEntityRenderer`'s internal offsets, resulting in upside-down font orientation and badges floating ~1.8 blocks too high into the air.
+     - `MinionOverheadBadgeFeatureRenderer` cleanly unwinds all model-space transformations in exact Last-In First-Out (LIFO) order:
        ```java
-       float baseHeight = entityHeight + 0.35F;
-       if (hasCustomName) baseHeight += 0.30F;
-       if (isSneaking) baseHeight -= 0.20F;
-       return -(baseHeight / MODEL_SCALE);
+       matrices.translate(0.0F, 1.501F, 0.0F); // Invert translate
+       matrices.scale(1.0F / MODEL_SCALE, 1.0F / MODEL_SCALE, 1.0F / MODEL_SCALE); // Invert model scale
+       matrices.scale(-1.0F, -1.0F, 1.0F); // Invert negative scale
+       float bodyYaw = MathHelper.lerpAngleDegrees(tickDelta, entity.prevBodyYaw, entity.bodyYaw);
+       matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(bodyYaw - 180.0F)); // Invert body yaw
        ```
-     - This projects the badge upwards directly above the minion's head, preserving clear margins above vanilla custom nametags and dynamically adjusting for sneaking postures.
-   - **Dynamic Clearance & Culling**: Automatically adjusts elevation above custom nametags and crouching postures, culling beyond 64 blocks for optimal battlefield performance.
+     - Once restored to upright world space at entity feet, `getOverheadYTranslation(height, hasCustomName, isSneaking)` positions the badge safely above the minion's head:
+       ```java
+       float headClearance = hasCustomName ? 0.85F : 0.55F;
+       if (isSneaking) headClearance -= 0.20F;
+       return height + headClearance;
+       ```
+     - Head clearance was increased from 0.20F to 0.55F (+0.85F for custom named minions) to prevent badge mesh clipping into 3D biped helmets or skull geometry.
+     - Followed by camera billboarding (`dispatcher.getRotation()`) and font scaling (`scale(TEXT_SCALE, -TEXT_SCALE, TEXT_SCALE)`), ensuring badges render completely upright, stable across all perspectives, and nestled comfortably above the helmet.
+   - **Vanilla Two-Pass Billboard Nametag Pipeline**:
+     - Follows Minecraft's native nametag rendering architecture (`EntityRenderer.renderLabelIfPresent`) to resolve depth testing and occluded visibility.
+     - **Pass 1 (Translucent See-Through Pass)**: Draws text using `TextRenderer.TextLayerType.SEE_THROUGH`, translucent base color `553648127` (`0x21FFFFFF`), and background plate color derived from client options (`options.getTextBackgroundOpacity(0.25F)`). Renders behind walls and blocks so commanders maintain situational awareness of thralls across obstacles.
+     - **Pass 2 (Crisp Depth-Tested Foreground Pass)**: When `!entity.isInSneakingPose()`, draws text using `TextRenderer.TextLayerType.NORMAL`, solid fullbright color `-1` (`0xFFFFFFFF`), and transparent background `0`. Renders crisp, depth-tested foreground lettering that conforms to scene geometry.
+     - **Stealth / Sneaking Compatibility**: When sneaking, Pass 2 is bypassed, rendering only the translucent Pass 1 to honor vanilla stealth nametag mechanics.
+   - **Distance Culling**: Automatically culled beyond 64 blocks (`MAX_RENDER_DISTANCE_SQ = 4096.0D`) for optimal battlefield performance during mass unit combat.
 
 ---
 
@@ -665,6 +692,27 @@ The **`MinionBuildGoal`** enables minion thralls to autonomously carry out archi
 - **Block Preview**: The minion visibly holds the required block (or harvesting tool) in `EquipmentSlot.MAINHAND` while pathfinding.
 - **Navigation Proximity**: Pathfinds to within 3.8 horizontal and 5.5 vertical blocks of the target block position.
 - **Deliberate Work Delay**: 4-tick work delay for visual realism.
+- **True Kinematic Platform Landing**:
+  - Vertical ascent is executed prior to reach validation, preventing premature ground reach fallbacks during climbing.
+  - Applies continuous $+0.25\text{D}$ upward impulse with horizontal centering lock.
+  - Upon crossing the landing threshold ($\ge \text{targetScaffoldTopY} + 0.95\text{D}$), the minion cleanly snaps to the platform standing surface at $(\text{scaffoldCenterX}, \text{targetScaffoldTopY} + 1.0\text{D}, \text{scaffoldCenterZ})$, zeroes velocity, clears climbing flags, and completes arrival before block placement begins.
+- **Elevated Task Chaining (`isTaskReachableFromPlatform`)**:
+  - When completing an elevated block placement or deconstruction task, minions evaluate the newly claimed task from their current platform coordinates.
+  - If reachable (horizontal $\text{distSq} \le 16.0$ and vertical $\Delta Y \le 2.5$), the minion stays elevated on the scaffolding platform, equips the next item/tool, and continues building without triggering unnecessary descents, ground pathfinding, or column re-allocations.
+- **Exterior Perimeter Column Selection**:
+  - Automatically projects candidate column positions 1 block outside the session's `worldBoundingBox` perimeter ($\text{minX} - 1$, $\text{maxX} + 1$, $\text{minZ} - 1$, $\text{maxZ} + 1$).
+  - Evaluates candidates sorted by combined distance to target and minion position ($\text{distToTarget} + 0.5 \times \text{distToMinion}$), completely eliminating directional "North bias" and naturally distributing multiple builders across structure faces.
+  - Validates full vertical clearance in both world blocks and uncompleted blueprint tasks up through $\text{targetY} + 2$, protecting minions from overhangs, observation decks, and eaves.
+- **Ceiling Collision & Stall Sensors with Abort Recovery**:
+  - During ascent, continuously monitors overhead head clearance at $\text{minion.getY()} + 2.0\text{D}$.
+  - Dynamic displacement stall sensor detects lack of upward progress ($>10$ ticks).
+  - On obstruction or stall, immediately aborts ascent, blacklists the column coordinate to prevent re-selection loops, releases column reservations, and initiates a controlled downward descent to ground.
+- **Multi-Minion Column Reservation Integration**:
+  - Coordinates with `ConstructionSession.claimScaffoldColumn` and `isScaffoldColumnAvailable` to ensure separate builders working on the same structure reserve distinct perimeter columns.
+  - Column claims are released upon landing, task release, timeout, or goal cancellation.
+- **Top-to-Bottom Demobilization Teardown**:
+  - On descent, minions dismantle temporary scaffolding nodes top-to-bottom on the way down in both `DISMANTLE` mode and upon completion of all session tasks (`demobilization`) in `BUILD` mode.
+  - `ConstructionSession.clearScaffolding` sweeps any remaining nodes when sessions complete or cancel.
 
 ---
 
@@ -784,34 +832,40 @@ src/main/resources/assets/modid-mmcli-agent-modding/
 
 ## 18. Extensibility & Developer Roadmap
 
-| Extension Target                    | Status / Implementation Strategy                                                                                                                            |
-| :---------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Minion Equipment & GUI**          | **Completed**: Dedicated `MinionScreen` GUI, 6 equipment slots, auto-equipping, 3D live entity preview, and dismiss mechanics.                              |
-| **Biped Player Model**              | **Completed**: `MinionEntityRenderer` with `PlayerEntityModel`, dynamic arm poses (blocking, bow, crossbow), and dual-layer armor trims.                    |
-| **Combat Durability**               | **Completed**: 40 HP, 4 armor, 5 attack damage, passive out-of-combat regeneration, weapon swing animations, and post-combat return.                        |
-| **Scaffolding Builder AI**          | **Completed**: Temporary scaffolding deployment for elevated construction tasks and weapon saving/restoration.                                              |
-| **Radial Menu HUD**                 | In Design: Client radial HUD overlay to select scepter command modes and blueprints via mouse wheel.                                                        |
-| **Minion Mining AI**                | Roadmap: Add `MinionMineGoal` to execute automated area excavation and ore vein quarrying.                                                                  |
-| **Blueprint Schematics**            | Roadmap: Add NBT/JSON structure file loader to convert `.nbt` structure templates into `StructureBlueprint` instances.                                      |
-| **Minion Classes / Professions**    | **Completed**: Differentiated into specialized roles (`WARRIOR`, `SENTINEL`, `BUILDER`, `MINER`, `RANGER`) with partitioned AI goals and behavior profiles. |
-| **Tactical Squads & Channeling**    | **Completed**: Squad partitioning (`ALL`, `ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`) with scepter channel filtering and interactive GUI selection bars.          |
-| **Banner of Courage Rally Ring**    | **Completed**: Channeled expanding circular particle ring gathering enclosed minions into selected squad with war horn audio.                               |
-| **Tactical Ground & Hostile Pings** | **Completed**: Ground waypoint sprint & hold (`WaypointHoldGoal`), and hostile focus-fire with war drum cadences.                                           |
-| **Smart Role Auto-Equip**           | **Completed**: Archetype weapon & tool restrictions (Bows for Rangers, Shields for Sentinels, Pickaxes for Miners, etc.).                                   |
-| **Dynamic Formations**              | **Completed**: Distributed parametric stations (Vanguard wedge, Bulwark wings, Core support, Skirmishers rearguard) with anti-crowding geometry.            |
-| **Overhead Billboard Badges**       | **Completed**: Dynasty Warriors overhead crests with squad colors, Roman numerals, tactical role icons, and status flags.                                   |
-| **Sentinel Perimeter Leash**        | **Completed**: Autonomous anchor tethering, 8-block perimeter guard, 12-block leash distance with aggro drop and 1.35D sprint retreat.                      |
-| **Ranger Archery AI**               | **Completed**: Implements `RangedAttackMob` with dynamic strafing pocket (8-16 blocks), bow pull animation, and backpedaling under 8 blocks.                |
-| **32-Block Crosshair Raycasting**   | **Completed**: Full 32.0D line-of-sight raycasting for entity focus-fire and RTS ground waypoints, with solid block obstruction clipping and ray-to-point math. |
-| **Combat Sappers & Traversal Scaffolding** | **Completed**: Autonomous chasm/ravine bridging (up to 6 blocks), cliff climbing shafts (up to 6 blocks), zero-cost `BUILDER` sappers, 24-block signaling, and 400-tick ephemeral decay with entity safety guards. |
-| **Structure Deconstruction Mode**   | **Completed**: Top-down reverse topological dismantling (`SessionMode.DISMANTLE`), role authorization (`BUILDER` & `MINER`), tool resolution, survival drops, and progressive scaffolding teardown on descent. |
-| **Scepter Individual Minion Follow**| **Completed**: Direct right-click or 32-block crosshair quick-tap on owned minion commands unit to follow with chime SFX and heart particles. |
-| **Standby Summoning & Hold Safeguards**| **Completed**: Newly summoned/transfigured minions initialize in standby holding state; waypoint pings and attack broadcasts guard stationed units (`!m.isSitting()`). |
-| **GUI Pagination & Unified Framing**| **Completed**: 3-item viewport pagination for blueprint catalog in Command Hub; dynamically centered, fully framed Minion Screen preventing clipping on any GUI scale. |
-| **Overhead Crest Alignment & Hitbox**| **Completed**: Inverted Y-translation in `MinionOverheadBadgeFeatureRenderer` ensuring crests render overhead, with dynamic nametag/sneaking clearance and registered eye height (1.74F). |
-| **Radial Menu HUD**                 | In Design: Client radial HUD overlay to select scepter command modes and blueprints via mouse wheel.                                                        |
-| **Minion Mining AI**                | Roadmap: Add `MinionMineGoal` to execute automated area excavation and ore vein quarrying.                                                                  |
-| **Blueprint Schematics**            | Roadmap: Add NBT/JSON structure file loader to convert `.nbt` structure templates into `StructureBlueprint` instances.                                      |
+| Extension Target                           | Status / Implementation Strategy                                                                                                                                                                                                                 |
+| :----------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Minion Equipment & GUI**                 | **Completed**: Dedicated `MinionScreen` GUI, 6 equipment slots, auto-equipping, 3D live entity preview, and dismiss mechanics.                                                                                                                   |
+| **Biped Player Model**                     | **Completed**: `MinionEntityRenderer` with `PlayerEntityModel`, dynamic arm poses (blocking, bow, crossbow), and dual-layer armor trims.                                                                                                         |
+| **Combat Durability**                      | **Completed**: 40 HP, 4 armor, 5 attack damage, passive out-of-combat regeneration, weapon swing animations, and post-combat return.                                                                                                             |
+| **Scaffolding Builder AI**                 | **Completed**: Temporary scaffolding deployment for elevated construction tasks and weapon saving/restoration.                                                                                                                                   |
+| **Radial Menu HUD**                        | In Design: Client radial HUD overlay to select scepter command modes and blueprints via mouse wheel.                                                                                                                                             |
+| **Minion Mining AI**                       | Roadmap: Add `MinionMineGoal` to execute automated area excavation and ore vein quarrying.                                                                                                                                                       |
+| **Blueprint Schematics**                   | Roadmap: Add NBT/JSON structure file loader to convert `.nbt` structure templates into `StructureBlueprint` instances.                                                                                                                           |
+| **Minion Classes / Professions**           | **Completed**: Differentiated into specialized roles (`WARRIOR`, `SENTINEL`, `BUILDER`, `MINER`, `RANGER`) with partitioned AI goals and behavior profiles.                                                                                      |
+| **Tactical Squads & Channeling**           | **Completed**: Squad partitioning (`ALL`, `ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`) with scepter channel filtering and interactive GUI selection bars.                                                                                               |
+| **Banner of Courage Rally Ring**           | **Completed**: Channeled expanding circular particle ring gathering enclosed minions into selected squad with war horn audio.                                                                                                                    |
+| **Tactical Ground & Hostile Pings**        | **Completed**: Ground waypoint sprint & hold (`WaypointHoldGoal`), and hostile focus-fire with war drum cadences.                                                                                                                                |
+| **Smart Role Auto-Equip**                  | **Completed**: Archetype weapon & tool restrictions (Bows for Rangers, Shields for Sentinels, Pickaxes for Miners, etc.).                                                                                                                        |
+| **Dynamic Formations**                     | **Completed**: Distributed parametric stations (Vanguard wedge, Bulwark wings, Core support, Skirmishers rearguard) with anti-crowding geometry.                                                                                                 |
+| **Overhead Billboard Badges**              | **Completed**: Dynasty Warriors overhead crests with squad colors, Roman numerals, tactical role icons, and status flags.                                                                                                                        |
+| **Sentinel Perimeter Leash**               | **Completed**: Autonomous anchor tethering, 8-block perimeter guard, 12-block leash distance with aggro drop and 1.35D sprint retreat.                                                                                                           |
+| **Ranger Archery AI**                      | **Completed**: Implements `RangedAttackMob` with dynamic strafing pocket (8-16 blocks), bow pull animation, and backpedaling under 8 blocks.                                                                                                     |
+| **32-Block Crosshair Raycasting**          | **Completed**: Full 32.0D line-of-sight raycasting for entity focus-fire and RTS ground waypoints, with solid block obstruction clipping and ray-to-point math.                                                                                  |
+| **Combat Sappers & Traversal Scaffolding** | **Completed**: Autonomous chasm/ravine bridging (up to 6 blocks), cliff climbing shafts (up to 6 blocks), zero-cost `BUILDER` sappers, 24-block signaling, and 400-tick ephemeral decay with entity safety guards.                               |
+| **Structure Deconstruction Mode**          | **Completed**: Top-down reverse topological dismantling (`SessionMode.DISMANTLE`), role authorization (`BUILDER` & `MINER`), tool resolution, survival drops, and progressive scaffolding teardown on descent.                                   |
+| **Scepter Individual Minion Follow**       | **Completed**: Direct right-click or 32-block crosshair quick-tap on owned minion commands unit to follow with chime SFX and heart particles.                                                                                                    |
+| **Standby Summoning & Hold Safeguards**    | **Completed**: Newly summoned/transfigured minions initialize in standby holding state; waypoint pings and attack broadcasts guard stationed units (`!m.isSitting()`).                                                                           |
+| **GUI Pagination & Unified Framing**       | **Completed**: 3-item viewport pagination for blueprint catalog in Command Hub; dynamically centered, fully framed Minion Screen preventing clipping on any GUI scale.                                                                           |
+| **Overhead Crest Alignment & Hitbox**      | **Completed**: Inverted Y-translation in `MinionOverheadBadgeFeatureRenderer`, elevated head clearance to 0.55F/0.85F, and vanilla two-pass nametag rendering pipeline (`SEE_THROUGH` + `NORMAL`) completely eliminating helmet mesh z-clipping. |
+| **Formation Yaw Anchoring & Rank Filter**  | **Completed**: `FormationAnchor` state machine with 0.04 blocks^2 (0.2m) movement hysteresis freezing station yaw during stationary look sweeps, manual refresh on scepter directives, and rank resolution filtering unselected/guarding units.  |
+| **Kinematic Scaffolding Platform Landing** | **Completed**: Custom vertical climbing velocity impulse (+0.25D) with horizontal centering lock, clean surface landing snap to `targetScaffoldTopY + 1.0D`, zeroing velocities, and resetting climbing flags before work begins.                |
+| **Elevated Task Chaining**                 | **Completed**: `isTaskReachableFromPlatform` allows consecutive execution of adjacent elevated blocks (horizontal distSq <= 16.0, vertical diff <= 2.5) directly from the platform without descending or ground pathfinding.                     |
+| **Exterior Perimeter Column Allocation**   | **Completed**: 1-block exterior perimeter candidate projection eliminating directional North bias, sorting by distance to target and minion, and overhead clearance checks through `targetY + 2`.                                                |
+| **Multi-Minion Column Reservation**        | **Completed**: `ConstructionSession` scaffolding column reservation system preventing multiple builders from colliding on the same ladder shaft.                                                                                                 |
+| **Combat Sapper Suppression**              | **Completed**: Suppresses `MinionSapperGoal` for `BUILDER` and `MINER` minions engaged in or situated within 48 blocks of active construction sessions to eliminate structure wall misidentification.                                            |
+| **Radial Menu HUD**                        | In Design: Client radial HUD overlay to select scepter command modes and blueprints via mouse wheel.                                                                                                                                             |
+| **Minion Mining AI**                       | Roadmap: Add `MinionMineGoal` to execute automated area excavation and ore vein quarrying.                                                                                                                                                       |
+| **Blueprint Schematics**                   | Roadmap: Add NBT/JSON structure file loader to convert `.nbt` structure templates into `StructureBlueprint` instances.                                                                                                                           |
 
 ---
 
@@ -951,13 +1005,14 @@ To eliminate the unsightly collision clustering of vanilla follow goals where th
    - **Bulwark (Sentinels)**: Protective escort wings flanking the master's left and right sides (`forward = -tier * 1.5D`, `flank = side * (3.0D + tier * 1.5D)`).
    - **Core (Builders & Miners)**: Non-combatant support echelon tucked safely behind the master and vanguard (`forward = -2.5D - tier * 2.0D`, `flank = side * (1.5D + (tier % 2) * 1.0D)`).
    - **Skirmishers (Rangers)**: Rearguard line holding deep rear (`forward = -6.0D - tier * 1.5D`, `flank = side * (2.0D + tier * 2.0D)`), ensuring clear line-of-sight for ranged arrow fire.
-2. **Trigonometric Coordinate Rotation (`calculateFormationStation`)**:
-   - Computes world coordinates using the commander's yaw in Minecraft world space:
-     $$\text{Forward Vector} = (-\sin(\text{yaw}), \cos(\text{yaw}))$$
-     $$\text{Flank Vector} = (\cos(\text{yaw}), \sin(\text{yaw}))$$
-   - Rotates all parametric stations smoothly in real time as the player turns across all 360 degrees.
-3. **Deterministic Intra-Role Ranking (`resolveRank`)**:
+2. **Trigonometric Coordinate Rotation & Formation Yaw Anchoring (`calculateFormationStation`)**:
+   - Computes world coordinates using the commander's anchored formation yaw in Minecraft world space:
+     $$\text{Forward Vector} = (-\sin(\theta_{\text{formation}}), \cos(\theta_{\text{formation}}))$$
+     $$\text{Flank Vector} = (\cos(\theta_{\text{formation}}), \sin(\theta_{\text{formation}}))$$
+   - **Kinematic Decoupling & Movement Hysteresis**: In earlier versions, tying formation stations directly to camera look yaw caused minions to wildly orbit the player whenever the commander looked around while standing still. `MinionFormationFollowGoal` now tracks a per-commander `FormationAnchor`. When horizontal displacement is $\le 0.04\text{ blocks}^2$ (0.2 blocks), the formation yaw remains locked at the movement heading. Only deliberate movement ($> 0.04\text{ blocks}^2$) or explicit scepter directives (`refreshFormationAnchor`) snap the formation heading.
+3. **Deterministic Intra-Role Ranking & Selection Filtering (`resolveRank`)**:
    - Automatically orders active thralls belonging to the owner by entity ID to assign stable, flicker-free station ranks ($0, 1, 2, \dots$) within each role.
+   - **Garrison Exclusion**: Filters out unselected minions, sitting units, and stationary sentinels (`m.isSelected() && !m.isHoldingPosition() && m.getGuardAnchorPos() == null`), preventing parked units from claiming front ranks or distorting active march formations.
 4. **Walkable Surface Column Detection (`resolveWalkableY`)**:
    - Scans the vertical block column from $+2$ to $-3$ blocks at the calculated target coordinate, locking onto solid walkable ground and preventing thralls from navigating into midair or solid stone.
 5. **Anti-Crowding Clearance**:
@@ -997,7 +1052,8 @@ Dynasty Warriors inspired overhead billboard badges render above every minion's 
 3. **Billboard Rendering Mechanics**:
    - Extends Fabric `FeatureRenderer<MinionEntity, PlayerEntityModel<MinionEntity>>`.
    - Utilizes `dispatcher.getRotation()` to align billboard text directly with the client camera regardless of player pitch, yaw, or third-person perspective.
-   - **Dynamic Clearance**: Renders at $Y = 2.45\text{F}$ ($2.15\text{F}$ when sitting/sneaking), and steps up an additional $+0.35\text{F}$ if a custom nametag is present, preventing visual overlap.
+   - **Dynamic Head Clearance**: Standard clearance positioned at $+0.55\text{F}$ above entity height ($+0.85\text{F}$ when custom named, and $-0.20\text{F}$ deduction when sneaking), completely eliminating helmet and skull mesh z-clipping.
+   - **Vanilla Two-Pass Billboard Pipeline**: Employs Pass 1 (`SEE_THROUGH` with translucent white `553648127` and background plate) for obstacle penetration, and Pass 2 (`NORMAL` fullbright `-1` without background, gated by `!isSneaking`) for crisp foreground text.
    - **Distance Culling**: Culled beyond 64 blocks (`MAX_RENDER_DISTANCE_SQ = 4096.0D`) for optimal frame rates during large-scale army battles.
 
 ### Battlefield Sound Effects & Audio Punch
@@ -1015,18 +1071,19 @@ Tactile auditory feedback accompanies all tactical maneuvers:
 
 The project features a dedicated JUnit 5 testing suite validating domain serialization, state machines, AI thresholds, formation geometry, and networking payloads without requiring Minecraft server bootstrap:
 
-| Test Class                    | Package                       | Verified Systems & Coverage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| :---------------------------- | :---------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MinionSquadAndRoleTest`      | `com.example.entity`          | • `MinionRole` & `SquadGroup` Mojang Codec JSON round-trip serialization.<br>• Netty `PacketCodec` ByteBuf byte-level serialization.<br>• Complete 5-cycle permutation invariants.<br>• Tactical squad filtering predicate on mock armies.<br>• Large-scale army squad partitioning (140 thralls) rejecting foreign and dead units.<br>• Multi-squad isolated simultaneous directive dispatch.<br>• `SentinelGuardGoal` state machine simulation (leash break, aggro clearing, sprint retreat).<br>• Ranged combat engagement pockets (8–16 blocks sweet spot, backpedal < 8 blocks).<br>• Channeled Banner of Courage rally gathering simulation.<br>• Ground waypoint and hostile focus-fire ping state transitions.                                                                                                                                               |
-| `MinionFormationAndEquipTest` | `com.example.entity`          | • Vanguard (Warrior) forward-flanking wedge parametric geometry.<br>• Bulwark (Sentinel) escort wings flanking commander.<br>• Core (Builder/Miner) protected support column placement.<br>• Skirmisher (Ranger) rearguard line placement.<br>• Anti-crowding station clearance ($\ge 2.0$ blocks from master & comrades).<br>• 16-thrall 4-echelon cohort pairwise clearance ($\ge 1.5$ blocks).<br>• Compass yaw rotation invariants across 8 cardinal/intercardinal headings and negative angles.<br>• Dynamic pacing speeds ($1.15\text{D}$ march, $1.35\text{D}$ sprint, $2.0$ block arrival, $24.0$ block teleport).<br>• Role-based smart auto-equip rules and comprehensive item matrix across all 5 roles.<br>• Inventory displacement item preservation without duplication or loss.<br>• Formation offset reflectional symmetry and monotonic wing flare. |
-| `MinionOverheadBadgeTest`     | `com.example.client.renderer` | • Squad banner text formatting and Roman numeral designations (`[I]`, `[II]`, `[III]`, `[IV]`, `[*]`).<br>• Role crest icons (`⚔`, `🛡`, `🔨`, `⛏`, `🏹`) and uppercase lettering.<br>• Active vs `[HOLD]` status suffix formatting.<br>• Renderer configuration constants (text scale, line spacing, 64-block distance culling).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `NetworkingPayloadTest`       | `com.example.network`         | • `UpdateMinionConfigPayload` record fields, IDs, and equality.<br>• `UpdateScepterPayload` channel synchronization and backward-compatible constructor.<br>• PacketCodec registration integrity.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `ScaffoldingTest`             | `com.example.blueprint`       | • Temporary scaffolding column deployment and vertical reach.<br>• Doorway corridor avoidance logic.<br>• Headroom clearance validation.<br>• Climbing state machine transitions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `CommandScepterRaycastTargetingTest` | `com.example.item`    | • Exact 3D point-to-ray squared perpendicular distance math and clamped $[0, \text{maxRange}]$ projection segments.<br>• Origin clamping for rear targets and tip clamping for beyond-32-block targets.<br>• Direction vector normalization invariance and zero-length degeneration handling.<br>• Crosshair candidate sorting (angular alignment priority, depth tie-breaking, rear hostile rejection).<br>• Line-of-sight solid block obstruction clipping and entity-over-block hit priority.<br>• Quick-tap (<8 ticks) dispatch state machine matrix across all command modes (`BUILD`, `ATTACK`, `FOLLOW`, `STAY`, `RECRUIT`).<br>• Entity targetability invariants (commander exclusion, owned minion immunity, enemy thrall targeting, spectator rejection).                                                                     |
-| `MinionSapperAndScaffoldingTest` | `com.example.entity`       | • Ravine and chasm bridging coordinate calculation across cardinal North/East and diagonal headings.<br>• Zero heading vector safety and Y-level stability.<br>• Cliff and mountain ascent climbing column coordinate generation for 3-block and 6-block ledges.<br>• Flat and inverted elevation edge-case handling.<br>• Combat sapper role archetype gating (`BUILDER` zero-cost vs standard thrall item consumption).<br>• Squad sapper 24-block assistance request dispatch and 200-tick timeout lifecycle.<br>• `TraversalScaffoldingManager` decay state machine simulation (400-tick default lifetime, 40-tick entity safety extension while occupied, clean removal on expiration).                                                                                                                                                |
-| `StructureDismantlingTest`    | `com.example.construction`    | • `SessionMode` enum values and mode accessors (`BUILD` vs `DISMANTLE`).<br>• Reverse topological task sorting (highest effective Y first, foundation last).<br>• Roof-to-foundation deconstruction prerequisites (clearing non-hanging upper blocks before foundations, hanging decorations before supporting ceilings).<br>• Minion role authorization matrix (`BUILDER` & `MINER` participation; combat roles excluded).<br>• Progressive scaffolding teardown on descent simulation.                                                                                                                                                                                                                                                                                                                                              |
+| Test Class                           | Package                       | Verified Systems & Coverage                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| :----------------------------------- | :---------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MinionSquadAndRoleTest`             | `com.example.entity`          | • `MinionRole` & `SquadGroup` Mojang Codec JSON round-trip serialization.<br>• Netty `PacketCodec` ByteBuf byte-level serialization.<br>• Complete 5-cycle permutation invariants.<br>• Tactical squad filtering predicate on mock armies.<br>• Large-scale army squad partitioning (140 thralls) rejecting foreign and dead units.<br>• Multi-squad isolated simultaneous directive dispatch.<br>• `SentinelGuardGoal` state machine simulation (leash break, aggro clearing, sprint retreat).<br>• Ranged combat engagement pockets (8–16 blocks sweet spot, backpedal < 8 blocks).<br>• Channeled Banner of Courage rally gathering simulation.<br>• Ground waypoint and hostile focus-fire ping state transitions.<br>• Squad glowing outline color resolution (`0xE74C3C` Alpha, `0x3498DB` Bravo, `0x2ECC71` Charlie, `0xF39C12` Delta, `0xFFFFFF` All).<br>• Selective ground waypoint dispatch (only selected units matching active channel receive move orders).<br>• Decoupled guard stance (deselected units hold post upright without forced sitting).                                                                                                                                                                                                                                   |
+| `MinionFormationAndEquipTest`        | `com.example.entity`          | • Vanguard (Warrior) forward-flanking wedge parametric geometry.<br>• Bulwark (Sentinel) escort wings flanking commander.<br>• Core (Builder/Miner) protected support column placement.<br>• Skirmisher (Ranger) rearguard line placement.<br>• Anti-crowding station clearance ($\ge 2.0$ blocks from master & comrades).<br>• 16-thrall 4-echelon cohort pairwise clearance ($\ge 1.5$ blocks).<br>• Compass yaw rotation invariants across 8 cardinal/intercardinal headings and negative angles.<br>• Dynamic pacing speeds ($1.15\text{D}$ march, $1.35\text{D}$ sprint, $2.0$ block arrival, $24.0$ block teleport).<br>• Role-based smart auto-equip rules and comprehensive item matrix across all 5 roles.<br>• Inventory displacement item preservation without duplication or loss.<br>• Formation offset reflectional symmetry and monotonic wing flare.<br>• Yaw hysteresis stationary 360° look sweep invariance.<br>• Sub-threshold displacement freezing ($\le 0.04\text{ blocks}^2$) and deliberate movement unlocking.<br>• Instant anchor refresh (`refreshFormationAnchor`) on scepter follow/rally directives.<br>• Formation rank eligibility predicate filtering unselected, sitting, and guarding units.<br>• Seamless rank collapse when units are deselected or stationed. |
+| `MinionOverheadBadgeTest`            | `com.example.client.renderer` | • Squad banner text formatting and Roman numeral designations (`[I]`, `[II]`, `[III]`, `[IV]`, `[*]`).<br>• Role crest icons (`⚔`, `🛡`, `🔨`, `⛏`, `🏹`) and uppercase lettering.<br>• Active vs `[HOLD]` status suffix formatting.<br>• Upright world-space Y translation and elevated head clearance (+0.55F standing, +0.85F named, -0.20F sneaking).<br>• Selected squad banner gold star (`§6★ `) prefix formatting.<br>• Renderer configuration constants (text scale, line spacing, 64-block distance culling).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `NetworkingPayloadTest`              | `com.example.network`         | • `UpdateMinionConfigPayload` record fields, IDs, and equality.<br>• `UpdateScepterPayload` channel synchronization and backward-compatible constructor.<br>• `DeselectMinionsPayload` record registration and server dispatch.<br>• PacketCodec registration integrity.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `ScaffoldingTest`                    | `com.example.blueprint`       | • Temporary scaffolding column deployment and vertical reach.<br>• Doorway corridor avoidance logic.<br>• Headroom clearance validation.<br>• Climbing state machine transitions.<br>• Travel physics impulse (+0.25D) and fall distance suppression.<br>• Multi-minion scaffolding column reservation and conflict resolution.<br>• Stale claim pruning and administrative force-release.<br>• Kinematic climb horizontal centering lock, surface threshold snap (+1.0D), and 140-tick safety timeout abort.<br>• Elevated task chaining sequential execution without premature ground descent.<br>• Exterior perimeter candidate sorting eliminating directional North bias.<br>• Ceiling collision and vertical stall sensors with safe descent recovery.<br>• Demobilization teardown state machine across build and dismantle modes.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `CommandScepterRaycastTargetingTest` | `com.example.item`            | • Exact 3D point-to-ray squared perpendicular distance math and clamped $[0, \text{maxRange}]$ projection segments.<br>• Origin clamping for rear targets and tip clamping for beyond-32-block targets.<br>• Direction vector normalization invariance and zero-length degeneration handling.<br>• Crosshair candidate sorting (angular alignment priority, depth tie-breaking, rear hostile rejection).<br>• Line-of-sight solid block obstruction clipping and entity-over-block hit priority.<br>• Quick-tap (<8 ticks) dispatch state machine matrix across all command modes (`BUILD`, `ATTACK`, `FOLLOW`, `STAY`, `RECRUIT`).<br>• Entity targetability invariants (commander exclusion, owned minion immunity, enemy thrall targeting, spectator rejection).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `MinionSapperAndScaffoldingTest`     | `com.example.entity`          | • Ravine and chasm bridging coordinate calculation across cardinal North/East and diagonal headings.<br>• Zero heading vector safety and Y-level stability.<br>• Cliff and mountain ascent climbing column coordinate generation for 3-block and 6-block ledges.<br>• Flat and inverted elevation edge-case handling.<br>• Combat sapper role archetype gating (`BUILDER` zero-cost vs standard thrall item consumption).<br>• Squad sapper 24-block assistance request dispatch and 200-tick timeout lifecycle.<br>• `TraversalScaffoldingManager` decay state machine simulation (400-tick default lifetime, 40-tick entity safety extension while occupied, clean removal on expiration).<br>• Combat sapper goal suppression rules when engaged in construction.<br>• Minion engagement tracking across task claims and scaffolding reservations.<br>• Construction proximity boundary (48-block threshold), expanded bounding box, and dimension filtering.<br>• Squad sapper assistance dispatch excluding active construction workers.<br>• Sheer structure wall vs natural cliff suppression preventing false bridge deployment.                                                                                                                                                             |
+| `StructureDismantlingTest`           | `com.example.construction`    | • `SessionMode` enum values and mode accessors (`BUILD` vs `DISMANTLE`).<br>• Reverse topological task sorting (highest effective Y first, foundation last).<br>• Roof-to-foundation deconstruction prerequisites (clearing non-hanging upper blocks before foundations, hanging decorations before supporting ceilings).<br>• Minion role authorization matrix (`BUILDER` & `MINER` participation; combat roles excluded).<br>• Progressive scaffolding teardown on descent simulation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `CommandScepterScreenCloseTest`      | `com.example.client.gui`      | • Open-state guard (`shiftHeldOnOpen`) latching suppressing immediate screen dismissal on sneak-right-click.<br>• Sustained GLFW key repeat event absorption for Left and Right Shift.<br>• Left Shift and Right Shift physical release transition detecting finger lift.<br>• Immediate modal dismiss on subsequent Shift tap once open guard is cleared.<br>• Unarmed open fast-close on initial Left or Right Shift press.<br>• Command Hub toggle key (`V`) dismissal under both armed and unarmed guard states.<br>• Inventory hotkey (`E`) dismissal under both armed and unarmed guard states.<br>• Vanilla `Escape` key close delegation.<br>• Non-closing gameplay key filtering (`WASD`, `Space`, `Enter`, numbers, etc.).<br>• Zero-latency tick fallback clearing guard in headless/tick cycles.<br>• Open-state initialization idempotency and flag preservation.<br>• GLFW key identification helpers (`isShiftOrSneakKey`, `isCommandHubKey`, `isInventoryKey`).<br>• Screen lifecycle getters/setters and close idempotency.                                                                                                                                                                                                                                                         |
 
-All 67 unit tests execute and pass cleanly via `./gradlew test`.
+All 126 unit tests execute and pass cleanly via `./gradlew test`.
 
 ---
 
@@ -1055,6 +1112,7 @@ Phase 1 introduces a crosshair raycast targeting engine in `CommandScepterItem`,
 ### Architectural Problem & Motivation
 
 In vanilla Minecraft, entity interaction through `Item.useOnEntity` is hard-coded to an reach of approximately $3.0$ blocks (`REACH_DISTANCE`), while block clicks fall back to `Item.useOnBlock` up to $\approx 4.5$ blocks. In prior implementations:
+
 1. Attempting to click an enemy further than $3.0$ blocks away would fail entity interaction. If the cursor was near terrain within $4.5$ blocks, it triggered `useOnBlock`, unconditionally dropping a ground waypoint at the enemy's feet instead of issuing an attack order.
 2. Quick-taps in `ATTACK` mode previously scanned an un-oriented 16-block axis-aligned bounding box and arbitrarily picked the first index (`hostiles.get(0)`), disregarding the player's crosshair and failing to engage enemies between 16 and 32 blocks away.
 
@@ -1106,14 +1164,14 @@ The hostile closest to the player's line-of-sight ray vector is selected. Ties a
 
 When the player releases right-click after a quick tap (<8 ticks), `CommandScepterItem.onStoppedUsing` evaluates `raycastTarget(player, 32.0D)`:
 
-| Command Mode | Crosshair Hit: Entity                                            | Crosshair Hit: Block (0–32 blocks)                          | Crosshair Hit: Sky / Miss                |
-| :----------- | :--------------------------------------------------------------- | :---------------------------------------------------------- | :--------------------------------------- |
-| `BUILD`      | Cycles active blueprint (`cycleBlueprint`)                       | Cycles active blueprint (`cycleBlueprint`)                  | Cycles active blueprint                  |
-| `ATTACK`     | Focus-fires targeted entity (`executeHostileEntityPing`)         | Focus-fires nearby hostile; otherwise drops ground waypoint | Global attack directive broadcast        |
-| `FOLLOW`     | Focus-fires targeted entity (if enemy); otherwise ground ping    | Long-range RTS ground waypoint ping (up to 32 blocks)        | Global follow directive broadcast        |
-| `STAY`       | Focus-fires targeted entity (if enemy); otherwise ground ping    | Long-range RTS ground waypoint ping (up to 32 blocks)        | Global stay directive broadcast          |
-| `RECRUIT`    | Enthralls living mob into minion (`transfigureEntityToMinion`)   | Long-range RTS ground waypoint ping                         | Emits action-bar tip on recruitment      |
-| `MINE`       | Focus-fires targeted entity (if enemy); otherwise ground ping    | Long-range RTS ground waypoint ping                         | Global mine directive broadcast          |
+| Command Mode | Crosshair Hit: Entity                                          | Crosshair Hit: Block (0–32 blocks)                          | Crosshair Hit: Sky / Miss           |
+| :----------- | :------------------------------------------------------------- | :---------------------------------------------------------- | :---------------------------------- |
+| `BUILD`      | Cycles active blueprint (`cycleBlueprint`)                     | Cycles active blueprint (`cycleBlueprint`)                  | Cycles active blueprint             |
+| `ATTACK`     | Focus-fires targeted entity (`executeHostileEntityPing`)       | Focus-fires nearby hostile; otherwise drops ground waypoint | Global attack directive broadcast   |
+| `FOLLOW`     | Focus-fires targeted entity (if enemy); otherwise ground ping  | Long-range RTS ground waypoint ping (up to 32 blocks)       | Global follow directive broadcast   |
+| `STAY`       | Focus-fires targeted entity (if enemy); otherwise ground ping  | Long-range RTS ground waypoint ping (up to 32 blocks)       | Global stay directive broadcast     |
+| `RECRUIT`    | Enthralls living mob into minion (`transfigureEntityToMinion`) | Long-range RTS ground waypoint ping                         | Emits action-bar tip on recruitment |
+| `MINE`       | Focus-fires targeted entity (if enemy); otherwise ground ping  | Long-range RTS ground waypoint ping                         | Global mine directive broadcast     |
 
 ### Entity Targetability Invariants (`isTargetableEntity`)
 
@@ -1212,6 +1270,7 @@ Phase 2 introduces autonomous combat engineering for minion thralls, enabling sq
 #### Vertical Climbing State Machine & Physics
 
 When ascending a climbing column:
+
 1. `minion.setClimbingScaffolding(true)` activates custom climbing logic in `MinionEntity.isClimbing()`.
 2. Movement navigation is paused (`navigation.stop()`).
 3. Physics velocity is applied every tick:
@@ -1280,13 +1339,13 @@ The deconstruction engine guarantees deterministic top-down demolition:
 
 To give the `MINER` archetype high utility alongside `BUILDER` units, the task distribution filter dynamically adapts based on session mode:
 
-| Role Archetype | `SessionMode.BUILD` Eligibility | `SessionMode.DISMANTLE` Eligibility |
-| :------------- | :------------------------------ | :---------------------------------- |
-| `BUILDER`      | **Eligible**                    | **Eligible**                        |
-| `MINER`        | *Excluded*                      | **Eligible** (Demolition Specialist)|
-| `WARRIOR`      | *Excluded*                      | *Excluded*                          |
-| `SENTINEL`     | *Excluded*                      | *Excluded*                          |
-| `RANGER`       | *Excluded*                      | *Excluded*                          |
+| Role Archetype | `SessionMode.BUILD` Eligibility | `SessionMode.DISMANTLE` Eligibility  |
+| :------------- | :------------------------------ | :----------------------------------- |
+| `BUILDER`      | **Eligible**                    | **Eligible**                         |
+| `MINER`        | _Excluded_                      | **Eligible** (Demolition Specialist) |
+| `WARRIOR`      | _Excluded_                      | _Excluded_                           |
+| `SENTINEL`     | _Excluded_                      | _Excluded_                           |
+| `RANGER`       | _Excluded_                      | _Excluded_                           |
 
 ### 3. Dynamic Tool Equipping & Resource Salvage (`resolveDismantleTool`)
 
@@ -1318,6 +1377,7 @@ public static ItemStack resolveDismantleTool(BlockState state) {
 ### 4. Progressive Scaffolding Teardown on Descent
 
 When dismantling tall watchtowers or high obelisks, minions deploy scaffolding columns to ascend to the roof. As upper layers are demolished:
+
 1. When navigating down the column, scaffolding blocks situated above the minion's current height ($y > \text{minionBlockY} + 1$) are dismantled automatically.
 2. Upon reaching the ground, any remaining temporary scaffolding blocks in that column are stripped and cleared with breaking particles and audio.
 3. This ensures no stray scaffolding columns remain standing after a structure has been dismantled.
@@ -1334,4 +1394,537 @@ When dismantling tall watchtowers or high obelisks, minions deploy scaffolding c
   - Clears all tracked temporary scaffolding in the session and sends the commander an actionbar confirmation:
     `"§6✔ Deconstruction Complete! §f<Blueprint> §6has been completely dismantled by your minions!§r"`.
 
+---
 
+## 24. RTS Minion Selection, Selective Ground Waypoints & Decoupled Guard Stance
+
+Phase 2 elevates the Loki Command Scepter into a precision real-time strategy (RTS) battlefield controller. Commanders can select individual squads or units to reposition across the battlefield, while unselected units stand guard at attention without being forced into an unnatural sitting pose.
+
+### 1. Selective Ground Waypoint Directives
+
+Previously, right-clicking the ground dispatched a ground waypoint ping that rallied _all_ nearby matching minions, inadvertently dislodging garrisoned or defensive units.
+
+Now, ground waypoint pings route exclusively to active, selected units:
+
+- **Predicate**: `m.isAlive() && m.isOwner(player) && m.isSelected() && filterSquad.matches(m.getSquad())`.
+- **Targeted Dispatch**: Only minions with `isSelected() == true` sprint to the waypoint beacon and secure the perimeter.
+- **Fail-Safe Feedback**: If the commander issues a ground ping with zero matching units selected, the system plays an informative fail tone (`SoundEvents.BLOCK_CHEST_LOCKED`) and renders an actionable actionbar hint:
+  `"§e⚠ No minions selected! Right-click a minion to select, or use Banner of Courage."`
+
+### 2. Direct Unit Selection & Deselection Mechanics
+
+Commanders can intuitively manage unit selection through multiple in-world and interface workflows:
+
+- **Point-and-Click Direct Selection**:
+  - Right-clicking an owned minion (with empty hand or Command Scepter) or quick-tapping via 32-block crosshair raycasting toggles its selection status.
+  - **Select Feedback**: Plays a high-pitched chime (`SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME`), spawns `ParticleTypes.HEART` particles, marks the unit `setSelected(true)`, and orders it to follow.
+  - **Deselect Feedback**: Plays a grounded bass note (`SoundEvents.BLOCK_NOTE_BLOCK_BASEDRUM`), spawns `ParticleTypes.SMOKE` puffs, marks the unit `setSelected(false)`, and sets its `guardAnchorPos` to its current position.
+- **Deselect All Shortcuts**:
+  - **Command Hub GUI**: The GUI displays a live counter of nearby selected units (`Selected: X`) and provides a prominent **§e✕ Deselect** button in the bottom action tray that dispatches `DeselectMinionsPayload`.
+  - **In-World Scepter Shortcut**: Sneak + Left-Click with the Command Scepter in hand (in non-`BUILD` modes) instantly deselects all active minions within 32 blocks and anchors them at their current posts.
+
+### 3. Decoupling Guard Stance from Forced Sitting
+
+In vanilla `TameableEntity` mechanics, keeping a pet stationary forces `isSitting() == true`, causing minions to sit on the ground awkwardly even when on combat guard duty.
+
+The new architecture cleanly decouples stationary positioning from sitting postures:
+
+- **Standing Sentinel Posture**: Deselected units have `isSelected() == false` and `guardAnchorPos != null`, but `isSitting() == false`. They stand proudly at attention like Roman legionary sentinels.
+- **Goal Gating**:
+  - `MinionFormationFollowGoal`: Hard-gated with `if (!this.minion.isSelected()) return false;`. Unselected minions never break rank to follow the player.
+  - `WanderAroundFarGoal`: Gated so units with `getGuardAnchorPos() != null` or `isSelected() == true` do not wander away from their designated posts.
+  - `WaypointHoldGoal` & `SentinelGuardGoal`: Continuously enforce the stationary anchor position, returning wandering or combat units to their post once threats are neutralized.
+
+### 4. Squad-Colored Glowing Outlines & Overhead Indicators
+
+Selection state provides immediate, high-fidelity visual feedback across all distances:
+
+- **Zero-Packet Glowing Silhouette**:
+  - `MinionEntity` overrides `isGlowing()` to return `this.isSelected() || super.isGlowing()`.
+  - When selected, the vanilla Minecraft glowing outline shader is activated locally for that unit without consuming network bandwidth.
+- **Squad Color Tinting**:
+  - `MinionEntity` overrides `getTeamColorValue()` to return `this.getSquad().getOutlineColor()`:
+    - **Squad Alpha**: Crimson Red (`0xE74C3C`)
+    - **Squad Bravo**: Azure Blue (`0x3498DB`)
+    - **Squad Charlie**: Emerald Green (`0x2ECC71`)
+    - **Squad Delta**: Amber Gold (`0xF39C12`)
+    - **Squad All**: Pure White (`0xFFFFFF`)
+- **Overhead Gold Star Indicator**:
+  - Selected units render a shimmering gold star prefix (`§6★ `) on their overhead billboard squad banner (e.g. `§6★ §c⚑ SQUAD ALPHA [I]`), immediately signaling active commander control from afar.
+
+---
+
+## 25. Formation Yaw Anchoring, Rank Resolution & Two-Pass Badge Rendering
+
+This section documents the tactical refinement addressing kinematically coupled formation stations and overhead badge visual fidelity.
+
+```
+                           [Player Movement & Gaze]
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              ▼                                               ▼
+     [Stationary Look Sweep]                        [Deliberate Displacement]
+     (dx^2 + dz^2 <= 0.04)                          (dx^2 + dz^2 > 0.04)
+              │                                               │
+              ▼                                               ▼
+     [FormationAnchor Frozen]                       [FormationAnchor Unlocked]
+      Station coordinates held                       Anchor updates (x, z)
+      Minions hold station; zero orbit               Formation yaw snaps to gaze
+              │                                               │
+              └───────────────────────┬───────────────────────┘
+                                      ▼
+                        [Rank Resolution Filter]
+             Only m.isSelected() && !m.isHoldingPosition()
+             Stationary sentinels excluded; active cohort collapses
+                                      │
+                                      ▼
+                      [Two-Pass Badge Rendering]
+           Pass 1: SEE_THROUGH translucent base + background
+           Pass 2: NORMAL crisp fullbright foreground (!sneaking)
+           Head clearance: +0.55F (+0.85F custom named)
+```
+
+### 1. Kinematic Decoupling & Formation Yaw Anchoring (`MinionFormationFollowGoal`)
+
+#### The Problem
+
+In earlier iterations, `calculateFormationStation` evaluated parametric station positions directly against the commander's instantaneous view yaw (`owner.getYaw()`). Whenever a player stood stationary on a vantage point and scanned the horizon or swept their crosshairs 360°, the entire formation's station offsets revolved along a circle around the player. This forced following minions to constantly sprint in circles or frantically reposition, causing visual chaos and breaking tactical cohesion.
+
+#### The Solution: Spatial Hysteresis & FormationAnchor
+
+`MinionFormationFollowGoal` implements a decoupled anchoring state machine via a static `FormationAnchor` registry keyed by commander UUID:
+
+1. **State Invariant**: Each anchor stores `(double lastX, double lastZ, float anchoredYaw)`.
+2. **Hysteresis Threshold (`MOVEMENT_HYSTERESIS_THRESHOLD_SQ = 0.04D`)**:
+   - Represents a horizontal displacement radius of $0.20$ blocks:
+     $$\Delta r^2 = (x_{\text{owner}} - x_{\text{anchor}})^2 + (z_{\text{owner}} - z_{\text{anchor}})^2$$
+   - **Stationary Sweep**: If $\Delta r^2 \le 0.04$, the commander is considered stationary. `getFormationYaw` returns `anchor.getAnchoredYaw()`, completely freezing the formation stations. Minions hold their ground calmly while the commander looks in any direction.
+   - **Deliberate Movement**: If $\Delta r^2 > 0.04$, the commander has deliberately marched or sprinted. The anchor updates its spatial coordinates and snaps `anchoredYaw` to the player's new movement yaw.
+3. **Instant Re-alignment Directives (`refreshFormationAnchor`)**:
+   - When a commander issues an explicit directive (`broadcastFollow` via the Command Scepter or releases the Banner of Courage rally ring), `MinionFormationFollowGoal.refreshFormationAnchor(player)` immediately snaps `anchoredYaw` to the commander's current gaze, instantly aligning the army's formation heading before movement begins.
+4. **Station Calculation Alignment**:
+   - `calculateFormationStation(LivingEntity owner, ...)` resolves the effective yaw via `getFormationYaw(owner)` rather than `owner.getYaw()`, guaranteeing kinematic decoupling across all AI navigation calls.
+
+### 2. Intra-Role Rank Resolution Filtering (`resolveRank`)
+
+#### The Problem
+
+Previously, `resolveRank` sorted all owned living minions within proximity to determine station indices ($0, 1, 2, \dots$). Unselected sentinels holding static guard posts or sitting thralls were included in the rank count. If two vanguard warriors were left on guard duty at a gate, the two following warriors would be assigned Rank 2 and Rank 3, leaving Rank 0 and Rank 1 vacant and causing gaping holes at the front of the wedge.
+
+#### The Solution: Active Cohort Eligibility
+
+`resolveRank` now filters the cohort using `isEligibleForFormationRank`:
+
+```java
+m -> m.isAlive()
+    && m.isTamed()
+    && m.isOwner(owner)
+    && m.isSelected()
+    && !m.isHoldingPosition()
+    && m.getGuardAnchorPos() == null
+```
+
+- **Stationary Unit Exclusion**: Minions with `!isSelected()`, sitting thralls, and units with an active `guardAnchorPos` are completely excluded from rank resolution.
+- **Dynamic Rank Collapse**: When units are deselected to guard an area, remaining followers immediately collapse into lead ranks (Rank 0, Rank 1), maintaining tight, complete tactical formations without manual re-assignment.
+
+### 3. Two-Pass Billboard Nametag Rendering Pipeline (`MinionOverheadBadgeFeatureRenderer`)
+
+#### The Problem
+
+Earlier badge implementations used a single-pass `TextRenderer.TextLayerType.NORMAL` draw call with standard nametag clearance (+0.20F standing, +0.45F named). This introduced two visual defects:
+
+1. **Mesh Occlusion / Z-Clipping**: With armor helmets or player skull models equipped, the badge's bottom text line frequently clipped into helmet crests and horns.
+2. **Loss of Occlusion Signaling**: Vanilla Minecraft nametags render through walls as translucent text plates, allowing players to track allies through terrain. A single `NORMAL` pass rendered nothing behind walls.
+
+#### The Solution: Elevated Clearance & Two-Pass Rendering
+
+1. **Elevated Head Clearance (`getOverheadYTranslation`)**:
+
+   ```java
+   float headClearance = hasCustomName ? 0.85F : 0.55F;
+   if (isSneaking) headClearance -= 0.20F;
+   return height + headClearance;
+   ```
+
+   - Standard clearance is elevated from $0.20\text{F}$ to **$0.55\text{F}$** above entity height ($1.95\text{F} \rightarrow 2.50\text{F}$ total).
+   - Named clearance is elevated from $0.45\text{F}$ to **$0.85\text{F}$** ($2.80\text{F}$ total).
+   - Crouching/sneaking deducts $-0.20\text{F}$, matching the lowered biped head height.
+   - Completely eliminates mesh z-fighting and geometry clipping across all helmet models.
+
+2. **Vanilla Two-Pass Nametag Pipeline**:
+   - Matches `EntityRenderer.renderLabelIfPresent`:
+     - **Pass 1 (Translucent Base & Background)**:
+       ```java
+       this.textRenderer.draw(squadBannerText, -this.textRenderer.getWidth(squadBannerText) / 2.0F,
+           -LINE_SPACING, 553648127, false, matrix4f, vertexConsumers,
+           TextRenderer.TextLayerType.SEE_THROUGH, backgroundColor, light);
+       this.textRenderer.draw(roleCrestText, -this.textRenderer.getWidth(roleCrestText) / 2.0F,
+           0.0F, 553648127, false, matrix4f, vertexConsumers,
+           TextRenderer.TextLayerType.SEE_THROUGH, backgroundColor, light);
+       ```
+       Color `553648127` (`0x21FFFFFF`) renders translucent lettering accompanied by the dark background plate. Visible through terrain and obstacles.
+     - **Pass 2 (Crisp Foreground Fullbright)**:
+       ```java
+       if (!entity.isInSneakingPose()) {
+           this.textRenderer.draw(squadBannerText, -this.textRenderer.getWidth(squadBannerText) / 2.0F,
+               -LINE_SPACING, -1, false, matrix4f, vertexConsumers,
+               TextRenderer.TextLayerType.NORMAL, 0, light);
+           this.textRenderer.draw(roleCrestText, -this.textRenderer.getWidth(roleCrestText) / 2.0F,
+               0.0F, -1, false, matrix4f, vertexConsumers,
+               TextRenderer.TextLayerType.NORMAL, 0, light);
+       }
+       ```
+       When the entity is not sneaking, Pass 2 draws solid white (`-1` / `0xFFFFFFFF`) with `backgroundColor = 0`, providing crisp, anti-aliased foreground text that depth-tests against visible geometry.
+     - **Sneaking Posture**: When sneaking, Pass 2 is skipped, leaving only the dim translucent text to respect vanilla stealth mechanics.
+
+---
+
+## 26. Architectural Scaffolding Navigation, Platform Kinematics & Multi-Minion Coordination
+
+This section documents the comprehensive architectural overhaul resolving building minion scaffolding mechanics, climbing physics, elevated task chaining, and multi-minion construction coordination.
+
+```
+                         [Elevated Construction / Dismantle Task]
+                                            │
+               ┌────────────────────────────┴────────────────────────────┐
+               ▼                                                         ▼
+    [Standing on Platform?]                                    [At Ground Level]
+     Horizontal distSq <= 16.0                                  • Exterior Perimeter Projection
+     Vertical diff <= 2.5                                         (minX-1, maxX+1, minZ-1, maxZ+1)
+               │                                                • Eliminated North Bias
+               ▼                                                  (distTarget + 0.5 * distMinion)
+    [Elevated Task Chaining]                                    • Overhead Clearance Scan (Y+2)
+     • Stay elevated on platform                                • Column Reservation (claimScaffoldColumn)
+     • Equip next item/tool                                              │
+     • Zero descent / zero pathfinding                                   ▼
+               │                                            [Kinematic Platform Ascent]
+               │                                             • v = (dx*0.3, +0.25D, dz*0.3)
+               │                                             • Head clearance & stall sensors (>10t)
+               │                                             • Landing snap @ topY + 1.0D
+               │                                             • Zero velocity & clear climb flags
+               │                                                         │
+               └────────────────────────────┬────────────────────────────┘
+                                            ▼
+                               [Execute Block Placement / Dismantle]
+                                            │
+                                            ▼
+                              [Task Completed -> Next Task?]
+                                            │
+               ┌────────────────────────────┴────────────────────────────┐
+               ▼                                                         ▼
+     [Adjacent Elevated Task]                                  [Demobilization / Descent]
+      Chain on platform                                         • Teardown top-to-bottom on way down
+      (Loop back to Chaining)                                   • Sweep lingering scaffolding (clearScaffolding)
+                                                                • Release column reservation
+```
+
+### 1. Architectural Problem & Root Cause Breakdown
+
+In earlier iterations, minion construction AI suffered from critical navigation and coordination failures during multi-level structure erection and deconstruction:
+
+1. **Premature Fall & Scaffolding Spam**:
+   - In `MinionBuildGoal.setupNavigationForTask()`, whenever `diffY <= 2` occurred immediately after placing an elevated block (because the minion was already standing on the platform), `activeScaffoldColumn` and `targetScaffoldTopY` were cleared, and ground-level navigation was commanded.
+   - The minion walked off the edge into empty air, plummeted to the ground, and immediately deployed a brand-new scaffolding column.
+   - Furthermore, reach checks (`inRange`) in `tick()` executed _before_ the climb state completed, aborting the ascent mid-ladder whenever reach conditions became momentarily valid.
+2. **Fixed Directional Bias ("North Spam")**:
+   - `findScaffoldColumn()` iterated cardinal directions in fixed sequence (`NORTH, SOUTH, EAST, WEST`).
+   - If the North side was clear, every builder chose the North column regardless of where the target block or minion was situated, leaving South and East walls unworked while minions queued single-file on North ladders.
+3. **Ceiling Entrapment & Overhang Collisions**:
+   - Columns were deployed directly adjacent to target blocks beneath structure overhangs (e.g. Overlord Watchtower Layer 4 inverted stone brick arches and Layer 5 observation decks).
+   - Scans only checked blueprint tasks up to `targetY - 1`, completely missing scheduled upper-layer overhangs and trapping minions inside solid ceilings.
+4. **Mid-Climb Stalls & Integer Snapping**:
+   - Climbing ascent terminated at `minion.getY() >= targetScaffoldTopY`, snapping the minion to integer `targetScaffoldTopY` (inside the scaffolding block mesh) rather than the standing surface at `targetScaffoldTopY + 1.0D`.
+5. **Combat Sapper Goal Preemption**:
+   - `MinionSapperGoal` ran at Priority 2 while `MinionBuildGoal` ran at Priority 3.
+   - When near structures, `MinionSapperGoal` interpreted sheer structure walls as natural cliffs, preempting the builder AI and deploying erratic traversal bridges against the building.
+
+---
+
+### 2. True Kinematic Platform Landing & Ascent Lock
+
+To guarantee smooth, deterministic vertical ascension without ladder stalling or premature ground fallbacks, the ascent engine was completely re-architected in `MinionBuildGoal`:
+
+1. **Pre-Reach Ascent Execution**:
+   - Vertical climbing is processed at the very beginning of `MinionBuildGoal.tick()` _before_ distance-to-target or reach checks are evaluated:
+     ```java
+     if (this.isAscendingScaffolding) {
+         this.climbTicks++;
+         this.minion.getNavigation().stop();
+         this.minion.fallDistance = 0.0F;
+         ...
+         return; // Freeze reach checks and lateral pathfinding until landed!
+     }
+     ```
+2. **Centering Lock & Velocity Impulse**:
+   - Applies an upward velocity of $+0.25\text{D}$ coupled with a proportional horizontal centering vector:
+     $$\vec{v}_x = (x_{\text{center}} - x_{\text{minion}}) \cdot 0.3\text{D}, \quad \vec{v}_y = +0.25\text{D}, \quad \vec{v}_z = (z_{\text{center}} - z_{\text{minion}}) \cdot 0.3\text{D}$$
+   - Locks the minion strictly to the column center axis, preventing horizontal drift off the ladder rungs.
+   - Plays `SoundEvents.BLOCK_SCAFFOLDING_STEP` audio and emits `ParticleTypes.CLOUD` puffs every 8 ticks.
+3. **Platform Surface Snapping**:
+   - The minion ascends until its feet cross the landing threshold at $y \ge \text{targetScaffoldTopY} + 0.95\text{D}$.
+   - The minion then cleanly snaps to the standing surface atop the scaffolding block:
+     ```java
+     this.minion.setPosition(scCenterX, (double) this.targetScaffoldTopY + 1.0D, scCenterZ);
+     this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+     this.minion.velocityModified = true;
+     this.minion.fallDistance = 0.0F;
+     this.minion.setJumping(false);
+     this.minion.setClimbingScaffolding(false);
+     this.isAscendingScaffolding = false;
+     ```
+   - Zeroes vertical and horizontal velocity, clears climbing flags, and completes arrival before block placement begins.
+4. **Ceiling Collision & Stall Sensors**:
+   - **Headroom Sensor**: Scans overhead blocks at $y_{\text{feet}} + 2.0\text{D}$. If a solid block obstructs the ascent path, climbing aborts immediately.
+   - **Displacement Stall Detector**: Monitors vertical displacement. If $y \le y_{\text{last}} + 0.05\text{D}$ for $>10$ consecutive ticks or total climbing exceeds $140$ ticks, climbing aborts.
+   - **Safe Recovery**: Upon abort, the column coordinate is blacklisted to prevent re-selection loops, reservations are released, and the minion initiates a controlled descent to ground.
+
+---
+
+### 3. Elevated Task Chaining (`isTaskReachableFromPlatform`)
+
+Minions standing on an elevated scaffolding platform can now consecutively place or dismantle multiple adjacent structure blocks without descending to ground level:
+
+1. **Platform Reach Criterion**:
+
+   ```java
+   public boolean isTaskReachableFromPlatform(ConstructionTask task) {
+       if (task == null || this.activeScaffoldColumn == null || this.targetScaffoldTopY == -1) {
+           return false;
+       }
+       double platformCenterX = this.activeScaffoldColumn.getX() + 0.5D;
+       double platformCenterZ = this.activeScaffoldColumn.getZ() + 0.5D;
+       double platformStandingY = (double) this.targetScaffoldTopY + 1.0D;
+
+       BlockPos targetPos = task.getWorldPos();
+       double dx = (targetPos.getX() + 0.5D) - platformCenterX;
+       double dz = (targetPos.getZ() + 0.5D) - platformCenterZ;
+       double horizontalDistSq = dx * dx + dz * dz;
+       double verticalDiff = Math.abs(platformStandingY - (double) targetPos.getY());
+
+       return horizontalDistSq <= 16.0D && verticalDiff <= 2.5D;
+   }
+   ```
+
+2. **Persistent Platform Stance**:
+   - When a block placement completes, the minion queries the next ready task in topological order.
+   - If `isTaskReachableFromPlatform(nextTask)` is true:
+     - The minion remains standing elevated at $(x_{\text{platform}}, y_{\text{top}} + 1.0\text{D}, z_{\text{platform}})$.
+     - `activeScaffoldColumn` and `targetScaffoldTopY` remain intact.
+     - Equips the required item/tool, resets task ticks to 0, and continues work immediately.
+   - If the next task is out of horizontal reach ($>4.0$ blocks) or vertical reach ($>2.5$ blocks), the minion initiates an orderly descent, demobilizing temporary scaffolding nodes if no more elevated work remains.
+
+---
+
+### 4. Exterior Perimeter Column Allocation & Elimination of North Bias
+
+To prevent scaffolding from being erected inside rooms, under arches, or concentrated exclusively on the North wall, `findScaffoldColumn` implements exterior perimeter projection:
+
+1. **Perimeter Projection Coordinates**:
+   - Projects candidate columns 1 block outside the structure's world bounding box:
+     $$\text{North Face}: z = \min Z - 1, \quad x \in [\min X - 1, \max X + 1]$$
+     $$\text{South Face}: z = \max Z + 1, \quad x \in [\min X - 1, \max X + 1]$$
+     $$\text{West Face}: x = \min X - 1, \quad z \in [\min Z, \max Z]$$
+     $$\text{East Face}: x = \max X + 1, \quad z \in [\min Z, \max Z]$$
+2. **Distance-Weighted Scoring (Eliminating North Bias)**:
+   - Candidates within horizontal reach ($\text{distSq} \le 16.0\text{D}$) are sorted by combined Euclidean distance:
+     $$\text{Score} = \text{distToTarget} + 0.5 \times \text{distToMinion}$$
+   - The column closest to both the target block and the approaching minion is selected first. This completely eliminates fixed-order North bias and naturally distributes builders around the perimeter.
+3. **Full Vertical Clearance Verification**:
+   - The candidate column must be completely unobstructed from ground up through $\text{targetY} + 2$ in both:
+     - Current world block states (non-solid, air/scaffolding).
+     - Future scheduled blueprint tasks (ensuring upper overhangs, roofs, and inverted stairs do not clip the column).
+
+---
+
+### 5. Multi-Minion Scaffolding Column Reservation (`ConstructionSession`)
+
+To prevent multiple builders from pathfinding to the same scaffolding column, stacking inside each other, or knocking comrades off platforms, `ConstructionSession` manages column reservations:
+
+```java
+public synchronized boolean claimScaffoldColumn(BlockPos pos, UUID minionUuid);
+public synchronized boolean releaseScaffoldColumn(BlockPos pos, UUID minionUuid);
+public synchronized boolean isScaffoldColumnAvailable(BlockPos pos, UUID minionUuid);
+public synchronized boolean isScaffoldColumnClaimed(BlockPos pos);
+public synchronized UUID getScaffoldColumnClaimant(BlockPos pos);
+public synchronized void releaseScaffoldColumnsForMinion(UUID minionUuid);
+public synchronized boolean isScaffoldColumnClaimedBy(UUID minionUuid);
+public Map<BlockPos, UUID> getClaimedScaffoldColumns();
+```
+
+- **Vertical Column Invariance**: Reservations match horizontal $(X, Z)$ coordinates regardless of $Y$ elevation. A minion claiming $(10, 64, 20)$ reserves the entire vertical shaft $(10, *, 20)$.
+- **Engagement Invariant (`isMinionEngaged`)**: A minion is considered actively engaged in construction if it holds an active task claim _or_ a reserved scaffolding column. This prevents premature goal preemption between chained tasks.
+- **Stale Claim Pruning**: `cleanStaleClaims(currentTick, 300L)` prunes orphaned column claims held by minions with no remaining active tasks, freeing columns if a minion disconnects or dies.
+- **Session Cleanup**: `cancel()` and `clearScaffolding()` automatically flush all column reservations.
+
+---
+
+### 6. Combat Sapper Goal Suppression During Construction
+
+To prevent `MinionSapperGoal` (Priority 2) from interpreting building walls as natural cliffs and interrupting `MinionBuildGoal` (Priority 3):
+
+1. **Suppression Gating (`isSuppressedByConstruction`)**:
+   ```java
+   public boolean isSuppressedByConstruction() {
+       MinionRole role = this.minion.getRole();
+       if (role == MinionRole.BUILDER || role == MinionRole.MINER) {
+           return ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion);
+       }
+       return false;
+   }
+   ```
+2. **Proximity & Session Filtering (`isMinionEngagedInConstruction`)**:
+   - `ConstructionManager` evaluates whether the minion holds an active task/column claim, or is situated within $48.0$ blocks of an active compatible session (`BUILD` or `DISMANTLE` for builders; `DISMANTLE` for miners).
+   - Distance is measured against both the session anchor and the expanded world bounding box.
+   - Suppresses `MinionSapperGoal.canStart()` and `shouldContinue()`, allowing `MinionBuildGoal` to manage all structure navigation and scaffolding deployment.
+   - Combat archetypes (`WARRIOR`, `SENTINEL`, `RANGER`) are never suppressed, retaining full combat sapper capabilities.
+3. **Squad Sapper Assistance Exclusion**:
+   - When non-builder minions call for sapper assistance (`findNearbySquadBuilder`), builders engaged in or situated near active construction sites are excluded (`!isMinionEngagedInConstruction(m)`).
+   - Builders building towers are never pulled away from their construction sites to build distant traversal bridges.
+
+---
+
+### 7. Top-to-Bottom Scaffolding Demobilization Teardown
+
+To ensure temporary scaffolding does not pollute the game world after architectural work concludes:
+
+1. **Controlled Descent Teardown**:
+   - In `DISMANTLE` mode, or upon completing all session tasks (`demobilization`) in `BUILD` mode, descending minions dismantle scaffolding nodes top-to-bottom on the way down:
+     $$\text{Scaffolding at } y > y_{\text{minion}} + 1 \implies \text{dismantleWithFeedback()}$$
+   - Plays `SoundEvents.BLOCK_SCAFFOLDING_BREAK` and emits 6 `BlockStateParticleEffect` breaking particles per block.
+2. **Session Completion Sweep (`clearScaffolding`)**:
+   - When all tasks in a session complete or the session is cancelled, `ConstructionSession.clearScaffolding(ServerWorld)` sweeps any lingering scaffolding blocks in `temporaryScaffolding`.
+   - Before removing blocks, safely grounds any minions standing on temporary scaffolding, setting `fallDistance = 0.0F` and snapping them to solid ground below.
+   - Emits breaking particles and clears tracking sets, leaving a clean, pristine architectural site.
+
+---
+
+## 27. Shift-to-Close GUI Architecture, Open-State Guard & Fast Dismissals (`CommandScepterScreen`)
+
+This section documents the ergonomics overhaul and state-machine transitions enabling seamless Shift-to-close interactions on the Loki Command Hub GUI without unintended immediate dismissals upon sneak-opening.
+
+```
+                    [Sneak + Right-Click Open]            [Press 'V' Hotkey Open]
+                               │                                     │
+                               ▼                                     ▼
+                    [shiftHeldOnOpen = TRUE]              [shiftHeldOnOpen = FALSE]
+                               │                                     │
+            ┌──────────────────┴──────────────────┐                  │
+            ▼                                     ▼                  │
+    [Held Shift Repeats]                  [Shift Released]           │
+   • Absorbed & suppressed            • keyReleased / tick / render  │
+   • Screen remains open              • shiftHeldOnOpen -> FALSE     │
+                                                  │                  │
+                                                  └─────────┬────────┘
+                                                            ▼
+                                                [Subsequent Shift Press]
+                                                  • Fast-dismiss GUI
+                                                  • Zero latency close()
+```
+
+### 1. The Immediate-Dismissal Problem & Root Cause
+
+The Loki Command Hub (`CommandScepterScreen`) can be opened through two gameplay paths:
+
+1. **Physical Sneak + Right-Click**: Sneaking (`Shift`) while right-clicking with the Loki Command Scepter in hand (`CommandScepterItem.use`).
+2. **Dedicated Hotkey**: Pressing the `[V]` keybind registered via Fabric KeyBinding API (`ExampleModClient.commandHubKey`).
+
+When opened via Sneak + Right-Click, the player's physical finger is actively holding the `Left Shift` key down as the screen initializes. In a naive implementation where any Shift press closes the GUI:
+
+- GLFW immediately sends key events or repeats for Shift into the newly mounted screen (`Screen.keyPressed`).
+- The GUI would instantly close on the very frame it opened, causing a frustrating screen flicker.
+- Furthermore, inventory screens (`MinionScreen`) rely on Shift for quick-moving items (Shift-click transfer), so Shift-to-close must be strictly constrained to non-container tactical HUD modals.
+
+### 2. The Open-State Guard State Machine (`shiftHeldOnOpen`)
+
+`CommandScepterScreen` implements a robust state machine with three core lifecycle flags:
+
+- `shiftHeldOnOpen`: Set to `true` if Shift or Sneak was physically down when the screen was initialized.
+- `initializedOpenState`: Latches initialization so window resizing does not re-arm the guard.
+- `closed`: Tracks dismissal state cleanly for unit testing and lifecycle assertions.
+
+#### State Transitions & Invariants:
+
+1. **Screen Initialization (`init()`)**:
+
+   ```java
+   if (!this.initializedOpenState) {
+       if (!this.shiftHeldOnOpen) {
+           this.shiftHeldOnOpen = isShiftOrSneakDown();
+       }
+       this.initializedOpenState = true;
+   }
+   ```
+
+   Physical key state is queried via `isShiftOrSneakDown()`. If physical `GLFW_KEY_LEFT_SHIFT` or `GLFW_KEY_RIGHT_SHIFT` is pressed (or sneak keybinding is active), `shiftHeldOnOpen` is armed.
+
+2. **Hold & Repeat Suppression (`keyPressed`)**:
+
+   ```java
+   if (isShiftOrSneakKey(keyCode, scanCode)) {
+       if (this.shiftHeldOnOpen) {
+           // Suppress immediate close and absorb GLFW key repeats
+           return true;
+       }
+       this.close();
+       return true;
+   }
+   ```
+
+   While `shiftHeldOnOpen` is `true`, key press and repeat events are safely consumed without closing the screen.
+
+3. **Zero-Latency Release Transition (`keyReleased`, `tick`, `render`)**:
+   - As soon as the player lifts their finger from Shift, `keyReleased` resets the guard:
+     ```java
+     if (isShiftOrSneakKey(keyCode, scanCode)) {
+         this.shiftHeldOnOpen = false;
+     }
+     ```
+   - To guarantee zero latency even if the release event was consumed by OS focus or missed between ticks, both `render()` (frame-rate synchronized, 60-240+ FPS) and `tick()` verify physical state:
+     ```java
+     if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
+         this.shiftHeldOnOpen = false;
+     }
+     ```
+   - Once `shiftHeldOnOpen` transitions to `false`, the GUI is recognized as "already open". Any subsequent press of Shift (Left or Right) closes the modal immediately.
+
+### 3. Multi-Key Dismissal Bindings (`Shift`, `V`, `E`, `Esc`)
+
+To maximize commander ergonomics and muscle memory, `CommandScepterScreen` unifies all standard Minecraft dismissal triggers:
+
+- **`Shift` (Left / Right / Sneak)**: Fast tap-to-close once already open.
+- **`V` (Command Hub Toggle)**: Pressing `[V]` toggles the Command Hub open and closed seamlessly.
+- **`E` (Inventory Key)**: Matches standard vanilla container habits (`client.options.inventoryKey`).
+- **`Esc` (Escape)**: Delegated to `super.keyPressed(keyCode, scanCode, modifiers)`.
+
+### 4. Visual Indicators & UX Visual Cues
+
+To ensure the fast-close mechanic is discoverable and visually clear:
+
+- **Header Fast-Close Badge**: Rendered on the header bar at `startX + WINDOW_WIDTH - shiftCloseWidth - 10, startY + 6`:
+  `§e[Shift] §7Close`
+- **Close Button Tooltip**: Close button widget configured with an informative multikey tooltip:
+  `Close the Command Hub [Shift / Esc / E]`
+
+### 5. Comprehensive Verification & Test Suite (`CommandScepterScreenCloseTest.java`)
+
+To verify the open-state guard, key repeat filtering, zero-latency release transitions, multi-key dismissal routes, and state idempotency without requiring a live Minecraft client graphics context, `CommandScepterScreenCloseTest` provides 17 headless JUnit 5 tests utilizing LWJGL GLFW keycodes:
+
+| Test Method                                              | Assertions & Verified State Machine Behavior                                                                                                                                                     |
+| :------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `testShiftHeldOnOpenSuppressesImmediateClose`            | Confirms opening with Shift armed (`shiftHeldOnOpen = true`) consumes initial `GLFW_KEY_LEFT_SHIFT` press and sustained repeat events without prematurely closing modal (`isClosed() == false`). |
+| `testRightShiftHeldOnOpenSuppressesImmediateClose`       | Validates `GLFW_KEY_RIGHT_SHIFT` press and sustained repeat events are safely consumed while the open guard is active.                                                                           |
+| `testReleaseTransitionEnablesShiftClose`                 | Confirms physical release of Left Shift (`keyReleased`) transitions `shiftHeldOnOpen` to `false`, enabling immediate modal closure on the subsequent Left Shift press (`isClosed() == true`).    |
+| `testRightShiftReleaseTransition`                        | Confirms physical release of Right Shift transitions `shiftHeldOnOpen` to `false`, and the next Right Shift press triggers immediate closure.                                                    |
+| `testOpenWithoutShiftClosesImmediatelyOnShiftPress`      | Confirms opening via hotkey or unarmed state (`shiftHeldOnOpen = false`) closes the GUI immediately on the very first Left Shift press.                                                          |
+| `testOpenWithoutShiftClosesImmediatelyOnRightShiftPress` | Confirms unarmed opening closes the GUI immediately on the very first Right Shift press.                                                                                                         |
+| `testCommandHubKeyDismissalWhenShiftDisarmed`            | Confirms Command Hub hotkey (`GLFW_KEY_V`) closes screen immediately when shift guard is unarmed.                                                                                                |
+| `testCommandHubKeyDismissalWhenShiftArmed`               | Validates `GLFW_KEY_V` dismisses GUI immediately even when `shiftHeldOnOpen` was actively armed during sneak-open.                                                                               |
+| `testInventoryKeyDismissalWhenShiftDisarmed`             | Confirms standard Inventory hotkey (`GLFW_KEY_E`) closes modal immediately when shift guard is unarmed.                                                                                          |
+| `testInventoryKeyDismissalWhenShiftArmed`                | Validates `GLFW_KEY_E` dismisses GUI immediately even when `shiftHeldOnOpen` was actively armed.                                                                                                 |
+| `testEscapeKeyDismissal`                                 | Validates vanilla `GLFW_KEY_ESCAPE` delegates to `super.keyPressed` and reliably closes the modal regardless of shift guard state.                                                               |
+| `testNonClosingKeysDoNotDismiss`                         | Asserts standard non-closing keys (`WASD`, `Space`, `Enter`, `1`, `B`, `C`, `F`, `R`, `X`) do not close the screen or corrupt state.                                                             |
+| `testZeroLatencyTransitionInTick`                        | Validates `tick()` lifecycle fallback clears `shiftHeldOnOpen` once physical Shift is no longer held down in the client window.                                                                  |
+| `testInitializedOpenStatePreservesGuard`                 | Asserts `initializedOpenState` latching prevents window resize callbacks or repeated initialization from re-arming the shift guard.                                                              |
+| `testKeyRecognitionHelpers`                              | Validates `isShiftOrSneakKey`, `isCommandHubKey`, and `isInventoryKey` helper methods against GLFW key codes.                                                                                    |
+| `testStateFlagsAndSetters`                               | Tests lifecycle getters and setters (`setShiftHeldOnOpen`, `setClosed`, `setInitializedOpenState`) for test harness control.                                                                     |
+| `testCloseIdempotency`                                   | Validates that repeated invocations of `close()` remain strictly idempotent without throwing exceptions or corrupting lifecycle state.                                                           |

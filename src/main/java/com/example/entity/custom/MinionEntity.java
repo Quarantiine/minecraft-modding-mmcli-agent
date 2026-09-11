@@ -93,6 +93,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	private static final TrackedData<Integer> ROLE_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
 	private static final TrackedData<Integer> SQUAD_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
+	private static final TrackedData<Boolean> SELECTED = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
+	private static final TrackedData<Boolean> GUARDING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 
 	private LivingEntity lastCombatTarget;
 	private int outOfCombatTicks = 0;
@@ -120,6 +122,48 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		super.initDataTracker(builder);
 		builder.add(ROLE_ID, MinionRole.WARRIOR.getId());
 		builder.add(SQUAD_ID, SquadGroup.ALPHA.getId());
+		builder.add(SELECTED, false);
+		builder.add(GUARDING, false);
+	}
+
+	/**
+	 * @return true if this minion is actively selected in the player's tactical command group.
+	 */
+	public boolean isSelected() {
+		return this.dataTracker.get(SELECTED);
+	}
+
+	/**
+	 * Sets the active selection status of this minion.
+	 *
+	 * @param selected true to select for waypoint dispatch and squad maneuvers.
+	 */
+	public void setSelected(boolean selected) {
+		this.dataTracker.set(SELECTED, selected);
+	}
+
+	/**
+	 * @return true if this minion is actively stationed on standing guard duty at an anchor post.
+	 */
+	public boolean isGuarding() {
+		return this.dataTracker.get(GUARDING);
+	}
+
+	/**
+	 * @return true if this minion is currently holding position (either sitting or standing guard).
+	 */
+	public boolean isHoldingPosition() {
+		return this.isSitting() || this.isGuarding();
+	}
+
+	@Override
+	public boolean isGlowing() {
+		return this.isSelected() || super.isGlowing();
+	}
+
+	@Override
+	public int getTeamColorValue() {
+		return this.getSquad() != null ? this.getSquad().getOutlineColor() : 0xFFD700;
 	}
 
 	/**
@@ -168,6 +212,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void setGuardAnchorPos(BlockPos guardAnchorPos) {
 		this.guardAnchorPos = guardAnchorPos;
+		this.dataTracker.set(GUARDING, guardAnchorPos != null);
 	}
 
 	@Override
@@ -210,7 +255,15 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			}
 		});
 		this.goalSelector.add(6, new MinionFormationFollowGoal(this));
-		this.goalSelector.add(7, new WanderAroundFarGoal(this, 1.0D));
+		this.goalSelector.add(7, new WanderAroundFarGoal(this, 1.0D) {
+			@Override
+			public boolean canStart() {
+				if (MinionEntity.this.getGuardAnchorPos() != null || MinionEntity.this.isSelected()) {
+					return false;
+				}
+				return super.canStart();
+			}
+		});
 		this.goalSelector.add(8, new LookAtEntityGoal(this, PlayerEntity.class, 8.0F));
 		this.goalSelector.add(9, new LookAroundGoal(this));
 
@@ -463,6 +516,37 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		return attacked;
 	}
 
+	@Override
+	public boolean isTeammate(Entity other) {
+		if (super.isTeammate(other)) {
+			return true;
+		}
+		if (this.isTamed()) {
+			LivingEntity owner = this.getOwner();
+			if (owner != null) {
+				if (other.equals(owner)) {
+					return true;
+				}
+				if (other instanceof MinionEntity otherMinion && otherMinion.isTamed() && owner.equals(otherMinion.getOwner())) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	@Override
+	public boolean damage(DamageSource source, float amount) {
+		if (this.isTamed() && source.getAttacker() != null) {
+			Entity attacker = source.getAttacker();
+			LivingEntity owner = this.getOwner();
+			if (owner != null && (attacker.equals(owner) || (attacker instanceof MinionEntity otherMinion && otherMinion.isOwner(owner)))) {
+				return false;
+			}
+		}
+		return super.damage(source, amount);
+	}
+
 	/**
 	 * Automatically equips armor, weapons, and defensive offhand items from the minion's
 	 * 9-slot storage inventory into any corresponding empty equipment slots.
@@ -662,6 +746,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		nbt.putInt("MinionRoleId", this.getRole().getId());
 		nbt.putString("MinionSquad", this.getSquad().asString());
 		nbt.putInt("MinionSquadId", this.getSquad().getId());
+		nbt.putBoolean("Selected", this.isSelected());
 		if (this.guardAnchorPos != null) {
 			nbt.putLong("GuardAnchorPos", this.guardAnchorPos.asLong());
 		}
@@ -672,6 +757,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		super.readCustomDataFromNbt(nbt);
 		if (nbt.contains("Inventory", NbtElement.LIST_TYPE)) {
 			this.inventory.readNbtList(nbt.getList("Inventory", NbtElement.COMPOUND_TYPE), this.getRegistryManager());
+		}
+		if (nbt.contains("Selected", NbtElement.BYTE_TYPE)) {
+			this.setSelected(nbt.getBoolean("Selected"));
 		}
 		if (nbt.contains("MinionRoleId", NbtElement.INT_TYPE)) {
 			this.setRole(MinionRole.fromId(nbt.getInt("MinionRoleId")));
@@ -698,7 +786,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 
 		if (nbt.contains("GuardAnchorPos", NbtElement.LONG_TYPE)) {
-			this.guardAnchorPos = BlockPos.fromLong(nbt.getLong("GuardAnchorPos"));
+			this.setGuardAnchorPos(BlockPos.fromLong(nbt.getLong("GuardAnchorPos")));
+		} else {
+			this.setGuardAnchorPos(null);
 		}
 	}
 
@@ -770,8 +860,15 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			this.jumping = false;
 			this.navigation.stop();
 			this.setTarget(null);
+			if (newSitting) {
+				this.setSelected(false);
+				this.setGuardAnchorPos(this.getBlockPos());
+			} else {
+				this.setSelected(true);
+				this.setGuardAnchorPos(null);
+			}
 			if (!world.isClient()) {
-				String msg = newSitting ? "§e✦ Minion is now holding position (sitting).§r" : "§a✦ Minion is now following you.§r";
+				String msg = newSitting ? "§e✦ Minion is now holding position (stationed).§r" : "§a✦ Minion is now selected and following you.§r";
 				player.sendMessage(Text.literal(msg), true);
 			}
 			this.playSound(newSitting ? SoundEvents.ENTITY_ITEM_FRAME_ROTATE_ITEM : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, 0.6F, 1.0F);

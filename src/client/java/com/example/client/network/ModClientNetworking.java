@@ -5,6 +5,7 @@ import com.example.client.ExampleModClient;
 import com.example.component.CommandMode;
 import com.example.component.SquadGroup;
 import com.example.entity.custom.MinionRole;
+import com.example.network.DeselectMinionsPayload;
 import com.example.network.DismissMinionPayload;
 import com.example.network.TeleportMinionPayload;
 import com.example.network.UpdateMinionConfigPayload;
@@ -94,6 +95,14 @@ public class ModClientNetworking {
 	 */
 	public static void sendTeleportAllMinions() {
 		TeleportMinionPayload payload = new TeleportMinionPayload(-1, true);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link DeselectMinionsPayload} to deselect all owned minions within the command radius.
+	 */
+	public static void sendDeselectAllMinions() {
+		DeselectMinionsPayload payload = new DeselectMinionsPayload(-1, true);
 		ClientPlayNetworking.send(payload);
 	}
 }

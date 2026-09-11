@@ -6,6 +6,7 @@ import com.example.client.network.ModClientNetworking;
 import com.example.client.renderer.BlueprintHologramRenderer;
 import com.example.client.renderer.MinionEntityRenderer;
 import com.example.client.renderer.TntProjectileRenderer;
+import com.example.component.CommandMode;
 import com.example.entity.ModEntities;
 import com.example.item.ModItems;
 import com.example.item.custom.CommandScepterItem;
@@ -21,6 +22,7 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
+import net.minecraft.util.hit.HitResult;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -92,6 +94,19 @@ public class ExampleModClient implements ClientModInitializer {
 								Text.translatable("message.modid-mmcli-agent-modding.scepter_required"),
 								true
 							);
+						}
+					}
+				}
+			}
+
+			// Open-air sneak + left-click shortcut to deselect all minions when no block or entity is targeted
+			if (client.player != null && client.options.attackKey.wasPressed()) {
+				ItemStack heldScepter = CommandScepterItem.getHeldScepter(client.player);
+				if (client.player.isSneaking() && !heldScepter.isEmpty()) {
+					if (client.crosshairTarget == null || client.crosshairTarget.getType() == HitResult.Type.MISS) {
+						CommandMode mode = CommandScepterItem.getMode(heldScepter);
+						if (mode != CommandMode.BUILD) {
+							ModClientNetworking.sendDeselectAllMinions();
 						}
 					}
 				}

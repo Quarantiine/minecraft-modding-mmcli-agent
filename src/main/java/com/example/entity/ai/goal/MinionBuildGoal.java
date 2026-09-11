@@ -5,9 +5,14 @@ import com.example.construction.ConstructionSession;
 import com.example.construction.ConstructionTask;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -31,6 +36,7 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
+import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
@@ -64,6 +70,9 @@ public class MinionBuildGoal extends Goal {
 	private boolean isDescendingScaffolding = false;
 	private int climbTicks = 0;
 	private int descentTicks = 0;
+	private int stallTicks = 0;
+	private double lastClimbY = 0.0D;
+	private final Set<BlockPos> blacklistedScaffoldColumns = new HashSet<>();
 	private ConstructionTask pendingNextTask = null;
 
 	// Equipment preservation across construction cycles
@@ -154,6 +163,8 @@ public class MinionBuildGoal extends Goal {
 		this.isDescendingScaffolding = false;
 		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
+		this.stallTicks = 0;
+		this.lastClimbY = this.minion.getY();
 		this.descentTicks = 0;
 		this.activeScaffoldColumn = null;
 		this.targetScaffoldTopY = -1;
@@ -185,6 +196,13 @@ public class MinionBuildGoal extends Goal {
 			this.currentSession.releaseTask(this.currentTask);
 		}
 
+		if (this.activeScaffoldColumn != null && this.currentSession != null) {
+			this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+		}
+		if (this.currentSession != null) {
+			this.currentSession.releaseScaffoldColumnsForMinion(this.minion.getUuid());
+		}
+
 		this.currentTask = null;
 		this.pendingNextTask = null;
 		this.currentSession = null;
@@ -195,9 +213,11 @@ public class MinionBuildGoal extends Goal {
 		this.isDescendingScaffolding = false;
 		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
+		this.stallTicks = 0;
 		this.descentTicks = 0;
 		this.ticksNavigating = 0;
 		this.workTicks = 0;
+		this.blacklistedScaffoldColumns.clear();
 		this.minion.getNavigation().stop();
 		this.minion.fallDistance = 0.0F;
 
@@ -222,8 +242,8 @@ public class MinionBuildGoal extends Goal {
 			double alignX = scCenterX - this.minion.getX();
 			double alignZ = scCenterZ - this.minion.getZ();
 
-			// Removing scaffolding on descent in DISMANTLE mode
-			if (this.currentSession != null && this.currentSession.isDismantle() && this.activeScaffoldColumn != null) {
+			// Removing scaffolding on descent in DISMANTLE mode or demobilization
+			if (shouldTeardownOnDescent()) {
 				int minionY = this.minion.getBlockY();
 				for (int y = this.targetScaffoldTopY; y > minionY + 1; y--) {
 					BlockPos scaffoldPos = new BlockPos(this.activeScaffoldColumn.getX(), y, this.activeScaffoldColumn.getZ());
@@ -236,8 +256,8 @@ public class MinionBuildGoal extends Goal {
 			boolean onSolidGround = this.minion.isOnGround() && !serverWorld.getBlockState(this.minion.getBlockPos().down()).isOf(Blocks.SCAFFOLDING);
 			if (this.minion.getY() <= this.targetScaffoldBottomY + 0.15D || onSolidGround || this.descentTicks > 120) {
 				// Reached safe ground
-				// In dismantle mode, clean up remaining scaffold column blocks that were descended
-				if (this.currentSession != null && this.currentSession.isDismantle() && this.activeScaffoldColumn != null) {
+				// Clean up remaining scaffold column blocks that were descended
+				if (shouldTeardownOnDescent()) {
 					int groundY = Math.max(serverWorld.getBottomY() + 1, (int) Math.floor(this.targetScaffoldBottomY));
 					for (int y = groundY; y <= this.targetScaffoldTopY; y++) {
 						BlockPos scaffoldPos = new BlockPos(this.activeScaffoldColumn.getX(), y, this.activeScaffoldColumn.getZ());
@@ -245,6 +265,10 @@ public class MinionBuildGoal extends Goal {
 							removeScaffoldBlockWithFeedback(serverWorld, scaffoldPos);
 						}
 					}
+				}
+
+				if (this.activeScaffoldColumn != null && this.currentSession != null) {
+					this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
 				}
 
 				this.isDescendingScaffolding = false;
@@ -267,8 +291,9 @@ public class MinionBuildGoal extends Goal {
 						this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
 					}
 					setupNavigationForTask(serverWorld);
+				} else if (this.currentTask != null) {
+					setupNavigationForTask(serverWorld);
 				} else {
-					this.currentTask = null;
 					restoreHeldWeapon();
 				}
 				return;
@@ -305,6 +330,99 @@ public class MinionBuildGoal extends Goal {
 			return;
 		}
 
+		// Kinematic platform ascent handler (runs before inRange checks to prevent reach interruptions)
+		if (this.isAscendingScaffolding) {
+			this.climbTicks++;
+			this.minion.getNavigation().stop();
+			this.minion.fallDistance = 0.0F;
+
+			if (this.activeScaffoldColumn == null || this.targetScaffoldTopY == -1) {
+				abortClimbAndDescend(serverWorld);
+				return;
+			}
+
+			double scCenterX = this.activeScaffoldColumn.getX() + 0.5D;
+			double scCenterZ = this.activeScaffoldColumn.getZ() + 0.5D;
+			double alignX = scCenterX - this.minion.getX();
+			double alignZ = scCenterZ - this.minion.getZ();
+
+			// Ceiling collision sensor: 2 blocks above feet (head clearance)
+			BlockPos headBlockPos = BlockPos.ofFloored(this.minion.getX(), this.minion.getY() + 2.0D, this.minion.getZ());
+			BlockState headState = serverWorld.getBlockState(headBlockPos);
+			boolean ceilingBlocked = !headState.isAir() && !headState.isOf(Blocks.SCAFFOLDING) && !headState.canPathfindThrough(NavigationType.LAND);
+
+			// Stall sensor: detect if vertical displacement is stalled for >10 ticks
+			if (this.minion.getY() <= this.lastClimbY + 0.05D) {
+				this.stallTicks++;
+			} else {
+				this.stallTicks = 0;
+				this.lastClimbY = this.minion.getY();
+			}
+
+			if (ceilingBlocked || this.stallTicks > 10 || this.climbTicks > 140) {
+				abortClimbAndDescend(serverWorld);
+				return;
+			}
+
+			// Ascend vertically until reaching platform surface at targetScaffoldTopY + 1.0D
+			if (this.minion.getY() < (double) this.targetScaffoldTopY + 0.95D) {
+				// Vertical climb impulse (+0.25D) with horizontal centering lock
+				this.minion.setVelocity(alignX * 0.3D, 0.25D, alignZ * 0.3D);
+				this.minion.velocityModified = true;
+				this.minion.fallDistance = 0.0F;
+				this.minion.setJumping(true);
+
+				// Auditory and visual climbing feedback
+				if (this.climbTicks % 8 == 0) {
+					serverWorld.playSound(
+						null,
+						this.minion.getX(),
+						this.minion.getY(),
+						this.minion.getZ(),
+						SoundEvents.BLOCK_SCAFFOLDING_STEP,
+						SoundCategory.BLOCKS,
+						0.7F,
+						1.2F
+					);
+					serverWorld.spawnParticles(
+						ParticleTypes.CLOUD,
+						this.minion.getX(),
+						this.minion.getY(),
+						this.minion.getZ(),
+						2,
+						0.1,
+						0.05,
+						0.1,
+						0.01
+					);
+				}
+				return;
+			} else {
+				// True kinematic platform landing! Cleanly snap minion to surface atop the scaffolding block
+				this.minion.setPosition(scCenterX, (double) this.targetScaffoldTopY + 1.0D, scCenterZ);
+				this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+				this.minion.velocityModified = true;
+				this.minion.fallDistance = 0.0F;
+				this.minion.setJumping(false);
+				this.minion.setClimbingScaffolding(false);
+				this.isAscendingScaffolding = false;
+				this.climbTicks = 0;
+				this.stallTicks = 0;
+
+				serverWorld.playSound(
+					null,
+					scCenterX,
+					(double) this.targetScaffoldTopY + 1.0D,
+					scCenterZ,
+					SoundEvents.BLOCK_SCAFFOLDING_STEP,
+					SoundCategory.BLOCKS,
+					0.8F,
+					1.0F
+				);
+				return;
+			}
+		}
+
 		if (this.currentTask == null || this.currentSession == null) {
 			return;
 		}
@@ -334,7 +452,7 @@ public class MinionBuildGoal extends Goal {
 			int diffY = targetPos.getY() - this.minion.getBlockY();
 
 			// If target block is elevated (> 2 blocks above minion), deploy and utilize scaffolding
-			if (diffY > 2 || (this.targetScaffoldTopY != -1 && this.minion.getY() < this.targetScaffoldTopY)) {
+			if (diffY > 2 || (this.targetScaffoldTopY != -1 && this.minion.getY() < (double) this.targetScaffoldTopY + 0.95D)) {
 				if (this.activeScaffoldColumn == null) {
 					BlockPos scaffoldBase = deployScaffoldingIfNeeded(serverWorld, targetPos);
 					if (scaffoldBase != null) {
@@ -369,87 +487,38 @@ public class MinionBuildGoal extends Goal {
 						return;
 					}
 
-					// Minion is at the base of the column or already ascending: climb scaffolding
+					// Minion arrived at the column base: initiate ascent
 					this.isAscendingScaffolding = true;
 					this.minion.setClimbingScaffolding(true);
 					this.minion.getNavigation().stop();
-
-					if (this.minion.getY() < (double) this.targetScaffoldTopY) {
-						this.climbTicks++;
-						double alignX = scCenterX - this.minion.getX();
-						double alignZ = scCenterZ - this.minion.getZ();
-
-						// Ascend scaffolding vertically while remaining centered horizontally
-						this.minion.setVelocity(alignX * 0.3D, 0.25D, alignZ * 0.3D);
-						this.minion.velocityModified = true;
-						this.minion.fallDistance = 0.0F;
-						this.minion.setJumping(true);
-
-						// Auditory and visual climbing feedback
-						if (this.climbTicks % 8 == 0) {
-							serverWorld.playSound(
-								null,
-								this.minion.getX(),
-								this.minion.getY(),
-								this.minion.getZ(),
-								SoundEvents.BLOCK_SCAFFOLDING_STEP,
-								SoundCategory.BLOCKS,
-								0.7F,
-								1.2F
-							);
-							serverWorld.spawnParticles(
-								ParticleTypes.CLOUD,
-								this.minion.getX(),
-								this.minion.getY(),
-								this.minion.getZ(),
-								2,
-								0.1,
-								0.05,
-								0.1,
-								0.01
-							);
-						}
-
-						if (this.climbTicks > 120) {
-							handleNavigationTimeout(serverWorld);
-							return;
-						}
-						return;
-					} else {
-						// Arrived at top platform of scaffolding column
-						this.minion.setPosition(scCenterX, (double) this.targetScaffoldTopY, scCenterZ);
-						this.minion.setVelocity(0.0D, 0.0D, 0.0D);
-						this.minion.velocityModified = true;
-						this.minion.fallDistance = 0.0F;
-						this.minion.setJumping(false);
-						this.minion.setClimbingScaffolding(false);
-					}
+					this.climbTicks = 0;
+					this.stallTicks = 0;
+					this.lastClimbY = this.minion.getY();
+					return;
 				}
 			}
 
 			// If reach is not met and minion is not climbing scaffolding, navigate towards safe stand position
-			if (!this.isAscendingScaffolding) {
-				this.ticksNavigating++;
-				if (this.ticksNavigating % 15 == 0 || this.minion.getNavigation().isIdle()) {
-					BlockPos standPos = findSafeStandPositionNear(serverWorld, targetPos);
-					double navX = standPos != null ? standPos.getX() + 0.5D : targetCenterX;
-					double navY = standPos != null ? standPos.getY() : targetPos.getY();
-					double navZ = standPos != null ? standPos.getZ() + 0.5D : targetCenterZ;
+			this.ticksNavigating++;
+			if (this.ticksNavigating % 15 == 0 || this.minion.getNavigation().isIdle()) {
+				BlockPos standPos = findSafeStandPositionNear(serverWorld, targetPos);
+				double navX = standPos != null ? standPos.getX() + 0.5D : targetCenterX;
+				double navY = standPos != null ? standPos.getY() : targetPos.getY();
+				double navZ = standPos != null ? standPos.getZ() + 0.5D : targetCenterZ;
 
-					this.minion.getNavigation().startMovingTo(
-						navX,
-						navY,
-						navZ,
-						1.15D
-					);
-				}
+				this.minion.getNavigation().startMovingTo(
+					navX,
+					navY,
+					navZ,
+					1.15D
+				);
+			}
 
-				if (this.ticksNavigating > 160) {
-					handleNavigationTimeout(serverWorld);
-					return;
-				}
+			if (this.ticksNavigating > 160) {
+				handleNavigationTimeout(serverWorld);
 				return;
 			}
+			return;
 		}
 
 		// Minion is within realistic reach: halt movement, stabilize on platform, and perform construction work
@@ -567,58 +636,47 @@ public class MinionBuildGoal extends Goal {
 		this.workTicks = 0;
 		this.ticksNavigating = 0;
 		this.climbTicks = 0;
+		this.stallTicks = 0;
 
 		// Immediately try to claim the next topological task for seamless continuous building
 		ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
 		if (nextTask != null) {
-			int currentY = this.minion.getBlockY();
-			int nextY = nextTask.getWorldPos().getY();
-			boolean elevated = this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld);
-
-			// Determine if next task cannot be reached safely from the current scaffolding platform:
-			// 1. Next task is lower (currentY - nextY > 2)
-			// 2. Next task is significantly higher than current scaffold top (Math.abs(currentY - nextY) > 2)
-			// 3. Next task is too far horizontally from the active scaffolding column
-			boolean needsDescent = false;
-			if (elevated) {
-				if (currentY - nextY > 2 || Math.abs(currentY - nextY) > 2) {
-					needsDescent = true;
-				} else if (this.activeScaffoldColumn != null) {
-					double colDx = this.activeScaffoldColumn.getX() - nextTask.getWorldPos().getX();
-					double colDz = this.activeScaffoldColumn.getZ() - nextTask.getWorldPos().getZ();
-					if ((colDx * colDx + colDz * colDz) > 12.0D) {
-						needsDescent = true;
-					}
-				}
+			if (isStandingOnPlatform() && isTaskReachableFromPlatform(nextTask)) {
+				// Elevated task chaining: stay elevated on the platform!
+				this.currentTask = nextTask;
+				ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
+				this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+				this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+				this.minion.velocityModified = true;
+				this.minion.getLookControl().lookAt(
+					nextTask.getWorldPos().getX() + 0.5D,
+					nextTask.getWorldPos().getY() + 0.5D,
+					nextTask.getWorldPos().getZ() + 0.5D,
+					30.0F,
+					30.0F
+				);
+				return;
 			}
 
-			if (needsDescent) {
+			boolean elevated = this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld);
+			if (elevated) {
 				this.pendingNextTask = nextTask;
-				this.isDescendingScaffolding = true;
-				this.minion.setClimbingScaffolding(false);
-				this.descentTicks = 0;
-				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
-				this.minion.getNavigation().stop();
+				initiateDescent(serverWorld, false);
 			} else {
 				this.currentTask = nextTask;
-				if (this.currentSession != null && this.currentSession.isDismantle()) {
-					this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
-				} else {
-					ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
-					this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
-				}
+				ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
+				this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
 				setupNavigationForTask(serverWorld);
 			}
 		} else {
-			// No more tasks: if minion is elevated on scaffolding, descend to ground safely before finishing
+			// No more tasks: if minion is elevated on scaffolding, descend and teardown top-to-bottom
 			if (this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld)) {
 				this.pendingNextTask = null;
-				this.isDescendingScaffolding = true;
-				this.minion.setClimbingScaffolding(false);
-				this.descentTicks = 0;
-				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
-				this.minion.getNavigation().stop();
+				initiateDescent(serverWorld, true);
 			} else {
+				if (this.activeScaffoldColumn != null && this.currentSession != null) {
+					this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+				}
 				this.currentTask = null;
 				this.activeScaffoldColumn = null;
 				this.targetScaffoldTopY = -1;
@@ -731,11 +789,16 @@ public class MinionBuildGoal extends Goal {
 			this.currentTask = null;
 		}
 
+		if (this.activeScaffoldColumn != null && this.currentSession != null) {
+			this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+		}
+
 		this.activeScaffoldColumn = null;
 		this.targetScaffoldTopY = -1;
 		this.isAscendingScaffolding = false;
 		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
+		this.stallTicks = 0;
 		this.ticksNavigating = 0;
 		this.workTicks = 0;
 		this.minion.getNavigation().stop();
@@ -767,9 +830,18 @@ public class MinionBuildGoal extends Goal {
 		}
 
 		BlockPos targetPos = this.currentTask.getWorldPos();
+
+		// If minion is already standing on an active platform and the task is reachable, stay elevated!
+		if (isStandingOnPlatform() && isTaskReachableFromPlatform(this.currentTask)) {
+			this.minion.getNavigation().stop();
+			this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+			this.minion.velocityModified = true;
+			return;
+		}
+
 		int diffY = targetPos.getY() - this.minion.getBlockY();
 
-		if (diffY > 2) {
+		if (diffY > 2 || targetPos.getY() > this.minion.getBlockY() + 1) {
 			// Task is elevated: deploy or reuse scaffolding column and navigate to its base
 			BlockPos scaffoldBase = deployScaffoldingIfNeeded(world, targetPos);
 			if (scaffoldBase != null) {
@@ -778,6 +850,7 @@ public class MinionBuildGoal extends Goal {
 				this.isAscendingScaffolding = false;
 				this.minion.setClimbingScaffolding(false);
 				this.climbTicks = 0;
+				this.stallTicks = 0;
 
 				// Navigate to base of scaffolding column along ground
 				this.minion.getNavigation().startMovingTo(
@@ -790,23 +863,31 @@ public class MinionBuildGoal extends Goal {
 			}
 		}
 
-		// Ground-level or reach-accessible task: navigate towards a safe adjacent standing position
-		BlockPos standPos = findSafeStandPositionNear(world, targetPos);
-		double navX = standPos != null ? standPos.getX() + 0.5D : targetPos.getX() + 0.5D;
-		double navY = standPos != null ? standPos.getY() : targetPos.getY();
-		double navZ = standPos != null ? standPos.getZ() + 0.5D : targetPos.getZ() + 0.5D;
-
+		// Ground-level or reach-accessible task: release existing scaffold column if reserved
+		if (this.activeScaffoldColumn != null && this.currentSession != null) {
+			this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+		}
 		this.activeScaffoldColumn = null;
 		this.targetScaffoldTopY = -1;
 		this.isAscendingScaffolding = false;
 		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
+		this.stallTicks = 0;
+
+		BlockPos standPos = findSafeStandPositionNear(world, targetPos);
+		double navX = standPos != null ? standPos.getX() + 0.5D : targetPos.getX() + 0.5D;
+		double navY = standPos != null ? standPos.getY() : targetPos.getY();
+		double navZ = standPos != null ? standPos.getZ() + 0.5D : targetPos.getZ() + 0.5D;
+
 		this.minion.getNavigation().startMovingTo(navX, navY, navZ, 1.15D);
 	}
 
 	private void handleNavigationTimeout(ServerWorld serverWorld) {
 		if (this.currentTask != null && this.currentSession != null) {
 			this.currentSession.releaseTask(this.currentTask);
+		}
+		if (this.activeScaffoldColumn != null && this.currentSession != null) {
+			this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
 		}
 		this.currentTask = null;
 		this.pendingNextTask = null;
@@ -817,6 +898,7 @@ public class MinionBuildGoal extends Goal {
 		this.isDescendingScaffolding = false;
 		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
+		this.stallTicks = 0;
 		this.descentTicks = 0;
 		this.ticksNavigating = 0;
 		this.workTicks = 0;
@@ -913,8 +995,8 @@ public class MinionBuildGoal extends Goal {
 	}
 
 	/**
-	 * Checks if an existing scaffolding column erected by this session is within 1 to 3 blocks
-	 * horizontal reach and can be reused to access the target block.
+	 * Checks if an existing scaffolding column erected by this session is within 1 to 4 blocks
+	 * horizontal reach, has valid column reservation, and can be reused to access the target block.
 	 */
 	private BlockPos findReusableScaffoldColumn(ServerWorld world, BlockPos targetPos) {
 		if (this.currentSession == null) {
@@ -927,9 +1009,21 @@ public class MinionBuildGoal extends Goal {
 			double dz = scaffoldPos.getZ() - targetPos.getZ();
 			double distSq = dx * dx + dz * dz;
 
-			if (distSq >= 1.0D && distSq <= 12.0D) {
+			if (distSq >= 1.0D && distSq <= 16.0D) {
 				int x = scaffoldPos.getX();
 				int z = scaffoldPos.getZ();
+
+				// Column reservation check
+				BlockPos probePos = new BlockPos(x, targetY, z);
+				if (!this.currentSession.isScaffoldColumnAvailable(probePos, this.minion.getUuid())) {
+					continue;
+				}
+
+				// Blacklist check
+				if (isColumnBlacklisted(x, z)) {
+					continue;
+				}
+
 				int baseY = scaffoldPos.getY();
 				while (baseY > world.getBottomY() && world.getBlockState(new BlockPos(x, baseY - 1, z)).isOf(Blocks.SCAFFOLDING)) {
 					baseY--;
@@ -937,7 +1031,8 @@ public class MinionBuildGoal extends Goal {
 				BlockPos base = new BlockPos(x, baseY, z);
 				if (!isPosInDoorwayCorridor(world, x, z, baseY, targetY + 1)
 					&& isHeadroomClear(world, x, z, targetY - 1)
-					&& !isBlueprintColumnBlocked(x, z, baseY, targetY - 1)) {
+					&& !isBlueprintColumnBlocked(x, z, baseY, targetY + 2)) {
+					this.currentSession.claimScaffoldColumn(base, this.minion.getUuid());
 					return base;
 				}
 			}
@@ -983,55 +1078,136 @@ public class MinionBuildGoal extends Goal {
 
 	/**
 	 * Finds an optimal candidate coordinate adjacent to targetPos for erecting a scaffolding column.
-	 * Checks cardinal, diagonal, and offset positions, ensuring no uncompleted blueprint tasks occupy
-	 * the column span.
+	 * First projects candidate positions 1 block outside the session's worldBoundingBox perimeter
+	 * (minX - 1, maxX + 1, minZ - 1, maxZ + 1), sorting by combined distance to target and minion position
+	 * to eliminate directional bias. Verifies unobstructed clearance in world and blueprint tasks up
+	 * through targetY + 2, and validates column reservation availability.
+	 *
+	 * If no perimeter column is reachable or valid, falls back to sorted candidate positions around targetPos.
 	 */
 	private BlockPos findScaffoldColumn(ServerWorld world, BlockPos targetPos) {
-		Direction[] directions = new Direction[] { Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST };
 		int targetY = targetPos.getY();
 
-		// First pass: cardinal directions not occupying unplaced blueprint blocks
-		for (Direction dir : directions) {
-			BlockPos candidate = targetPos.offset(dir);
-			BlockPos base = getValidScaffoldBase(world, candidate.getX(), candidate.getZ(), targetY);
-			if (base != null && !isBlueprintColumnBlocked(candidate.getX(), candidate.getZ(), base.getY(), targetY - 1)) {
-				return base;
+		// 1. Exterior perimeter column search using session worldBoundingBox
+		if (this.currentSession != null && this.currentSession.getWorldBoundingBox() != null) {
+			BlockBox box = this.currentSession.getWorldBoundingBox();
+			int minX = box.getMinX();
+			int maxX = box.getMaxX();
+			int minZ = box.getMinZ();
+			int maxZ = box.getMaxZ();
+
+			List<int[]> perimeterCandidates = new ArrayList<>();
+
+			// North perimeter (z = minZ - 1)
+			for (int x = minX - 1; x <= maxX + 1; x++) {
+				perimeterCandidates.add(new int[] { x, minZ - 1 });
+			}
+			// South perimeter (z = maxZ + 1)
+			for (int x = minX - 1; x <= maxX + 1; x++) {
+				perimeterCandidates.add(new int[] { x, maxZ + 1 });
+			}
+			// West perimeter (x = minX - 1)
+			for (int z = minZ; z <= maxZ; z++) {
+				perimeterCandidates.add(new int[] { minX - 1, z });
+			}
+			// East perimeter (x = maxX + 1)
+			for (int z = minZ; z <= maxZ; z++) {
+				perimeterCandidates.add(new int[] { maxX + 1, z });
+			}
+
+			// Filter perimeter candidates to those within builder reach (distSq <= 16.0) of targetPos
+			List<int[]> reachablePerimeter = new ArrayList<>();
+			for (int[] cand : perimeterCandidates) {
+				int cx = cand[0];
+				int cz = cand[1];
+				double dx = (double) cx - targetPos.getX();
+				double dz = (double) cz - targetPos.getZ();
+				double distSq = dx * dx + dz * dz;
+				if (distSq >= 1.0D && distSq <= 16.0D) {
+					reachablePerimeter.add(cand);
+				}
+			}
+
+			// Sort candidates by combined distance: (distToTarget + 0.5 * distToMinion)
+			// This eliminates North bias and naturally distributes minions across faces based on their approach
+			reachablePerimeter.sort((a, b) -> {
+				double distTargetA = Math.sqrt(Math.pow(a[0] - targetPos.getX(), 2) + Math.pow(a[1] - targetPos.getZ(), 2));
+				double distTargetB = Math.sqrt(Math.pow(b[0] - targetPos.getX(), 2) + Math.pow(b[1] - targetPos.getZ(), 2));
+
+				double distMinionA = Math.sqrt(Math.pow((a[0] + 0.5D) - this.minion.getX(), 2) + Math.pow((a[1] + 0.5D) - this.minion.getZ(), 2));
+				double distMinionB = Math.sqrt(Math.pow((b[0] + 0.5D) - this.minion.getX(), 2) + Math.pow((b[1] + 0.5D) - this.minion.getZ(), 2));
+
+				double scoreA = distTargetA + 0.5D * distMinionA;
+				double scoreB = distTargetB + 0.5D * distMinionB;
+				return Double.compare(scoreA, scoreB);
+			});
+
+			for (int[] cand : reachablePerimeter) {
+				int cx = cand[0];
+				int cz = cand[1];
+
+				// Column reservation check
+				BlockPos probePos = new BlockPos(cx, targetY, cz);
+				if (!this.currentSession.isScaffoldColumnAvailable(probePos, this.minion.getUuid())) {
+					continue;
+				}
+
+				// Blacklist check
+				if (isColumnBlacklisted(cx, cz)) {
+					continue;
+				}
+
+				BlockPos base = getValidScaffoldBase(world, cx, cz, targetY);
+				if (base != null && !isBlueprintColumnBlocked(cx, cz, base.getY(), targetY + 2)) {
+					this.currentSession.claimScaffoldColumn(base, this.minion.getUuid());
+					return base;
+				}
 			}
 		}
 
-		// Second pass: diagonal directions not occupying unplaced blueprint blocks
-		int[] dx = { -1, 1, -1, 1 };
-		int[] dz = { -1, -1, 1, 1 };
-		for (int i = 0; i < 4; i++) {
-			BlockPos candidate = targetPos.add(dx[i], 0, dz[i]);
-			BlockPos base = getValidScaffoldBase(world, candidate.getX(), candidate.getZ(), targetY);
-			if (base != null && !isBlueprintColumnBlocked(candidate.getX(), candidate.getZ(), base.getY(), targetY - 1)) {
-				return base;
-			}
-		}
+		// 2. Fallback candidate search around targetPos if exterior perimeter yields no viable candidate
+		List<int[]> fallbackCandidates = new ArrayList<>();
+		// Cardinal distance 1
+		fallbackCandidates.add(new int[] { targetPos.getX(), targetPos.getZ() - 1 });
+		fallbackCandidates.add(new int[] { targetPos.getX(), targetPos.getZ() + 1 });
+		fallbackCandidates.add(new int[] { targetPos.getX() + 1, targetPos.getZ() });
+		fallbackCandidates.add(new int[] { targetPos.getX() - 1, targetPos.getZ() });
+		// Diagonal distance 1
+		fallbackCandidates.add(new int[] { targetPos.getX() - 1, targetPos.getZ() - 1 });
+		fallbackCandidates.add(new int[] { targetPos.getX() + 1, targetPos.getZ() - 1 });
+		fallbackCandidates.add(new int[] { targetPos.getX() - 1, targetPos.getZ() + 1 });
+		fallbackCandidates.add(new int[] { targetPos.getX() + 1, targetPos.getZ() + 1 });
+		// Cardinal distance 2
+		fallbackCandidates.add(new int[] { targetPos.getX(), targetPos.getZ() - 2 });
+		fallbackCandidates.add(new int[] { targetPos.getX(), targetPos.getZ() + 2 });
+		fallbackCandidates.add(new int[] { targetPos.getX() + 2, targetPos.getZ() });
+		fallbackCandidates.add(new int[] { targetPos.getX() - 2, targetPos.getZ() });
 
-		// Third pass: distance 2 cardinal directions
-		for (Direction dir : directions) {
-			BlockPos candidate = targetPos.offset(dir, 2);
-			BlockPos base = getValidScaffoldBase(world, candidate.getX(), candidate.getZ(), targetY);
-			if (base != null && !isBlueprintColumnBlocked(candidate.getX(), candidate.getZ(), base.getY(), targetY - 1)) {
-				return base;
-			}
-		}
+		// Sort fallback candidates by distance to minion to avoid fixed direction bias
+		fallbackCandidates.sort((a, b) -> {
+			double distMinionA = Math.pow((a[0] + 0.5D) - this.minion.getX(), 2) + Math.pow((a[1] + 0.5D) - this.minion.getZ(), 2);
+			double distMinionB = Math.pow((b[0] + 0.5D) - this.minion.getX(), 2) + Math.pow((b[1] + 0.5D) - this.minion.getZ(), 2);
+			return Double.compare(distMinionA, distMinionB);
+		});
 
-		// Fallback passes: any adjacent column with clear vertical air
-		for (Direction dir : directions) {
-			BlockPos candidate = targetPos.offset(dir);
-			BlockPos base = getValidScaffoldBase(world, candidate.getX(), candidate.getZ(), targetY);
-			if (base != null) {
-				return base;
-			}
-		}
+		for (int[] cand : fallbackCandidates) {
+			int cx = cand[0];
+			int cz = cand[1];
 
-		for (int i = 0; i < 4; i++) {
-			BlockPos candidate = targetPos.add(dx[i], 0, dz[i]);
-			BlockPos base = getValidScaffoldBase(world, candidate.getX(), candidate.getZ(), targetY);
-			if (base != null) {
+			BlockPos probePos = new BlockPos(cx, targetY, cz);
+			if (this.currentSession != null && !this.currentSession.isScaffoldColumnAvailable(probePos, this.minion.getUuid())) {
+				continue;
+			}
+
+			if (isColumnBlacklisted(cx, cz)) {
+				continue;
+			}
+
+			BlockPos base = getValidScaffoldBase(world, cx, cz, targetY);
+			if (base != null && !isBlueprintColumnBlocked(cx, cz, base.getY(), targetY + 2)) {
+				if (this.currentSession != null) {
+					this.currentSession.claimScaffoldColumn(base, this.minion.getUuid());
+				}
 				return base;
 			}
 		}
@@ -1385,34 +1561,31 @@ public class MinionBuildGoal extends Goal {
 		this.workTicks = 0;
 		this.ticksNavigating = 0;
 		this.climbTicks = 0;
+		this.stallTicks = 0;
 
 		// Immediately try to claim the next top-down task for seamless deconstruction
 		ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
 		if (nextTask != null) {
-			int currentY = this.minion.getBlockY();
-			int nextY = nextTask.getWorldPos().getY();
-			boolean elevated = this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld);
-
-			boolean needsDescent = false;
-			if (elevated) {
-				if (currentY - nextY > 2 || Math.abs(currentY - nextY) > 2) {
-					needsDescent = true;
-				} else if (this.activeScaffoldColumn != null) {
-					double colDx = this.activeScaffoldColumn.getX() - nextTask.getWorldPos().getX();
-					double colDz = this.activeScaffoldColumn.getZ() - nextTask.getWorldPos().getZ();
-					if ((colDx * colDx + colDz * colDz) > 12.0D) {
-						needsDescent = true;
-					}
-				}
+			if (isStandingOnPlatform() && isTaskReachableFromPlatform(nextTask)) {
+				// Elevated task chaining: stay elevated on the platform!
+				this.currentTask = nextTask;
+				this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
+				this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+				this.minion.velocityModified = true;
+				this.minion.getLookControl().lookAt(
+					nextTask.getWorldPos().getX() + 0.5D,
+					nextTask.getWorldPos().getY() + 0.5D,
+					nextTask.getWorldPos().getZ() + 0.5D,
+					30.0F,
+					30.0F
+				);
+				return;
 			}
 
-			if (needsDescent) {
+			boolean elevated = this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld);
+			if (elevated) {
 				this.pendingNextTask = nextTask;
-				this.isDescendingScaffolding = true;
-				this.minion.setClimbingScaffolding(false);
-				this.descentTicks = 0;
-				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
-				this.minion.getNavigation().stop();
+				initiateDescent(serverWorld, true);
 			} else {
 				this.currentTask = nextTask;
 				this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
@@ -1422,12 +1595,11 @@ public class MinionBuildGoal extends Goal {
 			// No more tasks: if minion is elevated on scaffolding, descend and tear down scaffolding on descent
 			if (this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld)) {
 				this.pendingNextTask = null;
-				this.isDescendingScaffolding = true;
-				this.minion.setClimbingScaffolding(false);
-				this.descentTicks = 0;
-				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
-				this.minion.getNavigation().stop();
+				initiateDescent(serverWorld, true);
 			} else {
+				if (this.activeScaffoldColumn != null && this.currentSession != null) {
+					this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+				}
 				this.currentTask = null;
 				this.activeScaffoldColumn = null;
 				this.targetScaffoldTopY = -1;
@@ -1483,5 +1655,157 @@ public class MinionBuildGoal extends Goal {
 		return item == Items.DIAMOND_PICKAXE || item == Items.NETHERITE_PICKAXE ||
 			   item == Items.IRON_PICKAXE || item == Items.GOLDEN_PICKAXE ||
 			   item == Items.STONE_PICKAXE || item == Items.WOODEN_PICKAXE;
+	}
+
+	/**
+	 * Aborts vertical scaffolding climb due to overhead ceiling obstruction or stall,
+	 * blacklists the column, and initiates safe descent back to ground.
+	 */
+	private void abortClimbAndDescend(ServerWorld world) {
+		if (this.activeScaffoldColumn != null) {
+			this.blacklistedScaffoldColumns.add(new BlockPos(this.activeScaffoldColumn.getX(), 0, this.activeScaffoldColumn.getZ()));
+			if (this.currentSession != null) {
+				this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+			}
+		}
+		this.isAscendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
+		this.climbTicks = 0;
+		this.stallTicks = 0;
+
+		initiateDescent(world, false);
+
+		world.playSound(
+			null,
+			this.minion.getX(),
+			this.minion.getY(),
+			this.minion.getZ(),
+			SoundEvents.ENTITY_VILLAGER_NO,
+			SoundCategory.NEUTRAL,
+			0.8F,
+			1.1F
+		);
+		world.spawnParticles(
+			ParticleTypes.SMOKE,
+			this.minion.getX(),
+			this.minion.getY() + 1.5D,
+			this.minion.getZ(),
+			5,
+			0.2,
+			0.2,
+			0.2,
+			0.02
+		);
+	}
+
+	/**
+	 * Initiates a controlled downward descent through a scaffolding column towards safe ground.
+	 *
+	 * @param world        The server world.
+	 * @param demobilizing True if this descent is part of teardown / session completion.
+	 */
+	private void initiateDescent(ServerWorld world, boolean demobilizing) {
+		this.isDescendingScaffolding = true;
+		this.isAscendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
+		this.descentTicks = 0;
+		this.targetScaffoldBottomY = getGroundYBelow(world, this.minion.getBlockPos());
+		this.minion.getNavigation().stop();
+		this.minion.setVelocity(0.0D, -0.22D, 0.0D);
+		this.minion.velocityModified = true;
+		this.minion.fallDistance = 0.0F;
+	}
+
+	/**
+	 * Determines whether scaffolding blocks should be dismantled during descent.
+	 * Returns true if in DISMANTLE mode, or if demobilizing (no pending tasks remain or session completed)
+	 * in BUILD mode.
+	 */
+	public boolean shouldTeardownOnDescent() {
+		if (this.currentSession == null || this.activeScaffoldColumn == null) {
+			return false;
+		}
+		if (this.currentSession.isDismantle()) {
+			return true;
+		}
+		return this.pendingNextTask == null || !this.currentSession.isActive();
+	}
+
+	/**
+	 * Checks whether a construction task can be reached and executed directly from the minion's
+	 * current active scaffolding platform without descending or pathfinding along the ground.
+	 *
+	 * @param task The task to evaluate.
+	 * @return true if the task is within horizontal distance <= 4.0 blocks (distSq <= 16.0)
+	 *         and vertical difference <= 2.5 blocks of the platform standing surface.
+	 */
+	public boolean isTaskReachableFromPlatform(ConstructionTask task) {
+		if (task == null || this.activeScaffoldColumn == null || this.targetScaffoldTopY == -1) {
+			return false;
+		}
+
+		double platformCenterX = this.activeScaffoldColumn.getX() + 0.5D;
+		double platformCenterZ = this.activeScaffoldColumn.getZ() + 0.5D;
+		double platformStandingY = (double) this.targetScaffoldTopY + 1.0D;
+
+		BlockPos targetPos = task.getWorldPos();
+		double dx = (targetPos.getX() + 0.5D) - platformCenterX;
+		double dz = (targetPos.getZ() + 0.5D) - platformCenterZ;
+		double horizontalDistSq = dx * dx + dz * dz;
+		double verticalDiff = Math.abs(platformStandingY - (double) targetPos.getY());
+
+		return horizontalDistSq <= 16.0D && verticalDiff <= 2.5D;
+	}
+
+	/**
+	 * Checks whether the minion is currently standing on top of its active scaffolding platform.
+	 */
+	public boolean isStandingOnPlatform() {
+		if (this.activeScaffoldColumn == null || this.targetScaffoldTopY == -1) {
+			return false;
+		}
+		if (this.isAscendingScaffolding || this.isDescendingScaffolding) {
+			return false;
+		}
+		double scCenterX = this.activeScaffoldColumn.getX() + 0.5D;
+		double scCenterZ = this.activeScaffoldColumn.getZ() + 0.5D;
+		double dx = this.minion.getX() - scCenterX;
+		double dz = this.minion.getZ() - scCenterZ;
+		double distSq = dx * dx + dz * dz;
+		double expectedY = (double) this.targetScaffoldTopY + 1.0D;
+		return distSq <= 1.0D && Math.abs(this.minion.getY() - expectedY) <= 0.6D;
+	}
+
+	public boolean isAscendingScaffolding() {
+		return this.isAscendingScaffolding;
+	}
+
+	public boolean isDescendingScaffolding() {
+		return this.isDescendingScaffolding;
+	}
+
+	public BlockPos getActiveScaffoldColumn() {
+		return this.activeScaffoldColumn;
+	}
+
+	public int getTargetScaffoldTopY() {
+		return this.targetScaffoldTopY;
+	}
+
+	public int getTargetScaffoldBottomY() {
+		return this.targetScaffoldBottomY;
+	}
+
+	public Set<BlockPos> getBlacklistedScaffoldColumns() {
+		return Collections.unmodifiableSet(this.blacklistedScaffoldColumns);
+	}
+
+	public boolean isColumnBlacklisted(int x, int z) {
+		for (BlockPos p : this.blacklistedScaffoldColumns) {
+			if (p.getX() == x && p.getZ() == z) {
+				return true;
+			}
+		}
+		return false;
 	}
 }

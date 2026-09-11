@@ -6,6 +6,7 @@ import com.example.entity.custom.MinionEntity;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -61,6 +62,7 @@ public class ConstructionSession {
 	private final long createdTick;
 	private long lastActivityTick;
 	private final Set<BlockPos> temporaryScaffolding = ConcurrentHashMap.newKeySet();
+	private final Map<BlockPos, UUID> claimedScaffoldColumns = new ConcurrentHashMap<>();
 
 	/**
 	 * Creates a new ConstructionSession anchored at the specified world coordinate in default BUILD mode.
@@ -411,6 +413,15 @@ public class ConstructionSession {
 				task.release();
 			}
 		}
+
+		// Prune orphaned column reservations for minions with no remaining claimed tasks
+		java.util.Set<UUID> activeClaimants = new java.util.HashSet<>();
+		for (ConstructionTask task : this.tasks) {
+			if (task.isClaimed() && task.getClaimedBy() != null) {
+				activeClaimants.add(task.getClaimedBy());
+			}
+		}
+		this.claimedScaffoldColumns.values().removeIf(claimant -> !activeClaimants.contains(claimant));
 	}
 
 	/**
@@ -423,6 +434,7 @@ public class ConstructionSession {
 				task.release();
 			}
 		}
+		this.claimedScaffoldColumns.clear();
 	}
 
 	/**
@@ -527,5 +539,181 @@ public class ConstructionSession {
 			}
 		}
 		this.temporaryScaffolding.clear();
+		this.claimedScaffoldColumns.clear();
+	}
+
+	/**
+	 * Checks whether a vertical scaffolding column at the specified coordinate is available
+	 * for reservation by a minion thrall (unclaimed, or already claimed by this exact minion).
+	 *
+	 * @param pos        World position identifying the column (matched by X and Z).
+	 * @param minionUuid Requesting minion thrall UUID.
+	 * @return True if available for reservation or already held by this minion.
+	 */
+	public synchronized boolean isScaffoldColumnAvailable(BlockPos pos, UUID minionUuid) {
+		if (pos == null) {
+			return false;
+		}
+		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
+			BlockPos claimed = entry.getKey();
+			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
+				return minionUuid != null && minionUuid.equals(entry.getValue());
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Checks whether a scaffolding column coordinate is currently claimed by any minion.
+	 *
+	 * @param pos World position identifying the column (matched by X and Z).
+	 * @return True if claimed by any minion.
+	 */
+	public synchronized boolean isScaffoldColumnClaimed(BlockPos pos) {
+		if (pos == null) {
+			return false;
+		}
+		for (BlockPos claimed : this.claimedScaffoldColumns.keySet()) {
+			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Retrieves the UUID of the minion worker holding a reservation for the column at (X, Z).
+	 *
+	 * @param pos World position identifying the column.
+	 * @return The holding minion's UUID, or null if unreserved.
+	 */
+	public synchronized UUID getScaffoldColumnClaimant(BlockPos pos) {
+		if (pos == null) {
+			return null;
+		}
+		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
+			BlockPos claimed = entry.getKey();
+			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
+				return entry.getValue();
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Attempts to reserve a vertical scaffolding column at the given position for a minion.
+	 * Multiple builders working on the same structure reserve separate column bases on
+	 * different perimeter faces to prevent stacking, kinematic collisions, and ladder blocking.
+	 *
+	 * @param pos        World position of the column base.
+	 * @param minionUuid UUID of the minion claiming this column.
+	 * @return True if the claim succeeded or was already held by this minion; false if claimed by another.
+	 */
+	public synchronized boolean claimScaffoldColumn(BlockPos pos, UUID minionUuid) {
+		if (pos == null || minionUuid == null) {
+			return false;
+		}
+		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
+			BlockPos claimed = entry.getKey();
+			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
+				if (minionUuid.equals(entry.getValue())) {
+					return true;
+				}
+				return false;
+			}
+		}
+		this.claimedScaffoldColumns.put(pos.toImmutable(), minionUuid);
+		return true;
+	}
+
+	/**
+	 * Releases a previously claimed scaffolding column reservation.
+	 *
+	 * @param pos        World position of the column base.
+	 * @param minionUuid UUID of the minion releasing the column, or null to force-release.
+	 * @return True if a reservation was removed.
+	 */
+	public synchronized boolean releaseScaffoldColumn(BlockPos pos, UUID minionUuid) {
+		if (pos == null) {
+			return false;
+		}
+		BlockPos toRemove = null;
+		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
+			BlockPos claimed = entry.getKey();
+			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
+				if (minionUuid == null || minionUuid.equals(entry.getValue())) {
+					toRemove = claimed;
+					break;
+				}
+			}
+		}
+		if (toRemove != null) {
+			this.claimedScaffoldColumns.remove(toRemove);
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Releases a previously claimed scaffolding column reservation regardless of holder.
+	 *
+	 * @param pos World position of the column base.
+	 * @return True if a reservation was removed.
+	 */
+	public synchronized boolean releaseScaffoldColumn(BlockPos pos) {
+		return releaseScaffoldColumn(pos, null);
+	}
+
+	/**
+	 * Releases all scaffolding column reservations held by the specified minion.
+	 *
+	 * @param minionUuid UUID of the minion whose column claims should be released.
+	 */
+	public synchronized void releaseScaffoldColumnsForMinion(UUID minionUuid) {
+		if (minionUuid == null) {
+			return;
+}
+		this.claimedScaffoldColumns.values().removeIf(uuid -> uuid.equals(minionUuid));
+	}
+
+	/**
+	 * Checks if the specified minion currently holds any active scaffold column reservation.
+	 *
+	 * @param minionUuid UUID of the minion thrall.
+	 * @return True if the minion has reserved at least one column.
+	 */
+	public synchronized boolean isScaffoldColumnClaimedBy(UUID minionUuid) {
+		if (minionUuid == null) {
+			return false;
+		}
+		return this.claimedScaffoldColumns.containsValue(minionUuid);
+	}
+
+	/**
+	 * Returns an unmodifiable map view of all claimed scaffolding columns and their worker UUIDs.
+	 *
+	 * @return Map of BlockPos to minion UUID.
+	 */
+	public Map<BlockPos, UUID> getClaimedScaffoldColumns() {
+		return Collections.unmodifiableMap(this.claimedScaffoldColumns);
+	}
+
+	/**
+	 * Checks if a minion thrall is actively engaged in this session, either holding a claimed
+	 * task or a reserved scaffolding column.
+	 *
+	 * @param minionUuid The minion's unique ID.
+	 * @return True if actively engaged in this session.
+	 */
+	public synchronized boolean isMinionEngaged(UUID minionUuid) {
+		if (minionUuid == null || this.status != SessionStatus.ACTIVE) {
+			return false;
+		}
+		for (ConstructionTask task : this.tasks) {
+			if (task.isClaimed() && minionUuid.equals(task.getClaimedBy())) {
+				return true;
+			}
+		}
+		return this.claimedScaffoldColumns.containsValue(minionUuid);
 	}
 }

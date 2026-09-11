@@ -232,4 +232,20 @@ public enum SquadGroup implements StringIdentifiable {
 		}
 		return squads.get((index - 1 + squads.size()) % squads.size());
 	}
+
+	/**
+	 * Resolves the RGB integer outline color for this squad channel,
+	 * used for rendering glowing unit silhouettes.
+	 *
+	 * @return Hex RGB color value.
+	 */
+	public int getOutlineColor() {
+		return switch (this) {
+			case ALPHA -> 0xE74C3C;   // Bright Tactical Red
+			case BRAVO -> 0x3498DB;   // Vibrant Arcane Blue
+			case CHARLIE -> 0x2ECC71; // Vivid Emerald Green
+			case DELTA -> 0xF39C12;   // Radiant Royal Gold
+			case ALL -> 0xFFFFFF;     // Pure White
+		};
+	}
 }

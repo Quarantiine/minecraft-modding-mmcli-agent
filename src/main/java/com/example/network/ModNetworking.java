@@ -37,6 +37,7 @@ public class ModNetworking {
 		PayloadTypeRegistry.playC2S().register(UpdateMinionConfigPayload.ID, UpdateMinionConfigPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(DismissMinionPayload.ID, DismissMinionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(TeleportMinionPayload.ID, TeleportMinionPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(DeselectMinionsPayload.ID, DeselectMinionsPayload.PACKET_CODEC);
 	}
 
 	/**
@@ -59,6 +60,10 @@ public class ModNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(TeleportMinionPayload.ID, (payload, context) -> {
 			ServerPlayerEntity player = context.player();
 			context.server().execute(() -> handleTeleportMinion(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(DeselectMinionsPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleDeselectMinions(player, payload));
 		});
 	}
 
@@ -294,6 +299,29 @@ public class ModNetworking {
 						true
 					);
 				}
+			}
+		}
+	}
+
+	/**
+	 * Handles minion deselection requests from client GUIs and shortcuts.
+	 * Deselects all owned minions or a specific minion, anchoring them at their posts without sitting.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The deselection payload.
+	 */
+	private static void handleDeselectMinions(ServerPlayerEntity player, DeselectMinionsPayload payload) {
+		if (player == null || payload == null) {
+			return;
+		}
+
+		ServerWorld world = player.getServerWorld();
+		if (payload.deselectAll() || payload.minionId() < 0) {
+			CommandScepterItem.deselectAllMinions(player, world);
+		} else {
+			Entity entity = world.getEntityById(payload.minionId());
+			if (entity instanceof MinionEntity minion && minion.isOwner(player)) {
+				CommandScepterItem.toggleMinionSelection(player, minion);
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package com.example.client.gui;
 
 import com.example.blueprint.BlueprintRegistry;
 import com.example.blueprint.StructureBlueprint;
+import com.example.client.ExampleModClient;
 import com.example.client.network.ModClientNetworking;
 import com.example.component.CommandMode;
 import com.example.component.SquadGroup;
@@ -10,15 +11,19 @@ import com.example.item.custom.CommandScepterItem;
 import com.example.network.UpdateScepterPayload;
 import java.util.ArrayList;
 import java.util.List;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockBox;
+import org.lwjgl.glfw.GLFW;
 
 /**
  * Interactive Client GUI for the Loki Command Scepter.
@@ -38,6 +43,7 @@ public class CommandScepterScreen extends Screen {
 	private String selectedBlueprintId;
 	private SquadGroup selectedSquad;
 	private int nearbyThralls = 0;
+	private int nearbySelectedThralls = 0;
 	private int blueprintPage = 0;
 
 	private final List<ButtonWidget> squadButtons = new ArrayList<>();
@@ -46,13 +52,32 @@ public class CommandScepterScreen extends Screen {
 	private ButtonWidget prevPageBtn;
 	private ButtonWidget nextPageBtn;
 
+	// Open-state guard to prevent immediate dismissals when opening via sneak-right-click
+	private boolean shiftHeldOnOpen = false;
+	private boolean initializedOpenState = false;
+	private boolean closed = false;
+
 	public CommandScepterScreen(Hand hand, ItemStack scepterStack) {
 		super(Text.translatable("gui.modid-mmcli-agent-modding.command_hub.title"));
 		this.hand = hand;
 		this.scepterStack = scepterStack;
-		this.selectedMode = CommandScepterItem.getMode(scepterStack);
-		this.selectedBlueprintId = CommandScepterItem.getBlueprintId(scepterStack);
-		this.selectedSquad = CommandScepterItem.getTargetSquad(scepterStack);
+		if (scepterStack != null && !scepterStack.isEmpty()) {
+			this.selectedMode = CommandScepterItem.getMode(scepterStack);
+			this.selectedBlueprintId = CommandScepterItem.getBlueprintId(scepterStack);
+			this.selectedSquad = CommandScepterItem.getTargetSquad(scepterStack);
+		} else {
+			this.selectedMode = CommandMode.FOLLOW;
+			this.selectedBlueprintId = "modid-mmcli-agent-modding:watchtower";
+			this.selectedSquad = SquadGroup.ALL;
+		}
+		this.shiftHeldOnOpen = isShiftOrSneakDown();
+	}
+
+	/**
+	 * Headless / testing constructor initializing the Command Hub screen with default settings.
+	 */
+	public CommandScepterScreen() {
+		this(Hand.MAIN_HAND, null);
 	}
 
 	@Override
@@ -62,13 +87,23 @@ public class CommandScepterScreen extends Screen {
 		this.modeButtons.clear();
 		this.blueprintButtons.clear();
 
-		// Count nearby owned minions
+		// Detect physical sneak/shift state on initial opening with state guard
+		if (!this.initializedOpenState) {
+			if (!this.shiftHeldOnOpen) {
+				this.shiftHeldOnOpen = isShiftOrSneakDown();
+			}
+			this.initializedOpenState = true;
+		}
+
+		// Count nearby owned minions and selected units
 		if (this.client != null && this.client.world != null && this.client.player != null) {
-			this.nearbyThralls = this.client.world.getEntitiesByClass(
+			List<MinionEntity> minions = this.client.world.getEntitiesByClass(
 				MinionEntity.class,
 				this.client.player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS),
 				m -> m.isAlive() && m.isOwner(this.client.player)
-			).size();
+			);
+			this.nearbyThralls = minions.size();
+			this.nearbySelectedThralls = (int) minions.stream().filter(MinionEntity::isSelected).count();
 		}
 
 		int startX = (this.width - WINDOW_WIDTH) / 2;
@@ -164,22 +199,35 @@ public class CommandScepterScreen extends Screen {
 
 		updateBlueprintButtons();
 
-		// Action Buttons: Execute Directive, Teleport Minions, Dismiss All Minions, & Close
+		// Action Buttons: Execute Directive, Deselect All, Teleport Minions, Dismiss All Minions, & Close
 		int bottomY = startY + 216;
 		ButtonWidget executeBtn = ButtonWidget.builder(
 			Text.translatable("gui.modid-mmcli-agent-modding.command_hub.execute"),
 			b -> executeDirective()
-		).dimensions(startX + 14, bottomY, 74, 20).build();
+		).dimensions(startX + 14, bottomY, 58, 20).build();
 		this.addDrawableChild(executeBtn);
 
+		ButtonWidget deselectBtn = ButtonWidget.builder(
+			Text.literal("§e✕ Deselect"),
+			b -> {
+				ModClientNetworking.sendDeselectAllMinions();
+				this.close();
+			}
+		)
+		.dimensions(startX + 76, bottomY, 62, 20)
+		.tooltip(Tooltip.of(Text.literal("Deselect all nearby minions and anchor them at their posts")))
+		.build();
+		deselectBtn.active = this.nearbyThralls > 0;
+		this.addDrawableChild(deselectBtn);
+
 		ButtonWidget teleportBtn = ButtonWidget.builder(
-			Text.literal("§d✦ ").append(Text.translatable("gui.modid-mmcli-agent-modding.command_hub.teleport_all")),
+			Text.literal("§d✦ Teleport"),
 			b -> {
 				ModClientNetworking.sendTeleportAllMinions();
 				this.close();
 			}
 		)
-		.dimensions(startX + 92, bottomY, 78, 20)
+		.dimensions(startX + 142, bottomY, 60, 20)
 		.tooltip(Tooltip.of(this.nearbyThralls > 0
 			? Text.literal("§dTeleport all " + this.nearbyThralls + " nearby owned minion(s) to you")
 			: Text.translatable("message.modid-mmcli-agent-modding.no_minions_to_teleport")))
@@ -188,13 +236,13 @@ public class CommandScepterScreen extends Screen {
 		this.addDrawableChild(teleportBtn);
 
 		ButtonWidget dismissBtn = ButtonWidget.builder(
-			Text.literal("§c✖ ").append(Text.translatable("gui.modid-mmcli-agent-modding.command_hub.dismiss_all")),
+			Text.literal("§c✖ Dismiss"),
 			b -> {
 				ModClientNetworking.sendDismissAllMinions();
 				this.close();
 			}
 		)
-		.dimensions(startX + 174, bottomY, 78, 20)
+		.dimensions(startX + 206, bottomY, 58, 20)
 		.tooltip(Tooltip.of(this.nearbyThralls > 0
 			? Text.literal("§cDismiss all " + this.nearbyThralls + " nearby owned minion(s) and drop equipment")
 			: Text.translatable("message.modid-mmcli-agent-modding.no_minions_to_dismiss")))
@@ -205,7 +253,10 @@ public class CommandScepterScreen extends Screen {
 		ButtonWidget closeBtn = ButtonWidget.builder(
 			Text.translatable("gui.modid-mmcli-agent-modding.command_hub.close"),
 			b -> this.close()
-		).dimensions(startX + 256, bottomY, 70, 20).build();
+		)
+		.dimensions(startX + 268, bottomY, 58, 20)
+		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.command_hub.close_desc")))
+		.build();
 		this.addDrawableChild(closeBtn);
 	}
 
@@ -338,6 +389,11 @@ public class CommandScepterScreen extends Screen {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+		// Zero-latency release transition check: clear open-state guard as soon as physical shift is released
+		if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
+			this.shiftHeldOnOpen = false;
+		}
+
 		this.renderBackground(context, mouseX, mouseY, delta);
 
 		int startX = (this.width - WINDOW_WIDTH) / 2;
@@ -357,11 +413,17 @@ public class CommandScepterScreen extends Screen {
 			0xFFFFFF
 		);
 
+		// Subtle header UX indicator for Shift-to-close fast exit
+		Text shiftCloseText = Text.literal("§e[Shift] §7Close");
+		int shiftCloseWidth = this.textRenderer.getWidth(shiftCloseText);
+		context.drawTextWithShadow(this.textRenderer, shiftCloseText, startX + WINDOW_WIDTH - shiftCloseWidth - 10, startY + 6, 0xE0E0E0);
+
 		// Subheader: Nearby thrall statistics & active squad channel
 		String thrallColor = this.nearbyThralls > 0 ? "§a" : "§c";
+		String selectedColor = this.nearbySelectedThralls > 0 ? "§e" : "§7";
 		context.drawCenteredTextWithShadow(
 			this.textRenderer,
-			Text.literal("§7Thralls: " + thrallColor + this.nearbyThralls + " §8| §7Channel: " + this.selectedSquad.getFormattedName() + " §8| §7Radius: §f32b"),
+			Text.literal("§7Thralls: " + thrallColor + this.nearbyThralls + " §8| §7Selected: " + selectedColor + this.nearbySelectedThralls + " §8| §7Channel: " + this.selectedSquad.getFormattedName()),
 			this.width / 2,
 			startY + 18,
 			0xAAAAAA
@@ -448,6 +510,211 @@ public class CommandScepterScreen extends Screen {
 		);
 
 		super.render(context, mouseX, mouseY, delta);
+	}
+
+	@Override
+	public void tick() {
+		super.tick();
+		// Periodic zero-latency fallback to clear shiftHeldOnOpen
+		if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
+			this.shiftHeldOnOpen = false;
+		}
+	}
+
+	@Override
+	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+		// 1. Shift or Sneak Key handling with open-state guard
+		if (isShiftOrSneakKey(keyCode, scanCode)) {
+			if (this.shiftHeldOnOpen) {
+				// Player opened GUI via sneak-right-click and Shift is still held.
+				// Suppress immediate close and absorb GLFW key repeats.
+				return true;
+			}
+			// Shift pressed while GUI was already open -> fast dismiss
+			this.close();
+			return true;
+		}
+
+		// 2. Command Hub hotkey toggle ('V')
+		if (isCommandHubKey(keyCode, scanCode)) {
+			this.close();
+			return true;
+		}
+
+		// 3. Inventory key toggle ('E')
+		if (isInventoryKey(keyCode, scanCode)) {
+			this.close();
+			return true;
+		}
+
+		// 4. Default key handling (handles Escape to close via Screen.keyPressed)
+		return super.keyPressed(keyCode, scanCode, modifiers);
+	}
+
+	@Override
+	public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+		if (isShiftOrSneakKey(keyCode, scanCode)) {
+			this.shiftHeldOnOpen = false;
+		}
+		if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
+			this.shiftHeldOnOpen = false;
+		}
+		return super.keyReleased(keyCode, scanCode, modifiers);
+	}
+
+	@Override
+	public void close() {
+		this.closed = true;
+		if (this.client != null) {
+			super.close();
+		}
+	}
+
+	/**
+	 * Checks whether Left Shift, Right Shift, or the configured sneak key is physically held down.
+	 *
+	 * @return True if a shift or sneak key is physically pressed, false otherwise.
+	 */
+	public boolean isShiftOrSneakDown() {
+		try {
+			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
+			if (mc != null && mc.getWindow() != null) {
+				long handle = mc.getWindow().getHandle();
+				if (handle != 0L) {
+					if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_LEFT_SHIFT)
+						|| InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_RIGHT_SHIFT)) {
+						return true;
+					}
+					if (mc.options != null && mc.options.sneakKey != null) {
+						InputUtil.Key boundKey = KeyBindingHelper.getBoundKeyOf(mc.options.sneakKey);
+						if (boundKey != null && boundKey.getCategory() == InputUtil.Type.KEYSYM) {
+							int code = boundKey.getCode();
+							if (code > 0 && InputUtil.isKeyPressed(handle, code)) {
+								return true;
+							}
+						}
+					}
+				}
+			}
+		} catch (Throwable ignored) {
+			// Graceful fallback for headless or uninitialized test environments
+		}
+		return false;
+	}
+
+	/**
+	 * Checks if the given GLFW keycode / scancode corresponds to Shift or the player's configured sneak key.
+	 *
+	 * @param keyCode GLFW keycode.
+	 * @param scanCode Physical scancode.
+	 * @return True if matching Left/Right Shift or Sneak.
+	 */
+	public boolean isShiftOrSneakKey(int keyCode, int scanCode) {
+		if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT || keyCode == GLFW.GLFW_KEY_RIGHT_SHIFT) {
+			return true;
+		}
+		try {
+			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
+			if (mc != null && mc.options != null && mc.options.sneakKey != null) {
+				if (mc.options.sneakKey.matchesKey(keyCode, scanCode)) {
+					return true;
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return false;
+	}
+
+	/**
+	 * Checks if the given GLFW keycode / scancode corresponds to the Command Hub toggle key (default 'V').
+	 *
+	 * @param keyCode GLFW keycode.
+	 * @param scanCode Physical scancode.
+	 * @return True if matching Command Hub keybinding or GLFW_KEY_V.
+	 */
+	public boolean isCommandHubKey(int keyCode, int scanCode) {
+		try {
+			if (ExampleModClient.commandHubKey != null && ExampleModClient.commandHubKey.matchesKey(keyCode, scanCode)) {
+				return true;
+			}
+		} catch (Throwable ignored) {
+		}
+		return keyCode == GLFW.GLFW_KEY_V;
+	}
+
+	/**
+	 * Checks if the given GLFW keycode / scancode corresponds to the Inventory key (default 'E').
+	 *
+	 * @param keyCode GLFW keycode.
+	 * @param scanCode Physical scancode.
+	 * @return True if matching inventory keybinding or GLFW_KEY_E.
+	 */
+	public boolean isInventoryKey(int keyCode, int scanCode) {
+		try {
+			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
+			if (mc != null && mc.options != null && mc.options.inventoryKey != null) {
+				if (mc.options.inventoryKey.matchesKey(keyCode, scanCode)) {
+					return true;
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return keyCode == GLFW.GLFW_KEY_E;
+	}
+
+	/**
+	 * Returns whether Shift was held down when this screen was first opened.
+	 *
+	 * @return True if Shift was held during screen opening, suppressing immediate closure.
+	 */
+	public boolean isShiftHeldOnOpen() {
+		return this.shiftHeldOnOpen;
+	}
+
+	/**
+	 * Sets the open-state guard flag for Shift and marks initialization complete.
+	 *
+	 * @param shiftHeldOnOpen Whether Shift should be treated as held on screen opening.
+	 */
+	public void setShiftHeldOnOpen(boolean shiftHeldOnOpen) {
+		this.shiftHeldOnOpen = shiftHeldOnOpen;
+		this.initializedOpenState = true;
+	}
+
+	/**
+	 * Returns whether this screen has been closed.
+	 *
+	 * @return True if {@link #close()} has been invoked.
+	 */
+	public boolean isClosed() {
+		return this.closed;
+	}
+
+	/**
+	 * Manually sets the closed state of this screen.
+	 *
+	 * @param closed True to mark the screen as closed.
+	 */
+	public void setClosed(boolean closed) {
+		this.closed = closed;
+	}
+
+	/**
+	 * Returns whether the screen's initial opening state has been captured.
+	 *
+	 * @return True if open-state guard has run once.
+	 */
+	public boolean isInitializedOpenState() {
+		return this.initializedOpenState;
+	}
+
+	/**
+	 * Sets whether the screen's initial opening state has been captured.
+	 *
+	 * @param initializedOpenState True if open-state initialization has completed.
+	 */
+	public void setInitializedOpenState(boolean initializedOpenState) {
+		this.initializedOpenState = initializedOpenState;
 	}
 
 	@Override

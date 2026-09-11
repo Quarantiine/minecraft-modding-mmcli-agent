@@ -86,6 +86,7 @@
   "message.modid-mmcli-agent-modding.no_minions_to_teleport": "No owned minions found nearby to teleport.",
   "tooltip.modid-mmcli-agent-modding.command_hub.teleport_desc": "Teleport all %s nearby owned minion(s) to you.",
   "tooltip.modid-mmcli-agent-modding.command_hub.dismiss_desc": "Dismiss all %s nearby owned minion(s) and drop equipment.",
+  "tooltip.modid-mmcli-agent-modding.command_hub.close_desc": "Close the Command Hub [Shift / Esc / E]",
   "tooltip.modid-mmcli-agent-modding.minion_screen.teleport_desc": "Teleports this minion directly to your current position.",
   "tooltip.modid-mmcli-agent-modding.minion_screen.dismiss_desc": "Dismisses this minion, releasing all held and equipped gear.",
   "tooltip.modid-mmcli-agent-modding.minion.sneak_right_click": "Sneak + Right-Click: Open Minion Inventory & Equipment"

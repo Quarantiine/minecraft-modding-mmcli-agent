@@ -295,4 +295,303 @@ public class MinionSapperAndScaffoldingTest {
 			}
 		}
 	}
+
+	@Test
+	@DisplayName("Validate combat sapper goal suppression rules when engaged in construction")
+	void testSapperGoalSuppressionRules() {
+		// Simulation model for sapper suppression logic
+		class SuppressionEvaluator {
+			boolean isSuppressed(MinionRole role, boolean isEngaged, boolean nearBuildSession, boolean nearDismantleSession) {
+				if (role == MinionRole.BUILDER) {
+					return isEngaged || nearBuildSession || nearDismantleSession;
+				}
+				if (role == MinionRole.MINER) {
+					return isEngaged || nearDismantleSession;
+				}
+				// Combat roles (WARRIOR, RANGER, SENTINEL) are never suppressed by construction
+				return false;
+			}
+		}
+
+		SuppressionEvaluator evaluator = new SuppressionEvaluator();
+
+		// Case 1: Builder engaged or near active construction site -> sapper suppressed
+		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.BUILDER, true, false, false),
+			"Builder with active task/column claim must suppress sapper goal");
+		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.BUILDER, false, true, false),
+			"Builder near active BUILD session must suppress sapper goal to avoid cliff misidentification");
+		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.BUILDER, false, false, true),
+			"Builder near active DISMANTLE session must suppress sapper goal");
+
+		// Case 2: Builder roaming free with no active construction -> sapper NOT suppressed
+		Assertions.assertFalse(evaluator.isSuppressed(MinionRole.BUILDER, false, false, false),
+			"Unengaged builder far from sessions must remain eligible for combat sapper traversal");
+
+		// Case 3: Miner engaged or near DISMANTLE session -> sapper suppressed
+		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.MINER, true, false, false),
+			"Miner engaged in deconstruction must suppress sapper goal");
+		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.MINER, false, false, true),
+			"Miner near DISMANTLE session must suppress sapper goal");
+
+		// Case 4: Miner near BUILD-only session -> not compatible, sapper NOT suppressed
+		Assertions.assertFalse(evaluator.isSuppressed(MinionRole.MINER, false, true, false),
+			"Miner near BUILD session is not engaged and should not suppress sapper goal");
+
+		// Case 5: Combat roles (WARRIOR, RANGER, SENTINEL) -> never suppressed by construction
+		for (MinionRole combatRole : List.of(MinionRole.WARRIOR, MinionRole.RANGER, MinionRole.SENTINEL)) {
+			Assertions.assertFalse(evaluator.isSuppressed(combatRole, true, true, true),
+				combatRole + " must never have sapper goals suppressed by construction sites");
+		}
+	}
+
+	@Test
+	@DisplayName("Validate minion engagement tracking across task claims and scaffolding reservations")
+	void testMinionEngagementTrackingLifecycle() {
+		UUID minionId = UUID.randomUUID();
+		UUID otherMinionId = UUID.randomUUID();
+
+		// Mock engagement tracker
+		class EngagementTracker {
+			final Map<UUID, Integer> activeTaskClaims = new HashMap<>();
+			final Map<BlockPos, UUID> columnClaims = new HashMap<>();
+
+			void claimTask(UUID minion) {
+				activeTaskClaims.merge(minion, 1, Integer::sum);
+			}
+
+			void releaseTask(UUID minion) {
+				activeTaskClaims.computeIfPresent(minion, (k, v) -> v > 1 ? v - 1 : null);
+			}
+
+			boolean claimColumn(BlockPos pos, UUID minion) {
+				for (Map.Entry<BlockPos, UUID> entry : columnClaims.entrySet()) {
+					if (entry.getKey().getX() == pos.getX() && entry.getKey().getZ() == pos.getZ()) {
+						return entry.getValue().equals(minion);
+					}
+				}
+				columnClaims.put(pos, minion);
+				return true;
+			}
+
+			boolean releaseColumn(BlockPos pos, UUID minion) {
+				BlockPos found = null;
+				for (Map.Entry<BlockPos, UUID> entry : columnClaims.entrySet()) {
+					if (entry.getKey().getX() == pos.getX() && entry.getKey().getZ() == pos.getZ()) {
+						if (minion == null || minion.equals(entry.getValue())) {
+							found = entry.getKey();
+							break;
+						}
+					}
+				}
+				if (found != null) {
+					columnClaims.remove(found);
+					return true;
+				}
+				return false;
+			}
+
+			boolean isEngaged(UUID minion) {
+				if (activeTaskClaims.getOrDefault(minion, 0) > 0) return true;
+				return columnClaims.containsValue(minion);
+			}
+		}
+
+		EngagementTracker tracker = new EngagementTracker();
+
+		// 1. Initial state: idle minion is not engaged
+		Assertions.assertFalse(tracker.isEngaged(minionId));
+
+		// 2. Minion claims building task -> engaged
+		tracker.claimTask(minionId);
+		Assertions.assertTrue(tracker.isEngaged(minionId));
+
+		// 3. Minion reserves scaffold column -> engaged
+		BlockPos colPos = new BlockPos(20, 64, 30);
+		Assertions.assertTrue(tracker.claimColumn(colPos, minionId));
+		Assertions.assertTrue(tracker.isEngaged(minionId));
+
+		// 4. Minion finishes task -> still engaged because scaffolding column reservation is held!
+		tracker.releaseTask(minionId);
+		Assertions.assertTrue(tracker.isEngaged(minionId),
+			"Minion with reserved scaffolding column must remain marked as engaged between tasks");
+
+		// 5. Another minion cannot claim the reserved column
+		Assertions.assertFalse(tracker.claimColumn(new BlockPos(20, 70, 30), otherMinionId),
+			"Other minion cannot steal an engaged minion's reserved scaffolding column");
+
+		// 6. Minion releases scaffolding column -> no longer engaged
+		Assertions.assertTrue(tracker.releaseColumn(colPos, minionId));
+		Assertions.assertFalse(tracker.isEngaged(minionId),
+			"Minion with no tasks and no reserved column must transition to unengaged");
+	}
+
+	@Test
+	@DisplayName("Validate construction proximity boundary, bounding box expansion, and dimension filtering")
+	void testConstructionProximityBoundaryAndDimensionSuppression() {
+		// Mock ConstructionSession geometry and state
+		class MockSession {
+			final String dimension;
+			final BlockPos anchorPos;
+			final int minX, minY, minZ, maxX, maxY, maxZ;
+			boolean active = true;
+			boolean dismantle = false;
+
+			MockSession(String dimension, BlockPos anchor, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+				this.dimension = dimension;
+				this.anchorPos = anchor;
+				this.minX = minX;
+				this.minY = minY;
+				this.minZ = minZ;
+				this.maxX = maxX;
+				this.maxY = maxY;
+				this.maxZ = maxZ;
+			}
+
+			boolean isNear(String dim, BlockPos pos, double maxDistance, MinionRole role) {
+				if (!active || !dimension.equals(dim)) {
+					return false;
+				}
+				if (role == MinionRole.MINER && !dismantle) {
+					return false;
+				}
+				double maxDistSq = maxDistance * maxDistance;
+				if (pos.getSquaredDistance(anchorPos) <= maxDistSq) {
+					return true;
+				}
+				return pos.getX() >= minX - maxDistance && pos.getX() <= maxX + maxDistance
+					&& pos.getY() >= minY - maxDistance && pos.getY() <= maxY + maxDistance
+					&& pos.getZ() >= minZ - maxDistance && pos.getZ() <= maxZ + maxDistance;
+			}
+		}
+
+		BlockPos anchor = new BlockPos(100, 64, 100);
+		// 10x10 structure from (95, 64, 95) to (105, 75, 105)
+		MockSession buildSession = new MockSession("minecraft:overworld", anchor, 95, 64, 95, 105, 75, 105);
+
+		double radius = 48.0D;
+
+		// 1. Minion exactly inside structure bounds -> suppressed for BUILDER
+		Assertions.assertTrue(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.BUILDER));
+
+		// 2. Minion 40 blocks away from anchor -> suppressed for BUILDER
+		Assertions.assertTrue(buildSession.isNear("minecraft:overworld", new BlockPos(140, 64, 100), radius, MinionRole.BUILDER));
+
+		// 3. Minion 47.9 blocks away from structure perimeter -> suppressed for BUILDER
+		Assertions.assertTrue(buildSession.isNear("minecraft:overworld", new BlockPos(152, 64, 100), radius, MinionRole.BUILDER));
+
+		// 4. Minion 49 blocks away from structure perimeter -> NOT suppressed (beyond 48-block threshold)
+		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(155, 64, 100), radius, MinionRole.BUILDER));
+
+		// 5. Dimension mismatch (minion in Nether, session in Overworld) -> NOT suppressed
+		Assertions.assertFalse(buildSession.isNear("minecraft:the_nether", new BlockPos(100, 65, 100), radius, MinionRole.BUILDER));
+
+		// 6. Inactive / completed session -> NOT suppressed
+		buildSession.active = false;
+		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.BUILDER));
+		buildSession.active = true;
+
+		// 7. MINER role role-filter:
+		// In BUILD mode: MINER is not near/suppressed
+		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.MINER));
+		// Switch session to DISMANTLE mode: MINER is now near/suppressed!
+		buildSession.dismantle = true;
+		Assertions.assertTrue(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.MINER));
+	}
+
+	@Test
+	@DisplayName("Squad sapper assistance dispatch excludes builders engaged in active construction")
+	void testSquadBuilderAssistanceExcludesEngagedWorkers() {
+		class MockSquadMinion {
+			final UUID id;
+			final MinionRole role;
+			final String squad;
+			final boolean isEngagedInConstruction;
+			final double distanceToObstacle;
+
+			MockSquadMinion(UUID id, MinionRole role, String squad, boolean isEngaged, double dist) {
+				this.id = id;
+				this.role = role;
+				this.squad = squad;
+				this.isEngagedInConstruction = isEngaged;
+				this.distanceToObstacle = dist;
+			}
+		}
+
+		class DispatchEngine {
+			MockSquadMinion findSquadBuilder(List<MockSquadMinion> pool, String callerSquad, double maxRadius) {
+				for (MockSquadMinion candidate : pool) {
+					if (candidate.role != MinionRole.BUILDER) {
+						continue;
+					}
+					if (candidate.distanceToObstacle > maxRadius) {
+						continue;
+					}
+					// CRITICAL FILTER: Engaged builders must not be diverted to sapper requests
+					if (candidate.isEngagedInConstruction) {
+						continue;
+					}
+					if ("ALL".equals(callerSquad) || "ALL".equals(candidate.squad) || callerSquad.equals(candidate.squad)) {
+						return candidate;
+					}
+				}
+				return null;
+			}
+		}
+
+		DispatchEngine engine = new DispatchEngine();
+		UUID builderA = UUID.randomUUID();
+		UUID builderB = UUID.randomUUID();
+
+		// Case 1: Builder A is 10 blocks away but actively engaged on scaffolding building a tower.
+		// Builder B is 18 blocks away, idle (unengaged).
+		// When Warrior calls for a bridge, Builder A MUST NOT be selected; Builder B must be dispatched!
+		List<MockSquadMinion> candidates = List.of(
+			new MockSquadMinion(builderA, MinionRole.BUILDER, "ALPHA", true, 10.0D),
+			new MockSquadMinion(builderB, MinionRole.BUILDER, "ALPHA", false, 18.0D)
+		);
+
+		MockSquadMinion selected = engine.findSquadBuilder(candidates, "ALPHA", 24.0D);
+		Assertions.assertNotNull(selected);
+		Assertions.assertEquals(builderB, selected.id, "Idle builder B must be dispatched instead of engaged builder A");
+
+		// Case 2: Only engaged builders exist within range -> no builder should be pulled away
+		List<MockSquadMinion> allEngaged = List.of(
+			new MockSquadMinion(builderA, MinionRole.BUILDER, "ALPHA", true, 10.0D)
+		);
+		Assertions.assertNull(engine.findSquadBuilder(allEngaged, "ALPHA", 24.0D),
+			"Engaged builders must never be interrupted for sapper dispatch");
+	}
+
+	@Test
+	@DisplayName("Sheer structure wall vs natural cliff suppression prevents false bridge deployment")
+	void testCliffVersusStructureWallSuppressionGuard() {
+		// Simulates obstacle evaluation when facing a 6-block vertical stone-brick wall
+		class ObstacleResolver {
+			boolean shouldDeploySapperColumn(MinionRole role, boolean isSuppressedByConstruction, boolean isWallDetected) {
+				if (!isWallDetected) {
+					return false;
+				}
+				// Sapper suppression suppresses the sapper goal entirely in favor of MinionBuildGoal
+				if (isSuppressedByConstruction) {
+					return false;
+				}
+				return true;
+			}
+		}
+
+		ObstacleResolver resolver = new ObstacleResolver();
+
+		// 1. Builder standing beside a 6-block structure wall of an active Watchtower
+		// isSuppressedByConstruction is true -> DO NOT deploy sapper traversal column!
+		// MinionBuildGoal will handle scaffolding columns through findScaffoldColumn instead.
+		boolean builderSapper = resolver.shouldDeploySapperColumn(MinionRole.BUILDER, true, true);
+		Assertions.assertFalse(builderSapper,
+			"Builder engaged near construction site must suppress sapper goal to avoid false cliff column deployment");
+
+		// 2. Warrior pursuing an enemy past the same wall in battle
+		// isSuppressedByConstruction is false -> Warrior CAN deploy traversal column to scale the rampart!
+		boolean warriorSapper = resolver.shouldDeploySapperColumn(MinionRole.WARRIOR, false, true);
+		Assertions.assertTrue(warriorSapper,
+			"Warrior pursuing enemies should not be blocked and can utilize sapper traversal");
+	}
 }

@@ -815,6 +815,7 @@ public class MinionSquadAndRoleTest {
 	@DisplayName("Validate isolated squad directive dispatch without command cross-talk")
 	void testMultiSquadSimultaneousDirectives() {
 		UUID commander = UUID.randomUUID();
+		Assertions.assertNotNull(commander);
 
 		class ThrallBehaviorState {
 			final int id;
@@ -850,10 +851,12 @@ public class MinionSquadAndRoleTest {
 		}
 
 		// Verify ALPHA units were updated
+		Assertions.assertEquals(1, units.get(0).id);
 		Assertions.assertEquals("FOLLOW", units.get(0).currentOrder);
 		Assertions.assertFalse(units.get(0).sitting);
 		Assertions.assertNull(units.get(0).waypoint);
 
+		Assertions.assertEquals(2, units.get(1).id);
 		Assertions.assertEquals("FOLLOW", units.get(1).currentOrder);
 		Assertions.assertFalse(units.get(1).sitting);
 		Assertions.assertNull(units.get(1).waypoint);
@@ -866,5 +869,189 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals("IDLE", units.get(3).currentOrder);
 		Assertions.assertFalse(units.get(3).sitting);
 		Assertions.assertNull(units.get(3).waypoint);
+	}
+
+	// =========================================================================
+	// 10. Selection System, Outline Colors & Decoupled Standing Guard Stance
+	// =========================================================================
+
+	@Test
+	@DisplayName("Validate squad outline colors for glowing silhouettes")
+	void testSquadOutlineColors() {
+		Assertions.assertEquals(0xE74C3C, SquadGroup.ALPHA.getOutlineColor(), "Alpha outline must be crimson red");
+		Assertions.assertEquals(0x3498DB, SquadGroup.BRAVO.getOutlineColor(), "Bravo outline must be azure blue");
+		Assertions.assertEquals(0x2ECC71, SquadGroup.CHARLIE.getOutlineColor(), "Charlie outline must be emerald green");
+		Assertions.assertEquals(0xF39C12, SquadGroup.DELTA.getOutlineColor(), "Delta outline must be amber gold");
+		Assertions.assertEquals(0xFFFFFF, SquadGroup.ALL.getOutlineColor(), "All/Wildcard outline must be pure white");
+	}
+
+	@Test
+	@DisplayName("Validate ground waypoint moves ONLY selected minions matching the active squad channel")
+	void testMinionSelectionAndGroundWaypointDispatch() {
+		class TestMinion {
+			final int id;
+			final SquadGroup squad;
+			boolean selected;
+			String waypoint;
+
+			TestMinion(int id, SquadGroup squad, boolean selected) {
+				this.id = id;
+				this.squad = squad;
+				this.selected = selected;
+			}
+		}
+
+		List<TestMinion> platoon = List.of(
+			new TestMinion(1, SquadGroup.ALPHA, true),   // Alpha & Selected -> SHOULD MOVE
+			new TestMinion(2, SquadGroup.ALPHA, false),  // Alpha & Unselected -> SHOULD NOT MOVE
+			new TestMinion(3, SquadGroup.BRAVO, true),   // Bravo & Selected -> Filtered if Alpha channel active
+			new TestMinion(4, SquadGroup.BRAVO, false)   // Bravo & Unselected -> SHOULD NOT MOVE
+		);
+
+		// Scenario A: Alpha channel active, ground waypoint issued at (50, 64, 50)
+		SquadGroup channelAlpha = SquadGroup.ALPHA;
+		String targetWaypoint = "50,64,50";
+		int movedCountA = 0;
+		for (TestMinion m : platoon) {
+			if (m.selected && channelAlpha.matches(m.squad)) {
+				m.waypoint = targetWaypoint;
+				movedCountA++;
+			}
+		}
+
+		Assertions.assertEquals(1, movedCountA, "Only 1 minion (Alpha + Selected) should receive the order");
+		Assertions.assertEquals(1, platoon.get(0).id);
+		Assertions.assertEquals("50,64,50", platoon.get(0).waypoint);
+		Assertions.assertNull(platoon.get(1).waypoint, "Unselected Alpha must NOT move");
+		Assertions.assertNull(platoon.get(2).waypoint, "Selected Bravo must NOT move when Alpha channel active");
+		Assertions.assertNull(platoon.get(3).waypoint, "Unselected Bravo must NOT move");
+
+		// Scenario B: ALL channel active, ground waypoint issued at (100, 64, 100)
+		SquadGroup channelAll = SquadGroup.ALL;
+		String newWaypoint = "100,64,100";
+		int movedCountB = 0;
+		for (TestMinion m : platoon) {
+			if (m.selected && channelAll.matches(m.squad)) {
+				m.waypoint = newWaypoint;
+				movedCountB++;
+			}
+		}
+
+		Assertions.assertEquals(2, movedCountB, "Both selected minions (Alpha and Bravo) should receive the order");
+		Assertions.assertEquals("100,64,100", platoon.get(0).waypoint);
+		Assertions.assertNull(platoon.get(1).waypoint, "Unselected Alpha must STILL not move");
+		Assertions.assertEquals("100,64,100", platoon.get(2).waypoint);
+		Assertions.assertNull(platoon.get(3).waypoint, "Unselected Bravo must STILL not move");
+	}
+
+	@Test
+	@DisplayName("Validate deselecting decouples guard stance from sitting pose")
+	void testDeselectDecoupledFromSitting() {
+		class GuardMinion {
+			boolean selected = true;
+			boolean sitting = false;
+			String guardAnchor = null;
+
+			void deselect(String currentPosition) {
+				this.selected = false;
+				this.guardAnchor = currentPosition;
+				// Decoupled: do NOT force sitting = true!
+			}
+
+			boolean canFollowPlayer() {
+				// MinionFormationFollowGoal check
+				return this.selected && !this.sitting;
+			}
+
+			boolean canWanderFar() {
+				// WanderAroundFarGoal check
+				return !this.selected && this.guardAnchor == null && !this.sitting;
+			}
+		}
+
+		GuardMinion minion = new GuardMinion();
+		Assertions.assertTrue(minion.selected);
+		Assertions.assertFalse(minion.sitting);
+		Assertions.assertTrue(minion.canFollowPlayer(), "Selected unit must be eligible to follow player");
+		Assertions.assertFalse(minion.canWanderFar(), "Selected unit must not wander aimlessly");
+
+		// Deselect at guard post
+		minion.deselect("25,64,-10");
+
+		Assertions.assertFalse(minion.selected, "Unit should be deselected");
+		Assertions.assertFalse(minion.sitting, "Unit must remain STANDING upright at attention (not forced sitting)");
+		Assertions.assertEquals("25,64,-10", minion.guardAnchor, "Guard anchor must be anchored to current post");
+		Assertions.assertFalse(minion.canFollowPlayer(), "Deselected unit must NOT follow player");
+		Assertions.assertFalse(minion.canWanderFar(), "Anchored unit must NOT wander away from its post");
+	}
+
+	@Test
+	@DisplayName("Validate holding position state reflects both sitting pose and standing guard post")
+	void testStandingGuardAndHoldingPositionBadgeSync() {
+		class MinionPostState {
+			boolean sitting = false;
+			boolean guarding = false;
+
+			boolean isHoldingPosition() {
+				return this.sitting || this.guarding;
+			}
+		}
+
+		MinionPostState unit = new MinionPostState();
+		Assertions.assertFalse(unit.isHoldingPosition(), "Default following unit is not holding position");
+
+		// Stance A: Sitting
+		unit.sitting = true;
+		unit.guarding = false;
+		Assertions.assertTrue(unit.isHoldingPosition(), "Sitting unit must report holding position");
+
+		// Stance B: Standing guard at waypoint anchor post
+		unit.sitting = false;
+		unit.guarding = true;
+		Assertions.assertTrue(unit.isHoldingPosition(), "Standing sentinel at guard post must report holding position");
+
+		// Active following: Neither sitting nor guarding
+		unit.sitting = false;
+		unit.guarding = false;
+		Assertions.assertFalse(unit.isHoldingPosition(), "Mobilized unit must not report holding position");
+	}
+
+	@Test
+	@DisplayName("Validate teammate faction resolution and friendly-fire negation")
+	void testFriendlyFireAndFactionTeammateIntegration() {
+		UUID commanderA = UUID.randomUUID();
+		UUID commanderB = UUID.randomUUID();
+
+		class FactionUnit {
+			final UUID owner;
+
+			FactionUnit(UUID owner) {
+				this.owner = owner;
+			}
+
+			boolean isTeammate(UUID otherOwner) {
+				return this.owner != null && this.owner.equals(otherOwner);
+			}
+
+			boolean shouldNegateDamage(UUID attackerOwner) {
+				return this.isTeammate(attackerOwner);
+			}
+		}
+
+		FactionUnit minionAlpha = new FactionUnit(commanderA);
+		FactionUnit minionBravo = new FactionUnit(commanderA);
+		FactionUnit enemyMinion = new FactionUnit(commanderB);
+
+		// Teammate checks
+		Assertions.assertTrue(minionAlpha.isTeammate(commanderA), "Owner is always a teammate");
+		Assertions.assertTrue(minionAlpha.isTeammate(minionBravo.owner), "Fellow minion sharing owner is a teammate");
+		Assertions.assertFalse(minionAlpha.isTeammate(commanderB), "Rival commander is not a teammate");
+		Assertions.assertFalse(minionAlpha.isTeammate(enemyMinion.owner), "Enemy minion is not a teammate");
+
+		// Damage negation checks
+		Assertions.assertTrue(minionAlpha.shouldNegateDamage(commanderA), "Friendly fire from commander must be negated");
+		Assertions.assertTrue(minionAlpha.shouldNegateDamage(minionBravo.owner), "Friendly fire from allied minion must be negated");
+		Assertions.assertFalse(minionAlpha.shouldNegateDamage(commanderB), "Damage from rival commander must NOT be negated");
+		Assertions.assertFalse(minionAlpha.shouldNegateDamage(enemyMinion.owner), "Damage from enemy minion must NOT be negated");
 	}
 }

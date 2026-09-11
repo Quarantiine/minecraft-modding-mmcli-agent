@@ -94,26 +94,39 @@ public class MinionOverheadBadgeTest {
 	}
 
 	@Test
-	@DisplayName("Validate inverted overhead Y-translation positioning above head")
+	@DisplayName("Validate selected squad banner formatting with gold star prefix")
+	void testSelectedSquadBanner() {
+		Text unselected = MinionOverheadBadgeFeatureRenderer.getSquadBanner(SquadGroup.ALPHA, false);
+		Assertions.assertEquals("§c⚑ SQUAD ALPHA [I]", unselected.getString());
+
+		Text selected = MinionOverheadBadgeFeatureRenderer.getSquadBanner(SquadGroup.ALPHA, true);
+		Assertions.assertEquals("§6★ §c⚑ SQUAD ALPHA [I]", selected.getString());
+
+		Text selectedBravo = MinionOverheadBadgeFeatureRenderer.getSquadBanner(SquadGroup.BRAVO, true);
+		Assertions.assertEquals("§6★ §9⚑ SQUAD BRAVO [II]", selectedBravo.getString());
+	}
+
+	@Test
+	@DisplayName("Validate upright overhead Y-translation positioning above head")
 	void testOverheadYTranslation() {
 		float defaultHeight = 1.95F;
 
-		// Base translation must be strictly negative (pointing upward in entity model space)
+		// Base translation is in upright world space (above feet, just above top of head with 0.55F clearance to prevent mesh clipping)
 		float standardY = MinionOverheadBadgeFeatureRenderer.getOverheadYTranslation(defaultHeight, false, false);
-		Assertions.assertTrue(standardY < 0.0F, "Standard overhead badge translation must be negative (above head, not feet)");
-		float expectedStandard = -((1.95F + 0.35F) / MinionOverheadBadgeFeatureRenderer.MODEL_SCALE);
+		Assertions.assertTrue(standardY > defaultHeight, "Standard overhead badge translation must be above entity head");
+		float expectedStandard = 1.95F + 0.55F;
 		Assertions.assertEquals(expectedStandard, standardY, 1e-4F);
 
-		// With custom name tag, Y must be more negative (elevated higher to prevent nametag overlap)
+		// With custom name tag, Y is elevated higher (0.85F clearance) to prevent nametag overlap
 		float namedY = MinionOverheadBadgeFeatureRenderer.getOverheadYTranslation(defaultHeight, true, false);
-		Assertions.assertTrue(namedY < standardY, "Custom name tag must elevate the badge higher (more negative Y)");
-		float expectedNamed = -((1.95F + 0.35F + 0.30F) / MinionOverheadBadgeFeatureRenderer.MODEL_SCALE);
+		Assertions.assertTrue(namedY > standardY, "Custom name tag must elevate the badge higher");
+		float expectedNamed = 1.95F + 0.85F;
 		Assertions.assertEquals(expectedNamed, namedY, 1e-4F);
 
-		// When sneaking, Y must be less negative (lowered along with the crouching pose)
+		// When sneaking, Y is lowered along with the crouching pose
 		float sneakingY = MinionOverheadBadgeFeatureRenderer.getOverheadYTranslation(defaultHeight, false, true);
-		Assertions.assertTrue(sneakingY > standardY, "Sneaking pose must lower the badge (less negative Y)");
-		float expectedSneaking = -((1.95F + 0.35F - 0.20F) / MinionOverheadBadgeFeatureRenderer.MODEL_SCALE);
+		Assertions.assertTrue(sneakingY < standardY, "Sneaking pose must lower the badge");
+		float expectedSneaking = 1.95F + 0.55F - 0.20F;
 		Assertions.assertEquals(expectedSneaking, sneakingY, 1e-4F);
 	}
 }

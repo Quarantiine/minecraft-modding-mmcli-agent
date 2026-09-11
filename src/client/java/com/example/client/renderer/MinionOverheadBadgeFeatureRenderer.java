@@ -5,6 +5,7 @@ import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.client.render.entity.feature.FeatureRenderer;
@@ -30,6 +31,14 @@ import org.joml.Matrix4f;
  * <p>
  * Billboards directly toward the active player camera using {@link EntityRenderDispatcher#getRotation()},
  * neutralizing model body yaw and model scale to guarantee uniform label dimensions and orientation across all viewing angles.
+ * <p>
+ * Implements the vanilla two-pass nametag rendering pipeline:
+ * <ul>
+ *   <li><b>Pass 1 (See-Through)</b>: Translucent background plate and translucent text rendered with {@link net.minecraft.client.font.TextRenderer.TextLayerType#SEE_THROUGH}
+ *       allowing visibility through obstructing walls and geometry.</li>
+ *   <li><b>Pass 2 (Normal)</b>: High-contrast non-see-through pass rendered with {@link net.minecraft.client.font.TextRenderer.TextLayerType#NORMAL}
+ *       when the minion is not in a sneaking pose, providing crisp depth-tested text over unobstructed sightlines.</li>
+ * </ul>
  */
 public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEntity, PlayerEntityModel<MinionEntity>> {
 
@@ -94,28 +103,40 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 		if (squad == null) squad = SquadGroup.ALPHA;
 		if (role == null) role = MinionRole.WARRIOR;
 
-		Text squadBannerText = getSquadBanner(squad);
-		Text roleCrestText = getRoleCrest(role, entity.isSitting());
+		Text squadBannerText = getSquadBanner(squad, entity.isSelected());
+		Text roleCrestText = getRoleCrest(role, entity.isHoldingPosition());
 
 		matrices.push();
 
-		// Compute vertical head clearance and invert Y translation so badge renders overhead above head rather than at feet
-		float yTranslation = getOverheadYTranslation(entity.getHeight(), entity.hasCustomName(), entity.isInSneakingPose());
+		// LIFO Matrix Reversal of LivingEntityRenderer transformations:
+		// LivingEntityRenderer applied:
+		// 1. setupTransforms (body yaw rotation: 180.0F - bodyYaw)
+		// 2. scale(-1.0F, -1.0F, 1.0F)
+		// 3. scale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE)
+		// 4. translate(0.0F, -1.501F, 0.0F)
+		//
+		// Invert in strict reverse order to return to upright world-space at the entity's base:
+		// Step 1: Invert translate(0.0F, -1.501F, 0.0F)
+		matrices.translate(0.0F, 1.501F, 0.0F);
 
-		// 1. Translate vertically in model space (negative Y projects upward above entity head in LivingEntityRenderer space)
-		matrices.translate(0.0F, yTranslation, 0.0F);
-
-		// 2. Counteract model scale so badge scale is independent of entity scaling
+		// Step 2: Invert scale(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE)
 		matrices.scale(1.0F / MODEL_SCALE, 1.0F / MODEL_SCALE, 1.0F / MODEL_SCALE);
 
-		// 3. Counteract body yaw rotation applied by LivingEntityRenderer.setupTransforms
+		// Step 3: Invert scale(-1.0F, -1.0F, 1.0F)
+		matrices.scale(-1.0F, -1.0F, 1.0F);
+
+		// Step 4: Invert body yaw rotation
 		float bodyYaw = MathHelper.lerpAngleDegrees(tickDelta, entity.prevBodyYaw, entity.bodyYaw);
 		matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(bodyYaw - 180.0F));
 
-		// 4. Apply camera rotation to achieve full 3D billboarding
+		// Step 5: Translate to overhead position above head in upright world space
+		float yTranslation = getOverheadYTranslation(entity.getHeight(), entity.hasCustomName(), entity.isInSneakingPose());
+		matrices.translate(0.0F, yTranslation, 0.0F);
+
+		// Step 6: Billboard directly toward camera
 		matrices.multiply(this.dispatcher.getRotation());
 
-		// 5. Scale matrix to text coordinate space (invert Y so text is upright)
+		// Step 7: Scale to font coordinate space (-Y so font glyphs render upright)
 		matrices.scale(TEXT_SCALE, -TEXT_SCALE, TEXT_SCALE);
 
 		Matrix4f matrix4f = matrices.peek().getPositionMatrix();
@@ -127,39 +148,69 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 			: 64;
 		int backgroundColor = (backgroundOpacity > 0 ? backgroundOpacity : 64) << 24;
 
-		// Render Line 1: Squad Banner (Top line)
+		// Calculate centered horizontal and vertical text positions
 		float width1 = this.textRenderer.getWidth(squadBannerText);
 		float x1 = -width1 / 2.0F;
 		float y1 = -LINE_SPACING;
+
+		float width2 = this.textRenderer.getWidth(roleCrestText);
+		float x2 = -width2 / 2.0F;
+		float y2 = 0.0F;
+
+		// Vanilla two-pass nametag rendering pipeline:
+		// Pass 1: SEE_THROUGH translucent pass with background plate (color 553648127 / 0x20FFFFFF)
 		this.textRenderer.draw(
 			squadBannerText,
 			x1,
 			y1,
-			-1,
+			553648127,
 			false,
 			matrix4f,
 			vertexConsumers,
-			TextRenderer.TextLayerType.NORMAL,
+			TextRenderer.TextLayerType.SEE_THROUGH,
 			backgroundColor,
-			light
+			LightmapTextureManager.MAX_LIGHT_COORDINATE
 		);
-
-		// Render Line 2: Role Crest & Lettering (Bottom line)
-		float width2 = this.textRenderer.getWidth(roleCrestText);
-		float x2 = -width2 / 2.0F;
-		float y2 = 0.0F;
 		this.textRenderer.draw(
 			roleCrestText,
 			x2,
 			y2,
-			-1,
+			553648127,
 			false,
 			matrix4f,
 			vertexConsumers,
-			TextRenderer.TextLayerType.NORMAL,
+			TextRenderer.TextLayerType.SEE_THROUGH,
 			backgroundColor,
-			light
+			LightmapTextureManager.MAX_LIGHT_COORDINATE
 		);
+
+		// Pass 2: NORMAL non-see-through pass with full opacity text and transparent background (when not sneaking)
+		if (!entity.isInSneakingPose()) {
+			this.textRenderer.draw(
+				squadBannerText,
+				x1,
+				y1,
+				-1,
+				false,
+				matrix4f,
+				vertexConsumers,
+				TextRenderer.TextLayerType.NORMAL,
+				0,
+				LightmapTextureManager.MAX_LIGHT_COORDINATE
+			);
+			this.textRenderer.draw(
+				roleCrestText,
+				x2,
+				y2,
+				-1,
+				false,
+				matrix4f,
+				vertexConsumers,
+				TextRenderer.TextLayerType.NORMAL,
+				0,
+				LightmapTextureManager.MAX_LIGHT_COORDINATE
+			);
+		}
 
 		matrices.pop();
 	}
@@ -171,7 +222,20 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 	 * @return Colored text component representing the squad banner.
 	 */
 	public static Text getSquadBanner(SquadGroup squad) {
-		return Text.literal(squad.getColorCode() + squad.getSquadBanner());
+		return getSquadBanner(squad, false);
+	}
+
+	/**
+	 * Formats the overhead squad banner text containing the flag icon, squad label, Roman numeral designation,
+	 * and an optional gold star indicator when the minion is actively selected.
+	 *
+	 * @param squad      The squad group.
+	 * @param isSelected Whether the minion is currently selected by the commander.
+	 * @return Colored text component representing the squad banner.
+	 */
+	public static Text getSquadBanner(SquadGroup squad, boolean isSelected) {
+		String prefix = isSelected ? "§6★ " : "";
+		return Text.literal(prefix + squad.getColorCode() + squad.getSquadBanner());
 	}
 
 	/**
@@ -197,24 +261,21 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 	}
 
 	/**
-	 * Computes the model-space Y translation for overhead badges.
-	 * In entity model space (which has Y inverted by LivingEntityRenderer.setupTransforms),
-	 * negative Y ascends upward toward and above the entity's head.
+	 * Computes the world-space Y translation for overhead badges above the entity's feet.
+	 * In upright world coordinates (after LIFO reversal of LivingEntityRenderer transformations),
+	 * positive Y ascends upward above the entity's head.
 	 *
 	 * @param height        The base entity height.
 	 * @param hasCustomName Whether the entity has a custom name tag rendered.
 	 * @param isSneaking    Whether the entity is currently sneaking.
-	 * @return The inverted model-space Y offset (strictly negative for overhead positioning).
+	 * @return The upright world-space Y offset directly above the entity head.
 	 */
 	public static float getOverheadYTranslation(float height, boolean hasCustomName, boolean isSneaking) {
-		float baseHeight = height + 0.35F;
-		if (hasCustomName) {
-			baseHeight += 0.30F; // Elevate badge so it stacks cleanly above custom name tags
-		}
+		float headClearance = hasCustomName ? 0.85F : 0.55F;
 		if (isSneaking) {
-			baseHeight -= 0.20F;
+			headClearance -= 0.20F;
 		}
-		return -(baseHeight / MODEL_SCALE);
+		return height + headClearance;
 	}
 
 	public TextRenderer getTextRenderer() {

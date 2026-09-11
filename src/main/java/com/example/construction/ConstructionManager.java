@@ -1,6 +1,8 @@
 package com.example.construction;
 
 import com.example.blueprint.StructureBlueprint;
+import com.example.entity.custom.MinionEntity;
+import com.example.entity.custom.MinionRole;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -400,6 +402,111 @@ public class ConstructionManager {
 		}
 
 		return Optional.ofNullable(nearest);
+	}
+
+	/**
+	 * Checks whether a minion thrall is actively engaged in an ongoing construction or deconstruction
+	 * session, either by holding a claimed building task or reserving a scaffolding column.
+	 *
+	 * @param minionUuid The minion's unique ID.
+	 * @return True if actively engaged in an active session.
+	 */
+	public boolean isMinionEngagedInConstruction(UUID minionUuid) {
+		if (minionUuid == null) {
+			return false;
+		}
+		for (ConstructionSession session : this.activeSessions.values()) {
+			if (session.isActive() && session.isMinionEngaged(minionUuid)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Checks whether a minion thrall is actively engaged in construction or situated within proximity
+	 * of an active construction/deconstruction session owned by their master.
+	 *
+	 * @param minion The minion thrall to evaluate.
+	 * @return True if actively engaged or near an active construction site for their role.
+	 */
+	public boolean isMinionEngagedInConstruction(MinionEntity minion) {
+		return isMinionEngagedInConstruction(minion, 48.0D);
+	}
+
+	/**
+	 * Checks whether a minion thrall is actively engaged in construction or situated within the specified
+	 * distance of an active construction/deconstruction session owned by their master.
+	 *
+	 * @param minion      The minion thrall to evaluate.
+	 * @param maxDistance Maximum proximity distance in blocks.
+	 * @return True if actively engaged or within proximity of a compatible session.
+	 */
+	public boolean isMinionEngagedInConstruction(MinionEntity minion, double maxDistance) {
+		if (minion == null) {
+			return false;
+		}
+		if (isMinionEngagedInConstruction(minion.getUuid())) {
+			return true;
+		}
+		MinionRole role = minion.getRole();
+		if ((role == MinionRole.BUILDER || role == MinionRole.MINER)
+				&& minion.getWorld() instanceof ServerWorld serverWorld
+				&& minion.getOwnerUuid() != null) {
+			return isMinionNearActiveSession(serverWorld, minion.getBlockPos(), minion.getOwnerUuid(), maxDistance, role);
+		}
+		return false;
+	}
+
+	/**
+	 * Checks whether a coordinate is within proximity of an active construction or deconstruction session
+	 * for the specified owner, either by anchor distance or structure bounding box proximity.
+	 *
+	 * @param world       The server world.
+	 * @param pos         Position to test.
+	 * @param ownerUuid   Master player's UUID.
+	 * @param maxDistance Maximum distance in blocks.
+	 * @param role        Minion role (BUILDER or MINER).
+	 * @return True if an active compatible session is nearby.
+	 */
+	public boolean isMinionNearActiveSession(
+		ServerWorld world,
+		BlockPos pos,
+		UUID ownerUuid,
+		double maxDistance,
+		MinionRole role
+	) {
+		if (ownerUuid == null) {
+			return false;
+		}
+		List<ConstructionSession> ownerSessions = this.sessionsByOwner.get(ownerUuid);
+		if (ownerSessions == null || ownerSessions.isEmpty()) {
+			return false;
+		}
+
+		double maxDistSq = maxDistance * maxDistance;
+		for (ConstructionSession session : ownerSessions) {
+			if (!session.isActive() || !session.getDimension().equals(world.getRegistryKey())) {
+				continue;
+			}
+			if (role == MinionRole.MINER && !session.isDismantle()) {
+				continue;
+			}
+
+			// Check anchor distance
+			if (pos.getSquaredDistance(session.getAnchorPos()) <= maxDistSq) {
+				return true;
+			}
+
+			// Check bounding box expanded by maxDistance
+			BlockBox box = session.getWorldBoundingBox();
+			if (pos.getX() >= box.getMinX() - maxDistance && pos.getX() <= box.getMaxX() + maxDistance
+					&& pos.getY() >= box.getMinY() - maxDistance && pos.getY() <= box.getMaxY() + maxDistance
+					&& pos.getZ() >= box.getMinZ() - maxDistance && pos.getZ() <= box.getMaxZ() + maxDistance) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

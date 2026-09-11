@@ -5,6 +5,7 @@ import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
@@ -582,5 +583,222 @@ public class MinionFormationAndEquipTest {
 		PacingState teleportState = evaluatePacing.apply(25.0D);
 		Assertions.assertTrue(teleportState.emergencyTeleport());
 		Assertions.assertTrue(evaluatePacing.apply(50.0D).emergencyTeleport());
+	}
+
+	// =========================================================================
+	// 5. Yaw Hysteresis & Anchoring Tests
+	// =========================================================================
+
+	@Test
+	@DisplayName("Validate formation yaw hysteresis: 360° stationary look yaw sweeps freeze formation yaw")
+	void testFormationYawHysteresisStationaryLookSweep() {
+		UUID commander = UUID.randomUUID();
+		MinionFormationFollowGoal.clearFormationAnchor(commander);
+
+		double x = 10.0D;
+		double y = 64.0D;
+		double z = 20.0D;
+		float initialYaw = 0.0F;
+
+		// Initial lookup initializes anchor
+		float yaw0 = MinionFormationFollowGoal.getFormationYaw(commander, x, z, initialYaw);
+		Assertions.assertEquals(0.0F, yaw0, 1e-4F, "Initial formation yaw must match initial heading");
+
+		// Compute initial station for Rank 0 Warrior
+		Vec3d baseStation = MinionFormationFollowGoal.calculateFormationStation(commander, x, y, z, initialYaw, MinionRole.WARRIOR, 0);
+
+		// Sweep through 360° headings while standing stationary at (x, z)
+		float[] sweepYaws = {15.0F, 45.0F, 90.0F, 135.0F, 180.0F, 225.0F, 270.0F, 315.0F, 360.0F, -45.0F, -90.0F, -180.0F};
+		for (float yaw : sweepYaws) {
+			float anchoredYaw = MinionFormationFollowGoal.getFormationYaw(commander, x, z, yaw);
+			Assertions.assertEquals(0.0F, anchoredYaw, 1e-4F,
+				"Formation yaw must remain frozen at initial anchor 0.0° during stationary look sweep at " + yaw + "°");
+
+			Vec3d sweptStation = MinionFormationFollowGoal.calculateFormationStation(commander, x, y, z, yaw, MinionRole.WARRIOR, 0);
+			Assertions.assertEquals(baseStation.x, sweptStation.x, 1e-4, "Station X must not whirl when stationary");
+			Assertions.assertEquals(baseStation.y, sweptStation.y, 1e-4, "Station Y must remain constant");
+			Assertions.assertEquals(baseStation.z, sweptStation.z, 1e-4, "Station Z must not whirl when stationary");
+		}
+	}
+
+	@Test
+	@DisplayName("Validate formation yaw hysteresis: sub-threshold displacement (<= 0.04 blocks^2) preserves frozen yaw")
+	void testFormationYawHysteresisSubThresholdMovement() {
+		UUID commander = UUID.randomUUID();
+		MinionFormationFollowGoal.clearFormationAnchor(commander);
+
+		double startX = 0.0D;
+		double startZ = 0.0D;
+		float initialYaw = 0.0F;
+
+		Assertions.assertEquals(0.0F, MinionFormationFollowGoal.getFormationYaw(commander, startX, startZ, initialYaw), 1e-4F);
+
+		// 1. Small jitter displacement: dx=0.1, dz=0.1 -> distSq = 0.01 + 0.01 = 0.02 <= 0.04
+		float jitterYaw = MinionFormationFollowGoal.getFormationYaw(commander, 0.1D, 0.1D, 45.0F);
+		Assertions.assertEquals(0.0F, jitterYaw, 1e-4F, "Sub-threshold movement must not unlock frozen yaw");
+
+		// 2. Boundary displacement: dx=0.14, dz=0.14 -> distSq = 0.0196 + 0.0196 = 0.0392 <= 0.04
+		float nearLimitYaw = MinionFormationFollowGoal.getFormationYaw(commander, 0.14D, 0.14D, 60.0F);
+		Assertions.assertEquals(0.0F, nearLimitYaw, 1e-4F, "Displacement of 0.0392 blocks^2 must remain frozen");
+
+		// 3. Exact boundary displacement: dx=0.2, dz=0.0 -> distSq = 0.04 <= 0.04
+		float exactBoundaryYaw = MinionFormationFollowGoal.getFormationYaw(commander, 0.20D, 0.0D, 75.0F);
+		Assertions.assertEquals(0.0F, exactBoundaryYaw, 1e-4F, "Exact displacement of 0.04 blocks^2 must remain frozen");
+
+		// 4. Deliberate displacement beyond threshold: dx=0.21, dz=0.0 -> distSq = 0.0441 > 0.04
+		float unlockedYaw = MinionFormationFollowGoal.getFormationYaw(commander, 0.21D, 0.0D, 90.0F);
+		Assertions.assertEquals(90.0F, unlockedYaw, 1e-4F, "Displacement > 0.04 blocks^2 must unlock and update formation yaw");
+
+		// 5. Subsequent stationary look sweep at new anchor position (0.21, 0.0)
+		float newStationaryYaw = MinionFormationFollowGoal.getFormationYaw(commander, 0.21D, 0.0D, 180.0F);
+		Assertions.assertEquals(90.0F, newStationaryYaw, 1e-4F, "Subsequent stationary look sweep must freeze at new anchor yaw 90.0°");
+	}
+
+	@Test
+	@DisplayName("Validate refreshFormationAnchor snaps immediately and clearing removes anchors")
+	void testRefreshFormationAnchorImmediateSnapAndClear() {
+		UUID commander = UUID.randomUUID();
+		MinionFormationFollowGoal.clearFormationAnchor(commander);
+
+		// Anchor at (5.0, 5.0) with yaw 30.0F
+		float yaw = MinionFormationFollowGoal.getFormationYaw(commander, 5.0D, 5.0D, 30.0F);
+		Assertions.assertEquals(30.0F, yaw, 1e-4F);
+
+		// Commander turns to 180.0F while stationary -> without refresh, yaw is frozen at 30.0F
+		float frozen = MinionFormationFollowGoal.getFormationYaw(commander, 5.0D, 5.0D, 180.0F);
+		Assertions.assertEquals(30.0F, frozen, 1e-4F);
+
+		// Explicit refresh snaps anchor immediately to current heading
+		MinionFormationFollowGoal.refreshFormationAnchor(commander, 5.0D, 5.0D, 180.0F);
+		float snapped = MinionFormationFollowGoal.getFormationYaw(commander, 5.0D, 5.0D, 180.0F);
+		Assertions.assertEquals(180.0F, snapped, 1e-4F, "refreshFormationAnchor must snap yaw immediately");
+
+		// Verify anchor inspection
+		MinionFormationFollowGoal.FormationAnchor anchor = MinionFormationFollowGoal.getFormationAnchor(commander);
+		Assertions.assertNotNull(anchor, "FormationAnchor must exist");
+		Assertions.assertEquals(5.0D, anchor.getLastX(), 1e-5);
+		Assertions.assertEquals(5.0D, anchor.getLastZ(), 1e-5);
+		Assertions.assertEquals(180.0F, anchor.getAnchoredYaw(), 1e-4F);
+
+		// Clearing individual anchor
+		MinionFormationFollowGoal.clearFormationAnchor(commander);
+		Assertions.assertNull(MinionFormationFollowGoal.getFormationAnchor(commander), "Cleared anchor must be null");
+
+		// Global clear
+		MinionFormationFollowGoal.refreshFormationAnchor(commander, 1.0D, 2.0D, 45.0F);
+		Assertions.assertNotNull(MinionFormationFollowGoal.getFormationAnchor(commander));
+		MinionFormationFollowGoal.clearFormationAnchors();
+		Assertions.assertNull(MinionFormationFollowGoal.getFormationAnchor(commander), "clearFormationAnchors must clear all");
+	}
+
+	// =========================================================================
+	// 6. Rank Filtering & Unit Resolution Tests
+	// =========================================================================
+
+	@Test
+	@DisplayName("Validate formation rank eligibility predicate filters unselected, sitting, and guarding minions")
+	void testFormationRankFilteringEligibilityPredicate() {
+		// (alive, tamed, isOwner, selected, holdingPosition, hasGuardAnchor)
+		// Active selected follower: must be eligible
+		Assertions.assertTrue(MinionFormationFollowGoal.isEligibleForFormationRank(true, true, true, true, false, false));
+
+		// Unselected minion: must be excluded from ranks
+		Assertions.assertFalse(MinionFormationFollowGoal.isEligibleForFormationRank(true, true, true, false, false, false),
+			"Unselected minion must not pollute formation ranks");
+
+		// Minion holding position (sitting or guarding): must be excluded
+		Assertions.assertFalse(MinionFormationFollowGoal.isEligibleForFormationRank(true, true, true, true, true, false),
+			"Sitting or holding position unit must be excluded from ranks");
+
+		// Minion with guard anchor post: must be excluded
+		Assertions.assertFalse(MinionFormationFollowGoal.isEligibleForFormationRank(true, true, true, true, false, true),
+			"Sentinel with guard anchor must be excluded from ranks");
+
+		// Dead minion: must be excluded
+		Assertions.assertFalse(MinionFormationFollowGoal.isEligibleForFormationRank(false, true, true, true, false, false));
+
+		// Untamed minion: must be excluded
+		Assertions.assertFalse(MinionFormationFollowGoal.isEligibleForFormationRank(true, false, true, true, false, false));
+
+		// Minion of another owner: must be excluded
+		Assertions.assertFalse(MinionFormationFollowGoal.isEligibleForFormationRank(true, true, false, true, false, false));
+	}
+
+	@Test
+	@DisplayName("Validate rank resolution collapses seamlessly when minions are deselected or guarding")
+	void testFormationRankResolutionExcludesUnselectedAndGuardingUnits() {
+		class TestCohortUnit {
+			final int id;
+			final MinionRole role;
+			boolean selected;
+			boolean holdingPosition;
+			boolean hasGuardAnchor;
+
+			TestCohortUnit(int id, MinionRole role, boolean selected, boolean holdingPosition, boolean hasGuardAnchor) {
+				this.id = id;
+				this.role = role;
+				this.selected = selected;
+				this.holdingPosition = holdingPosition;
+				this.hasGuardAnchor = hasGuardAnchor;
+			}
+
+			boolean isEligible() {
+				return MinionFormationFollowGoal.isEligibleForFormationRank(
+					true, true, true, this.selected, this.holdingPosition, this.hasGuardAnchor
+				);
+			}
+
+			MinionRole getRole() { return this.role; }
+			int getId() { return this.id; }
+		}
+
+		// 4 Warriors with entity IDs 10, 20, 30, 40
+		TestCohortUnit w1 = new TestCohortUnit(10, MinionRole.WARRIOR, true, false, false);
+		TestCohortUnit w2 = new TestCohortUnit(20, MinionRole.WARRIOR, true, false, false);
+		TestCohortUnit w3 = new TestCohortUnit(30, MinionRole.WARRIOR, true, false, false);
+		TestCohortUnit w4 = new TestCohortUnit(40, MinionRole.WARRIOR, true, false, false);
+
+		List<TestCohortUnit> allCohort = List.of(w1, w2, w3, w4);
+
+		// Case 1: All 4 are selected followers -> ranks 0, 1, 2, 3
+		List<TestCohortUnit> eligible1 = allCohort.stream().filter(TestCohortUnit::isEligible).toList();
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligible1, w1, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(1, MinionFormationFollowGoal.resolveRank(eligible1, w2, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(2, MinionFormationFollowGoal.resolveRank(eligible1, w3, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(3, MinionFormationFollowGoal.resolveRank(eligible1, w4, TestCohortUnit::getRole, TestCohortUnit::getId));
+
+		// Case 2: Deselect w1 to guard post -> w1 is excluded, w2/w3/w4 collapse to ranks 0, 1, 2
+		w1.selected = false;
+		w1.hasGuardAnchor = true;
+
+		List<TestCohortUnit> eligible2 = allCohort.stream().filter(TestCohortUnit::isEligible).toList();
+		Assertions.assertEquals(3, eligible2.size(), "Eligible count should decrease by 1");
+		Assertions.assertFalse(eligible2.contains(w1), "Deselected guard minion must be excluded from eligible list");
+
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligible2, w2, TestCohortUnit::getRole, TestCohortUnit::getId),
+			"w2 should collapse into lead Rank 0");
+		Assertions.assertEquals(1, MinionFormationFollowGoal.resolveRank(eligible2, w3, TestCohortUnit::getRole, TestCohortUnit::getId),
+			"w3 should advance to Rank 1");
+		Assertions.assertEquals(2, MinionFormationFollowGoal.resolveRank(eligible2, w4, TestCohortUnit::getRole, TestCohortUnit::getId),
+			"w4 should advance to Rank 2");
+
+		// Case 3: w3 sits down (holdingPosition = true) -> eligible contains only w2 and w4
+		w3.holdingPosition = true;
+
+		List<TestCohortUnit> eligible3 = allCohort.stream().filter(TestCohortUnit::isEligible).toList();
+		Assertions.assertEquals(2, eligible3.size());
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligible3, w2, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(1, MinionFormationFollowGoal.resolveRank(eligible3, w4, TestCohortUnit::getRole, TestCohortUnit::getId));
+
+		// Case 4: Multi-role isolation: Sentinels and Rangers do not interfere with Warrior ranks
+		TestCohortUnit s1 = new TestCohortUnit(15, MinionRole.SENTINEL, true, false, false);
+		TestCohortUnit r1 = new TestCohortUnit(25, MinionRole.RANGER, true, false, false);
+		List<TestCohortUnit> mixedCohort = List.of(w2, w4, s1, r1);
+		List<TestCohortUnit> eligibleMixed = mixedCohort.stream().filter(TestCohortUnit::isEligible).toList();
+
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, w2, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(1, MinionFormationFollowGoal.resolveRank(eligibleMixed, w4, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, s1, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, r1, TestCohortUnit::getRole, TestCohortUnit::getId));
 	}
 }

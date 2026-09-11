@@ -8,7 +8,9 @@ import com.example.component.SquadGroup;
 import com.example.construction.ConstructionManager;
 import com.example.construction.ConstructionSession;
 import com.example.entity.ModEntities;
+import com.example.entity.ai.goal.MinionFormationFollowGoal;
 import com.example.entity.custom.MinionEntity;
+import com.example.entity.custom.MinionRole;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -426,10 +428,13 @@ public class CommandScepterItem extends Item {
 				if (!targetSquad.isWildcard()) {
 					minion.setSquad(targetSquad);
 				}
+				minion.setSelected(true);
 				minion.setGuardAnchorPos(null);
 				minion.setSitting(false);
 				minion.getNavigation().startMovingTo(player, 1.35D);
 			}
+
+			MinionFormationFollowGoal.refreshFormationAnchor(player);
 
 			// Arcane release burst: circular perimeter burst of FLAME and PORTAL particles
 			int burstCount = (int) Math.max(24, rallyRadius * 3.0);
@@ -447,7 +452,7 @@ public class CommandScepterItem extends Item {
 
 			String squadLabel = targetSquad.getFormattedName();
 			player.sendMessage(
-				Text.literal("§6📯 Banner of Courage! Gathered " + enclosedMinions.size() + " minion(s) into " + squadLabel + "§6 and ordered to follow!§r"),
+				Text.literal("§6📯 Banner of Courage! Gathered and selected " + enclosedMinions.size() + " minion(s) into " + squadLabel + "§6!§r"),
 				true
 			);
 		}
@@ -916,65 +921,138 @@ public class CommandScepterItem extends Item {
 
 	/**
 	 * Commands an individual owned minion to break its guard/sitting station and follow the commanding player.
-	 * Clears sitting state, clears guard anchor position, starts navigation toward player, and provides
-	 * audio (chime), visual (heart particles), and actionbar feedback.
+	 * Toggles selection of an individual minion:
+	 * If unselected, selects the minion, clears anchor, and orders it to follow.
+	 * If already selected, deselects the minion and anchors it to hold its current post without sitting.
 	 *
 	 * @param player The commanding player.
 	 * @param minion The owned minion to command.
 	 */
 	public static void commandIndividualMinionFollow(PlayerEntity player, MinionEntity minion) {
+		toggleMinionSelection(player, minion);
+	}
+
+	/**
+	 * Toggles the tactical selection status of an owned minion:
+	 * - Selecting: Clears guard anchor, activates following navigation, plays chime SFX, and emits heart particles.
+	 * - Deselecting: Anchors the minion at its current block position so it holds its post without sitting,
+	 *   plays bass SFX, and emits smoke particles.
+	 *
+	 * @param player The commanding player.
+	 * @param minion The owned minion.
+	 */
+	public static void toggleMinionSelection(PlayerEntity player, MinionEntity minion) {
 		if (minion == null || !minion.isAlive() || !minion.isOwner(player)) {
 			return;
 		}
 
-		minion.setSitting(false);
-		minion.setGuardAnchorPos(null);
-		minion.setTarget(null);
-		minion.getNavigation().startMovingTo(player, 1.35D);
-
 		World world = minion.getWorld();
-		if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-			// Heart particles above minion head
-			serverWorld.spawnParticles(
-				ParticleTypes.HEART,
-				minion.getX(),
-				minion.getY() + minion.getHeight() + 0.25D,
-				minion.getZ(),
-				6,
-				0.25D,
-				0.25D,
-				0.25D,
-				0.1D
-			);
+		boolean willSelect = !minion.isSelected();
+		minion.setSelected(willSelect);
 
-			// Note block chime SFX
-			serverWorld.playSound(
-				null,
-				minion.getX(),
-				minion.getY(),
-				minion.getZ(),
-				SoundEvents.BLOCK_NOTE_BLOCK_CHIME,
-				SoundCategory.PLAYERS,
-				1.0F,
-				1.5F
-			);
-			serverWorld.playSound(
-				null,
-				player.getX(),
-				player.getY(),
-				player.getZ(),
-				SoundEvents.BLOCK_NOTE_BLOCK_CHIME,
-				SoundCategory.PLAYERS,
-				0.8F,
-				1.5F
-			);
+		if (willSelect) {
+			minion.setSitting(false);
+			minion.setGuardAnchorPos(null);
+			minion.setTarget(null);
+			minion.getNavigation().startMovingTo(player, 1.35D);
+		} else {
+			minion.setGuardAnchorPos(minion.getBlockPos());
+			minion.getNavigation().stop();
+		}
+
+		if (!world.isClient() && world instanceof ServerWorld serverWorld) {
+			Box searchBox = player.getBoundingBox().expand(MINION_COMMAND_RADIUS);
+			int selectedCount = serverWorld.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected()
+			).size();
 
 			String name = minion.hasCustomName() ? minion.getCustomName().getString() : "Minion (" + minion.getRole().getDisplayName() + ")";
-			player.sendMessage(
-				Text.literal("§a✦ Minion Follow: §f" + name + " §ais now following you!§r"),
-				true
-			);
+
+			if (willSelect) {
+				serverWorld.spawnParticles(
+					ParticleTypes.HEART,
+					minion.getX(),
+					minion.getY() + minion.getHeight() + 0.25D,
+					minion.getZ(),
+					6,
+					0.25D,
+					0.25D,
+					0.25D,
+					0.1D
+				);
+				serverWorld.playSound(null, minion.getX(), minion.getY(), minion.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.5F);
+				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_CHIME, SoundCategory.PLAYERS, 0.8F, 1.5F);
+				player.sendMessage(
+					Text.literal("§a✦ Minion Selected: §f" + name + " §8[Selected: " + selectedCount + "]§r"),
+					true
+				);
+			} else {
+				serverWorld.spawnParticles(
+					ParticleTypes.SMOKE,
+					minion.getX(),
+					minion.getY() + minion.getHeight() + 0.25D,
+					minion.getZ(),
+					6,
+					0.2D,
+					0.2D,
+					0.2D,
+					0.05D
+				);
+				serverWorld.playSound(null, minion.getX(), minion.getY(), minion.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS, SoundCategory.PLAYERS, 1.0F, 0.8F);
+				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS, SoundCategory.PLAYERS, 0.8F, 0.8F);
+				player.sendMessage(
+					Text.literal("§7✦ Minion Deselected: §f" + name + " §8[Selected: " + selectedCount + "]§r"),
+					true
+				);
+			}
 		}
+	}
+
+	/**
+	 * Deselects all owned minions within the command radius (32 blocks),
+	 * anchoring each standing minion at its current position so they hold their ground without sitting.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @return The number of minions deselected.
+	 */
+	public static int deselectAllMinions(PlayerEntity player, World world) {
+		if (player == null) {
+			return 0;
+		}
+
+		if (!world.isClient() && world instanceof ServerWorld serverWorld) {
+			Box searchBox = player.getBoundingBox().expand(MINION_COMMAND_RADIUS * 2.0D);
+			List<MinionEntity> selectedMinions = serverWorld.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected()
+			);
+
+			for (MinionEntity minion : selectedMinions) {
+				minion.setSelected(false);
+				minion.setGuardAnchorPos(minion.getBlockPos());
+				minion.getNavigation().stop();
+			}
+
+			serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS, SoundCategory.PLAYERS, 0.9F, 0.6F);
+
+			if (!selectedMinions.isEmpty()) {
+				player.sendMessage(
+					Text.literal("§e✦ Deselected all minions (" + selectedMinions.size() + " unit(s) stationed at their posts).§r"),
+					true
+				);
+			} else {
+				player.sendMessage(
+					Text.literal("§7✦ No minions were currently selected.§r"),
+					true
+				);
+			}
+			return selectedMinions.size();
+		}
+		return 0;
 	}
 
 	// -----------------------------------------------------------------------------------------
@@ -983,9 +1061,9 @@ public class CommandScepterItem extends Item {
 
 	/**
 	 * Executes a tactical ground waypoint ping:
-	 * Places a temporary beacon beam (vertical END_ROD and GLOW particles), plays beacon SFX,
-	 * commands matching squad minions to sprint to the target position, and anchors them to hold that post.
-	 * Ignores sitting/stationed minions to prevent squad leaks.
+	 * Moves ONLY currently selected minions matching the active squad channel filter.
+	 * Commands selected minions to sprint to the target position, and anchors them to hold that post.
+	 * If no minions are selected, emits audio-visual fail feedback and does not move unselected units.
 	 *
 	 * @param player      The commanding player.
 	 * @param world       The world instance.
@@ -1003,8 +1081,17 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> minions = serverWorld.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected() && filterSquad.matches(m.getSquad())
 			);
+
+			if (minions.isEmpty()) {
+				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_DISPENSER_FAIL, SoundCategory.PLAYERS, 0.8F, 1.2F);
+				player.sendMessage(
+					Text.literal("§e✦ No minions selected! Aim at an owned minion with the Scepter to select them first.§r"),
+					true
+				);
+				return;
+			}
 
 			for (MinionEntity minion : minions) {
 				minion.setSitting(false);
@@ -1040,7 +1127,7 @@ public class CommandScepterItem extends Item {
 
 			String squadLabel = filterSquad.getFormattedName();
 			player.sendMessage(
-				Text.literal("§b✦ Waypoint Ping [" + squadLabel + "§b]: " + minions.size() + " minion(s) marching to [" + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ() + "] and holding position!§r"),
+				Text.literal("§b✦ Waypoint Ping [" + squadLabel + "§b]: " + minions.size() + " selected minion(s) marching to [" + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ() + "] and holding position!§r"),
 				true
 			);
 		}
@@ -1067,8 +1154,15 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> minions = serverWorld.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected() && filterSquad.matches(m.getSquad())
 			);
+			if (minions.isEmpty()) {
+				minions = serverWorld.getEntitiesByClass(
+					MinionEntity.class,
+					searchBox,
+					m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && filterSquad.matches(m.getSquad())
+				);
+			}
 
 			for (MinionEntity minion : minions) {
 				minion.setSitting(false);
@@ -1159,13 +1253,16 @@ public class CommandScepterItem extends Item {
 			);
 
 			for (MinionEntity minion : minions) {
+				minion.setSelected(true);
 				minion.setGuardAnchorPos(null);
 				minion.setSitting(false);
 				minion.getNavigation().startMovingTo(player, 1.25D);
 			}
 
+			MinionFormationFollowGoal.refreshFormationAnchor(player);
+
 			String squadLabel = filterSquad.getFormattedName();
-			player.sendMessage(Text.literal("§a✦ Command: " + minions.size() + " Minion(s) [" + squadLabel + "§a] Following!§r"), true);
+			player.sendMessage(Text.literal("§a✦ Command: " + minions.size() + " Minion(s) [" + squadLabel + "§a] Selected & Following!§r"), true);
 		}
 		world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, SoundCategory.PLAYERS, 1.0F, 1.2F);
 	}
@@ -1188,6 +1285,7 @@ public class CommandScepterItem extends Item {
 			);
 
 			for (MinionEntity minion : minions) {
+				minion.setSelected(false);
 				minion.setSitting(true);
 				minion.setGuardAnchorPos(minion.getBlockPos());
 				minion.getNavigation().stop();
@@ -1214,8 +1312,15 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> minions = world.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected() && filterSquad.matches(m.getSquad())
 			);
+			if (minions.isEmpty()) {
+				minions = world.getEntitiesByClass(
+					MinionEntity.class,
+					searchBox,
+					m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && filterSquad.matches(m.getSquad())
+				);
+			}
 
 			// Find hostiles within 32 blocks (MINION_COMMAND_RADIUS) sorted by crosshair vector proximity
 			MobEntity primaryTarget = findBestHostileTargetNear(world, player, player.getCameraPosVec(1.0F), MINION_COMMAND_RADIUS);
@@ -1248,8 +1353,15 @@ public class CommandScepterItem extends Item {
 		List<MinionEntity> minions = world.getEntitiesByClass(
 			MinionEntity.class,
 			searchBox,
-			m -> m.isAlive() && m.isOwner(player) && filterSquad.matches(m.getSquad())
+			m -> m.isAlive() && m.isOwner(player) && m.isSelected() && filterSquad.matches(m.getSquad())
 		);
+		if (minions.isEmpty()) {
+			minions = world.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && filterSquad.matches(m.getSquad())
+			);
+		}
 
 		for (MinionEntity minion : minions) {
 			minion.setSitting(false);
@@ -1269,21 +1381,32 @@ public class CommandScepterItem extends Item {
 			targetSquad = SquadGroup.ALL;
 		}
 		if (!world.isClient()) {
-			String squadLabel = targetSquad.getFormattedName();
-			player.sendMessage(Text.literal("§6✦ Mine Mode [" + squadLabel + "§6]: Minions primed for resource harvesting!§r"), true);
+			Box searchBox = player.getBoundingBox().expand(MINION_COMMAND_RADIUS);
+			SquadGroup filterSquad = targetSquad;
+			List<MinionEntity> miners = world.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && m.getRole() == MinionRole.MINER && filterSquad.matches(m.getSquad())
+			);
+
+			String squadLabel = filterSquad.getFormattedName();
+			player.sendMessage(
+				Text.literal("§6⛏ Mine Mode [" + squadLabel + "§6]: " + miners.size() + " Miner(s) ready for excavation directives!§r"),
+				true
+			);
 		}
-		world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_ANVIL_USE, SoundCategory.PLAYERS, 0.4F, 1.6F);
+		world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_GRINDSTONE_USE, SoundCategory.PLAYERS, 1.0F, 1.0F);
 	}
 
-	public static void sendRecruitTip(PlayerEntity player, World world) {
+	private static void sendRecruitTip(PlayerEntity player, World world) {
 		if (!world.isClient()) {
-			player.sendMessage(Text.literal("§d✦ Recruit Mode: Right-click any living mob to bind them as your minion!§r"), true);
+			player.sendMessage(Text.literal("§d✦ Recruit Mode Active: Right-click living mobs to transfigure them into Minions!§r"), true);
 		}
-		world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_ENCHANTMENT_TABLE_USE, SoundCategory.PLAYERS, 0.6F, 1.4F);
+		world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENTITY_ILLUSIONER_PREPARE_MIRROR, SoundCategory.PLAYERS, 0.8F, 1.2F);
 	}
 
 	// -----------------------------------------------------------------------------------------
-	// ITEM PRESENTATION & TOOLTIPS
+	// ITEM PROPERTIES & TOOLTIP
 	// -----------------------------------------------------------------------------------------
 
 	@Override
@@ -1307,9 +1430,10 @@ public class CommandScepterItem extends Item {
 		tooltip.add(Text.empty());
 		tooltip.add(Text.literal("§8• Shift + Right-Click / Press [V]: Open Command Hub GUI"));
 		tooltip.add(Text.literal("§8• Hold Right-Click: Channel Banner of Courage Rally Ring"));
-		tooltip.add(Text.literal("§8• Right-Click Ground: 32-Block Waypoint Ping (Squad Marches & Holds Position)"));
-		tooltip.add(Text.literal("§8• Right-Click Hostile: 32-Block Focus-Fire Ping (Crosshair Aiming & Drum SFX)"));
-		tooltip.add(Text.literal("§8• Shift + Left-Click (Build): Cycle Blueprint"));
+		tooltip.add(Text.literal("§8• Right-Click Minion: Select / Deselect Unit (Squad Glowing Outline)"));
+		tooltip.add(Text.literal("§8• Right-Click Ground: 32b Waypoint Ping (Selected Units Move & Hold)"));
+		tooltip.add(Text.literal("§8• Right-Click Hostile: 32b Focus-Fire Ping (Crosshair Aiming & Drum SFX)"));
+		tooltip.add(Text.literal("§8• Shift + Left-Click: Deselect All Minions (Cycle Blueprint in Build)"));
 		tooltip.add(Text.literal("§8• Right-Click Air (Build): Cycle Blueprint"));
 		tooltip.add(Text.literal("§8• Right-Click Ground (Build): Anchor Construction"));
 		tooltip.add(Text.literal("§8• Right-Click Mob (Recruit): Enthrall into Minion"));

@@ -5,6 +5,11 @@ import com.example.entity.custom.MinionRole;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -56,6 +61,9 @@ public class MinionFormationFollowGoal extends Goal {
 	public static final double TELEPORT_DISTANCE_THRESHOLD_SQ = TELEPORT_DISTANCE_THRESHOLD * TELEPORT_DISTANCE_THRESHOLD; // 576.0D
 	public static final double COMBAT_LEASH_OVERRIDE_SQ = 256.0D; // 16 blocks
 
+	public static final double YAW_ANCHOR_DISPLACEMENT_THRESHOLD_SQ = 0.04D; // 0.2 blocks squared (0.2 * 0.2)
+	private static final Map<UUID, FormationAnchor> FORMATION_ANCHORS = new ConcurrentHashMap<>();
+
 	private static final int RANK_UPDATE_INTERVAL = 15;
 	private static final int NAVIGATION_REPATH_INTERVAL = 10;
 
@@ -66,7 +74,7 @@ public class MinionFormationFollowGoal extends Goal {
 
 	@Override
 	public boolean canStart() {
-		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting() || this.minion.hasVehicle()) {
+		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting() || this.minion.hasVehicle() || !this.minion.isSelected()) {
 			return false;
 		}
 
@@ -96,7 +104,7 @@ public class MinionFormationFollowGoal extends Goal {
 
 	@Override
 	public boolean shouldContinue() {
-		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting() || this.minion.hasVehicle()) {
+		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting() || this.minion.hasVehicle() || !this.minion.isSelected()) {
 			return false;
 		}
 
@@ -178,8 +186,189 @@ public class MinionFormationFollowGoal extends Goal {
 	}
 
 	/**
+	 * Represents an anchored kinematic reference frame for an owner's formation stations.
+	 * <p>
+	 * Prevents formation stations from spinning in a disorienting circle when the commander
+	 * rotates their camera while standing stationary or within sub-threshold movement (<= 0.04 blocks^2).
+	 */
+	public static final class FormationAnchor {
+		private double lastX;
+		private double lastZ;
+		private float anchoredYaw;
+
+		public FormationAnchor(double x, double z, float yaw) {
+			this.lastX = x;
+			this.lastZ = z;
+			this.anchoredYaw = yaw;
+		}
+
+		public synchronized double getLastX() {
+			return this.lastX;
+		}
+
+		public synchronized double getLastZ() {
+			return this.lastZ;
+		}
+
+		public synchronized float getAnchoredYaw() {
+			return this.anchoredYaw;
+		}
+
+		public synchronized float update(double currentX, double currentZ, float currentYaw) {
+			double dx = currentX - this.lastX;
+			double dz = currentZ - this.lastZ;
+			double distSq = dx * dx + dz * dz;
+
+			if ((distSq - YAW_ANCHOR_DISPLACEMENT_THRESHOLD_SQ) > 1.0E-5D) {
+				this.lastX = currentX;
+				this.lastZ = currentZ;
+				this.anchoredYaw = currentYaw;
+			}
+			return this.anchoredYaw;
+		}
+
+		public synchronized void snap(double currentX, double currentZ, float currentYaw) {
+			this.lastX = currentX;
+			this.lastZ = currentZ;
+			this.anchoredYaw = currentYaw;
+		}
+	}
+
+	/**
+	 * Retrieves or updates the anchored formation yaw for a given commander UUID and position.
+	 * <p>
+	 * Freezes formation yaw when owner displacement is <= 0.04 blocks^2, updating only
+	 * upon deliberate displacement (> 0.04 blocks^2).
+	 */
+	public static float getFormationYaw(UUID ownerUuid, double currentX, double currentZ, float currentYaw) {
+		if (ownerUuid == null) {
+			return currentYaw;
+		}
+		FormationAnchor anchor = FORMATION_ANCHORS.get(ownerUuid);
+		if (anchor == null) {
+			anchor = new FormationAnchor(currentX, currentZ, currentYaw);
+			FORMATION_ANCHORS.put(ownerUuid, anchor);
+			return currentYaw;
+		}
+		return anchor.update(currentX, currentZ, currentYaw);
+	}
+
+	/**
+	 * Retrieves or updates the anchored formation yaw for the given living commander.
+	 */
+	public static float getFormationYaw(LivingEntity owner) {
+		if (owner == null) {
+			return 0.0F;
+		}
+		return getFormationYaw(owner.getUuid(), owner.getX(), owner.getZ(), owner.getYaw());
+	}
+
+	/**
+	 * Immediately snaps the formation anchor for the owner to their current position and yaw,
+	 * aligning the formation stations to the owner's immediate heading.
+	 */
+	public static void refreshFormationAnchor(UUID ownerUuid, double currentX, double currentZ, float currentYaw) {
+		if (ownerUuid == null) {
+			return;
+		}
+		FormationAnchor anchor = FORMATION_ANCHORS.get(ownerUuid);
+		if (anchor != null) {
+			anchor.snap(currentX, currentZ, currentYaw);
+		} else {
+			FORMATION_ANCHORS.put(ownerUuid, new FormationAnchor(currentX, currentZ, currentYaw));
+		}
+	}
+
+	/**
+	 * Immediately snaps the formation anchor for the living owner to their current position and yaw.
+	 */
+	public static void refreshFormationAnchor(LivingEntity owner) {
+		if (owner == null) {
+			return;
+		}
+		refreshFormationAnchor(owner.getUuid(), owner.getX(), owner.getZ(), owner.getYaw());
+	}
+
+	/**
+	 * Returns the current formation anchor for the given owner UUID, or null if unanchored.
+	 */
+	public static FormationAnchor getFormationAnchor(UUID ownerUuid) {
+		return ownerUuid != null ? FORMATION_ANCHORS.get(ownerUuid) : null;
+	}
+
+	/**
+	 * Returns the current formation anchor for the given living owner, or null if unanchored.
+	 */
+	public static FormationAnchor getFormationAnchor(LivingEntity owner) {
+		return owner != null ? getFormationAnchor(owner.getUuid()) : null;
+	}
+
+	/**
+	 * Clears all cached formation anchors across all commanders.
+	 */
+	public static void clearFormationAnchors() {
+		FORMATION_ANCHORS.clear();
+	}
+
+	/**
+	 * Clears the formation anchor for the specified commander UUID.
+	 */
+	public static void clearFormationAnchor(UUID ownerUuid) {
+		if (ownerUuid != null) {
+			FORMATION_ANCHORS.remove(ownerUuid);
+		}
+	}
+
+	/**
+	 * Clears the formation anchor for the specified living commander.
+	 */
+	public static void clearFormationAnchor(LivingEntity owner) {
+		if (owner != null) {
+			clearFormationAnchor(owner.getUuid());
+		}
+	}
+
+	/**
+	 * Checks whether the candidate minion satisfies all eligibility criteria to occupy a formation station.
+	 * Excludes unselected units, units holding position (sitting or guarding), and units with guard anchors.
+	 */
+	public static boolean isEligibleForFormation(MinionEntity minion, LivingEntity owner) {
+		return minion != null
+			&& minion.isAlive()
+			&& minion.isTamed()
+			&& minion.isOwner(owner)
+			&& minion.isSelected()
+			&& !minion.isHoldingPosition()
+			&& minion.getGuardAnchorPos() == null;
+	}
+
+	/**
+	 * Pure boolean predicate version for verifying formation rank eligibility invariants without game entity dependencies.
+	 */
+	public static boolean isEligibleForFormationRank(boolean isAlive, boolean isTamed, boolean isOwner, boolean isSelected, boolean isHoldingPosition, boolean hasGuardAnchor) {
+		return isAlive && isTamed && isOwner && isSelected && !isHoldingPosition && !hasGuardAnchor;
+	}
+
+	/**
+	 * Generic deterministic rank resolver for comrades sharing the same archetype role.
+	 */
+	public static <T> int resolveRank(List<T> comrades, T candidate, Function<T, MinionRole> roleExtractor, ToIntFunction<T> idExtractor) {
+		if (candidate == null || comrades == null) {
+			return 0;
+		}
+		MinionRole targetRole = roleExtractor.apply(candidate);
+		List<T> sameRoleComrades = comrades.stream()
+			.filter(m -> roleExtractor.apply(m) == targetRole)
+			.sorted(Comparator.comparingInt(idExtractor))
+			.toList();
+
+		int index = sameRoleComrades.indexOf(candidate);
+		return Math.max(0, index);
+	}
+
+	/**
 	 * Resolves a deterministic 0-based station rank among active minion thralls belonging to the same owner
-	 * sharing the same archetype role.
+	 * sharing the same archetype role. Excludes unselected minions and standing sentinels from polluting ranks.
 	 *
 	 * @param owner The commander entity.
 	 * @return A stable integer rank (0, 1, 2, ...).
@@ -192,16 +381,10 @@ public class MinionFormationFollowGoal extends Goal {
 		List<MinionEntity> comrades = this.minion.getWorld().getEntitiesByClass(
 			MinionEntity.class,
 			owner.getBoundingBox().expand(48.0D),
-			m -> m.isAlive() && m.isTamed() && m.isOwner(owner) && !m.isSitting()
+			m -> isEligibleForFormation(m, owner)
 		);
 
-		List<MinionEntity> sameRoleComrades = comrades.stream()
-			.filter(m -> m.getRole() == this.minion.getRole())
-			.sorted(Comparator.comparingInt(Entity::getId))
-			.toList();
-
-		int index = sameRoleComrades.indexOf(this.minion);
-		return Math.max(0, index);
+		return resolveRank(comrades, this.minion, MinionEntity::getRole, Entity::getId);
 	}
 
 	/**
@@ -268,10 +451,23 @@ public class MinionFormationFollowGoal extends Goal {
 	}
 
 	/**
-	 * Computes world coordinates for the given formation station relative to a living owner.
+	 * Computes world coordinates for the given formation station relative to a commander UUID and position,
+	 * utilizing anchored formation yaw hysteresis.
+	 */
+	public static Vec3d calculateFormationStation(UUID ownerUuid, double ownerX, double ownerY, double ownerZ, float ownerYaw, MinionRole role, int rank) {
+		float formationYaw = getFormationYaw(ownerUuid, ownerX, ownerZ, ownerYaw);
+		return calculateFormationStation(ownerX, ownerY, ownerZ, formationYaw, role, rank);
+	}
+
+	/**
+	 * Computes world coordinates for the given formation station relative to a living owner,
+	 * utilizing anchored formation yaw hysteresis to prevent station whirling when the owner is stationary.
 	 */
 	public static Vec3d calculateFormationStation(LivingEntity owner, MinionRole role, int rank) {
-		return calculateFormationStation(owner.getX(), owner.getY(), owner.getZ(), owner.getYaw(), role, rank);
+		if (owner == null) {
+			return Vec3d.ZERO;
+		}
+		return calculateFormationStation(owner.getUuid(), owner.getX(), owner.getY(), owner.getZ(), owner.getYaw(), role, rank);
 	}
 
 	/**
