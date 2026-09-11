@@ -12,21 +12,101 @@ This mod builds on the Fabric foundation with custom gameplay mechanics implemen
 
 > 📖 **Comprehensive Feature Guide**: For full mechanical specifications, entity physics details, explosion parameters, and architecture patterns, explore the dedicated [**FEATURES.md**](FEATURES.md) showcase.
 
-### High-Level Content Overvie| Feature | Category | Registry Identifier / Class | Core Mechanics & Characteristics |
+### High-Level Content Overview
 
-| :------------------------------ | :------------------- | :----------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Loki Command Scepter** | Custom Item | `modid-mmcli-agent-modding:command_scepter`<br>`com.example.item.custom.CommandScepterItem` | • Single-stack (`maxCount: 1`), `EPIC` rarity item in Combat and Tools creative tabs with enchanted glint.<br>• **Selective Ground Waypoint Navigation**: Right-clicking the ground/crosshair moves **only selected minions** matching the active squad channel, never moving unselected units.<br>• **Direct Unit Selection**: Right-clicking an owned minion (or crosshair targeting within 32 blocks) toggles its selection (select: chime SFX, hearts, follow mode; deselect: bass SFX, smoke, standing guard anchor).<br>• **Deselect All Shortcuts**: In-world **Sneak + Left-Click** (in non-BUILD modes) or the Command Hub **✕ Deselect** button deselects all active minions.<br>• **Squad-Colored Glowing Outlines**: Selected minions glow with their squad's signature color (Alpha Red, Bravo Blue, Charlie Green, Delta Gold, All White).<br>• **32-Block Crosshair Raycasting**: Full line-of-sight raycasting up to 32.0 blocks (`MINION_COMMAND_RADIUS`), clipping against solid terrain.<br>• Shift + Right-Click opens the **Command Hub GUI** with command modes, **Paginated Blueprint Catalog**, and **Squad Selection Bar** (`ALL`, `ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`).<br>• Hold Right-Click charges the **Banner of Courage Rally Ring**, gathering enclosed minions into the selected squad and marking them selected.<br>• Right-Click on hostile mobs triggers a **Focus-Fire Ping**.<br>• Right-Click in `BUILD` or `MINE` mode anchors construction/deconstruction.<br>• See [FEATURES.md — Loki Command Scepter](FEATURES.md#2-loki-command-scepter-commandscepteritem). |
-| **Minion Thrall** | Custom Entity | `modid-mmcli-agent-modding:minion`<br>`com.example.entity.custom.MinionEntity` | • Autonomous worker and combat thrall extending `TameableEntity` and implementing `InventoryOwner` & `RangedAttackMob`.<br>• Contains a 9-slot persistent inventory and 6 equipment slots accessible via Sneak + Right-Click GUI (`MinionScreen`).<br>• **Decoupled Guard Posture**: Unselected and holding minions remain **standing upright at attention** at their guard post (`guardAnchorPos != null`, `isSitting() == false`) rather than being forced down into an awkward sitting pose.<br>• **Faction Teammates & Friendly-Fire Immunity**: Overrides `isTeammate(Entity)` and `damage(DamageSource)` to prevent Ranger archer friendly-fire, commander Sweeping Edge strikes, or melee accidents from damaging allied minions.<br>• **Standby Summoning**: Newly spawned and recruited minions initialize in standby holding stance, preventing immediate aggro.<br>• **Scaffolding Travel Physics**: Overrides `travel(Vec3d)` to apply continuous +0.25D vertical velocity impulse when ascending scaffolding.<br>• Supports 5 archetype roles (`WARRIOR`, `SENTINEL`, `BUILDER`, `MINER`, `RANGER`) and 4 assignable squads (`ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`).<br>• Sentinels hold perimeter within 8 blocks and retreat when lured past 12 blocks; Rangers dynamically strafe in an 8–16 block pocket.<br>• See [FEATURES.md — Autonomous Minion Thrall Entity](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg). |
-| **Structure Deconstruction** | Multiblock & Demolition | `com.example.construction.ConstructionSession`<br>`com.example.construction.ConstructionManager` | • **Top-Down Reverse Topological Dismantling**: Systematically demolishes blueprints in reverse topological order (roofs/ceilings first, foundations last).<br>• **Dependency Safeguards**: Upper blocks and hanging decorations must be cleared before supporting foundation and ceiling blocks.<br>• **Role Participation**: Both `BUILDER` and `MINER` roles participate in deconstruction (`MINER` participates exclusively in dismantle sessions).<br>• **Resource Salvage & Tools**: Dynamic tool resolution (`resolveDismantleTool`: pickaxe, shovel, axe), survival block drops (`Block.dropStacks`), and scaffolding teardown on descent.<br>• See [FEATURES.md — Structure Deconstruction](FEATURES.md#23-structure-deconstruction--dismantling-mode-sessionmodedismantle). |
-| **Combat Sappers & Traversal Scaffolding** | Combat Engineering | `com.example.construction.TraversalScaffoldingManager`<br>`com.example.entity.ai.goal.MinionSapperGoal` | • **Ravine & Chasm Bridging**: Detects $\ge 2$-block drops 1.2–2.0 blocks ahead and builds horizontal bridges across gaps up to 6 blocks wide.<br>• **Cliff & Mountain Ascent**: Detects vertical obstacles rising $> 1.0625$ blocks and constructs vertical climbing shafts up to 6 blocks high.<br>• **Combat Sapper Dynamics**: `BUILDER` thralls build temporary scaffolding at zero resource cost; other thralls consume internal inventory or signal nearby squad builders within 24 blocks (`SapperRequest`).<br>• **Decay & Entity Safety**: Ephemeral scaffolding decays after 400 ticks (20s); occupancy detector postpones decay by +40 ticks while units cross, preventing fall deaths.<br>• See [FEATURES.md — Combat Sappers & Ephemeral Traversal Scaffolding](FEATURES.md#22-combat-sappers--ephemeral-traversal-scaffolding-minionsappergoal--traversalscaffoldingmanager). |
-| **Tactical Army Architecture** | Combat & Squad AI | `com.example.entity.custom.MinionRole`<br>`com.example.component.SquadGroup` | • RTS squad command hierarchy routing orders across wildcard (`ALL`) or discrete squads (`ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`).<br>• Partitioned AI goals: `SentinelGuardGoal` (perimeter leash & anchor return), `MinionRangedAttackGoal` (dynamic archery strafe), `MinionFormationFollowGoal` (parametric formations), and `MinionBuildGoal` (builder isolation).<br>• Network synchronization via `UpdateMinionConfigPayload`, `UpdateScepterPayload`, and `DeselectMinionsPayload`.<br>• See [FEATURES.md — Tactical Army & Squad Architecture](FEATURES.md#19-tactical-army--squad-architecture-roles-squads-formations-rally--sfx). |
-| **Minion Spawn Egg** | Custom Item | `modid-mmcli-agent-modding:minion_spawn_egg`<br>`net.minecraft.item.SpawnEggItem` | • Registered in `ItemGroups.SPAWN_EGGS` with custom theme colors (`0x2C3E50` deep navy base, `0xF1C40F` arcane gold spots).<br>• Spawns a minion entity that auto-tames to the player and primes in standby holding stance. |
-| **Blueprint Catalog & Sorting** | Multiblock Engine | `com.example.blueprint.BlueprintRegistry`<br>`com.example.blueprint.StructureBlueprint` | • Curated blueprints: Overlord Watchtower (7x7x9), Arcane Obelisk (5x5x8), Defensive Barricade (9x3x3).<br>• Deterministic bottom-up topological sorting ensures foundations and inverted stair arches are placed before dependent upper blocks.<br>• See [FEATURES.md — Curated Blueprint Catalog](FEATURES.md#10-curated-blueprint-catalog--topological-sorting). |
-| **Construction Manager** | Server Architecture | `com.example.construction.ConstructionManager`<br>`com.example.construction.ConstructionSession` | • Server-side orchestrator tracking multiblock construction and deconstruction sessions (`SessionMode.BUILD` vs `SessionMode.DISMANTLE`), task leasing, and completion ceremonies.<br>• Generates periodic holographic bounding-box particles (`GLOW`/`PORTAL`/`WAX_ON` for build, `FLAME`/`SMALL_FLAME`/`CRIT` for dismantle).<br>• Creative mode (zero-cost) and Survival mode (inventory drops and scavenging).<br>• See [FEATURES.md — Multiblock Construction Manager](FEATURES.md#11-multiblock-construction-manager--session-orchestration). |
-| **TNT Stick** | Custom Item | `modid-mmcli-agent-modding:tnt_stick`<br>`com.example.item.custom.TntStickItem` | • Single-stack (`maxCount: 1`), `EPIC` rarity item in Combat creative tab.<br>• Right-click triggers vanilla `ENTITY_TNT_PRIMED` audio, launches `TntProjectileEntity` server-side (velocity 1.5), increments usage stats, and enforces a 5-tick (0.25s) anti-spam cooldown.<br>• See [FEATURES.md — Custom Items: TNT Stick](FEATURES.md#13-custom-items-tnt-stick). |
-| **TNT Projectile** | Custom Entity | `modid-mmcli-agent-modding:tnt_projectile`<br>`com.example.entity.custom.TntProjectileEntity` | • Thrown entity with `0.25 x 0.25` dimensions and `SpawnGroup.MISC`.<br>• In-flight smoke trail and flame sparks.<br>• Server-authoritative collision creates a 4.0F power TNT explosion on impact.<br>• See [FEATURES.md — Custom Entities: TNT Projectile](FEATURES.md#14-custom-entities-tnt-projectile). |
-| **Block Architecture** | Registry Scaffolding | `com.example.block.ModBlocks` | • Modular registration system pairing `Registries.BLOCK` entries with automatic `BlockItem` registration in `Registries.ITEM`.<br>• See [FEATURES.md — Block Registration Architecture](FEATURES.md#15-screen-handlers--block-registration-architecture). |
-| **Client Rendering & GUIs** | Visuals & UI | `com.example.client.renderer.*`<br>`com.example.client.gui.*` | • `MinionEntityRenderer`: Biped renderer supporting equipped armor layers and held tools/blocks.<br>• `MinionOverheadBadgeFeatureRenderer`: Upright overhead crests billboarding above minion heads using exact LIFO matrix reversal, displaying squad channels, role archetypes, and gold star (`§6★ `) selection indicators at natural head clearance.<br>• **Fullbright Night/Cave Visibility**: Overhead badge text and background plate render with `LightmapTextureManager.MAX_LIGHT_COORDINATE`, ensuring sharp visibility in dark caves.<br>• **Stationed Guard Status**: Synchronizes `[HOLD]` on the client when minions stand guard at a post.<br>• `MinionScreen`: Dynamically centered unified modal with framed header and bottom action tray.<br>• `CommandScepterScreen`: Interactive Command Hub with live selected unit counts and **✕ Deselect** button.<br>• See [FEATURES.md — Client Rendering Pipeline](FEATURES.md#7-biped-model--client-rendering-pipeline-minionentityrenderer). |
+The mod's custom gameplay mechanics are organized across four core pillars: RTS unit command, multiblock engineering, tactical explosives, and client GUI/rendering pipelines.
+
+#### Quick Reference Matrix
+
+| Feature                      | Domain            | Identifier / Class                                                  | Core Capability                                                                     |                                                           Specs                                                            |
+| :--------------------------- | :---------------- | :------------------------------------------------------------------ | :---------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------: |
+| **Loki Command Scepter**     | Custom Item       | `modid-mmcli-agent-modding:command_scepter`<br>`CommandScepterItem` | 32-block raycast unit selection, ground waypoints, rally ring & Command Hub GUI     |                             [Section 2](FEATURES.md#2-loki-command-scepter-commandscepteritem)                             |
+| **Minion Thrall**            | Custom Entity     | `modid-mmcli-agent-modding:minion`<br>`MinionEntity`                | 9-slot inventory, 5 archetype roles, upright guard posture & friendly-fire immunity |                     [Section 4](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)                     |
+| **Minion Spawn Egg**         | Custom Item       | `modid-mmcli-agent-modding:minion_spawn_egg`<br>`SpawnEggItem`      | Deep navy & arcane gold spawn egg; primes minions in standby stance                 |                     [Section 4](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)                     |
+| **Tactical Army AI**         | Squad AI          | `MinionRole`<br>`SquadGroup`                                        | Wildcard (`ALL`) and discrete squads (`ALPHA`–`DELTA`), formations & focus-fire     |             [Section 19](FEATURES.md#19-tactical-army--squad-architecture-roles-squads-formations-rally--sfx)              |
+| **Construction Manager**     | Server Engine     | `ConstructionManager`<br>`ConstructionSession`                      | Multi-phase build/dismantle sessions with holographic bounding particles            |                    [Section 11](FEATURES.md#11-multiblock-construction-manager--session-orchestration)                     |
+| **Blueprint Catalog**        | Multiblock Engine | `BlueprintRegistry`<br>`StructureBlueprint`                         | Topologically sorted blueprints (Watchtower, Arcane Obelisk, Barricade)             |                        [Section 10](FEATURES.md#10-curated-blueprint-catalog--topological-sorting)                         |
+| **Structure Deconstruction** | Demolition Engine | `ConstructionSession`<br>`ConstructionManager`                      | Reverse topological dismantling (roofs first, foundations last) with tool salvage   |                [Section 23](FEATURES.md#23-structure-deconstruction--dismantling-mode-sessionmodedismantle)                |
+| **Combat Sappers**           | Traversal AI      | `MinionSapperGoal`<br>`TraversalScaffoldingManager`                 | Autonomous chasm bridging, cliff ascent ladders & timed decay safety                | [Section 22](FEATURES.md#22-combat-sappers--ephemeral-traversal-scaffolding-minionsappergoal--traversalscaffoldingmanager) |
+| **TNT Stick**                | Custom Item       | `modid-mmcli-agent-modding:tnt_stick`<br>`TntStickItem`             | Single-stack throwable explosive stick with 5-tick anti-spam cooldown               |                                    [Section 13](FEATURES.md#13-custom-items-tnt-stick)                                     |
+| **TNT Projectile**           | Custom Entity     | `modid-mmcli-agent-modding:tnt_projectile`<br>`TntProjectileEntity` | Server-authoritative projectile with smoke trail and 4.0F explosion                 |                           [Section 14](FEATURES.md#14-custom-entities-tnt-projectile--renderer)                            |
+| **Client Rendering & GUIs**  | Visuals & UI      | `com.example.client.renderer.*`<br>`com.example.client.gui.*`       | Billboarded overhead badges, fullbright cave text, MinionScreen & Command Hub       |                   [Section 7](FEATURES.md#7-biped-model--client-rendering-pipeline-minionentityrenderer)                   |
+| **Block Architecture**       | Registry System   | `ModBlocks`                                                         | Automated dual registration pairing `Registries.BLOCK` with `Registries.ITEM`       |                       [Section 15](FEATURES.md#15-screen-handlers--block-registration-architecture)                        |
+
+---
+
+#### Feature Pillar Spotlights
+
+<details open>
+<summary><b>👑 1. RTS Command & Tactical Army Systems</b></summary>
+<br>
+
+- **Loki Command Scepter** ([`CommandScepterItem`](FEATURES.md#2-loki-command-scepter-commandscepteritem)):
+  - **Selective Waypoints**: Right-click ground positions to move _only_ minions currently selected and assigned to the active squad channel.
+  - **Direct Unit Selection**: Right-click an owned minion (or aim crosshair within 32 blocks) to toggle selection with audio/particle feedback (chime + hearts to select; bass + smoke to deselect).
+  - **Squad Outlines**: Selected units glow with squad-specific team colors (Alpha Red, Bravo Blue, Charlie Green, Delta Gold, All White).
+  - **Banner of Courage**: Hold right-click to project a charging rally ring, gathering enclosed thralls into the active squad channel.
+  - **Command Hub GUI**: Shift + Right-click opens the interactive hub for squad switching, formation selection, and the paginated blueprint catalog.
+  - **Rapid Deselection**: In-world Sneak + Left-Click or GUI **✕ Deselect** clears active unit selections instantly.
+  - **Focus-Fire Pings**: Right-click hostile mobs to order squad-wide coordinated strikes.
+
+- **Autonomous Minion Thrall** ([`MinionEntity`](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)):
+  - **Decoupled Guard Posture**: Idle/holding units stand upright at attention at their post rather than dropping into a seated pose.
+  - **Persistent Inventory**: 9 inventory slots + 6 equipment slots managed via Sneak + Right-Click modal GUI.
+  - **Friendly-Fire Immunity**: Custom damage gating prevents allied arrow fire, Sweeping Edge strikes, or accidental hits among teammates.
+  - **5 Archetype Roles**: `WARRIOR` (melee sweep), `SENTINEL` (8-block perimeter guard), `BUILDER` (architectural construction), `MINER` (excavation), and `RANGER` (dynamic archery strafing in an 8–16 block pocket).
+  - **Scaffolding Kinematics**: Ascends scaffolding with continuous `+0.25D` vertical velocity impulses.
+
+- **Tactical Army Hierarchy** ([`SquadGroup`](FEATURES.md#19-tactical-army--squad-architecture-roles-squads-formations-rally--sfx)):
+  - Flexible routing across `ALL` or dedicated squads (`ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`) with network synchronization via custom Fabric C2S packets.
+  </details>
+
+<details open>
+<summary><b>🏗️ 2. Autonomous Multiblock & Demolition Engine</b></summary>
+<br>
+
+- **Construction Manager** ([`ConstructionManager`](FEATURES.md#11-multiblock-construction-manager--session-orchestration)):
+  - Server-authoritative session tracking for `BUILD` and `DISMANTLE` modes with holographic bounding-box particles (`GLOW`/`PORTAL` for build; `FLAME`/`CRIT` for dismantle).
+  - Supports both Creative zero-cost mode and Survival inventory drops/scavenging.
+
+- **Blueprint Catalog & Topological Sorting** ([`BlueprintRegistry`](FEATURES.md#10-curated-blueprint-catalog--topological-sorting)):
+  - Pre-engineered structures: _Overlord Watchtower_ (7×7×9), _Arcane Obelisk_ (5×5×8), and _Defensive Barricade_ (9×3×3).
+  - Deterministic bottom-up topological sorting ensures foundations, pillars, and inverted stair arches are constructed prior to upper dependent blocks.
+
+- **Structure Deconstruction** ([`ConstructionSession`](FEATURES.md#23-structure-deconstruction--dismantling-mode-sessionmodedismantle)):
+  - Reverse topological dismantling demolishes roofs and upper decorations before clearing foundational supports.
+  - Dynamic tool resolution selects pickaxes, shovels, or axes based on block hardness, dropping harvested items and clearing scaffolding on descent.
+
+- **Combat Sappers & Traversal Scaffolding** ([`MinionSapperGoal`](FEATURES.md#22-combat-sappers--ephemeral-traversal-scaffolding-minionsappergoal--traversalscaffoldingmanager)):
+  - Detects $\ge 2$-block drops ahead and bridges chasms up to 6 blocks wide.
+  - Builds vertical climbing shafts up to 6 blocks high when confronting steep cliffs.
+  - Ephemeral scaffolding auto-decays after 400 ticks (20s) with occupancy detection extending life by +40 ticks while units cross.
+  </details>
+
+<details open>
+<summary><b>💥 3. Tactical Explosives & Combat Entities</b></summary>
+<br>
+
+- **TNT Stick** ([`TntStickItem`](FEATURES.md#13-custom-items-tnt-stick)):
+  - `EPIC` rarity Combat item. Right-click plays `ENTITY_TNT_PRIMED` sound, launches projectile at 1.5 velocity, and triggers a 5-tick (0.25s) anti-spam cooldown.
+
+- **TNT Projectile** ([`TntProjectileEntity`](FEATURES.md#14-custom-entities-tnt-projectile--renderer)):
+  - Aerodynamic projectile with smoke trail and flame spark effects; detonates on server collision with a 4.0F explosion.
+  </details>
+
+<details open>
+<summary><b>🎨 4. Client Visuals, Overhead Crests & UI Pipeline</b></summary>
+<br>
+
+- **Overhead Crest Feature Renderer** ([`MinionOverheadBadgeFeatureRenderer`](FEATURES.md#7-biped-model--client-rendering-pipeline-minionentityrenderer)):
+  - Billboards above minion heads using exact LIFO matrix reversal to prevent inversion or tilting.
+  - Renders squad channels, role archetypes, gold star (`§6★ `) selection indicators, and stationed `[HOLD]` badges.
+  - Rendered with `LightmapTextureManager.MAX_LIGHT_COORDINATE` for crisp, fullbright legibility in deep caves and night raids.
+
+- **Custom Screen Interfaces**:
+  - `MinionScreen`: Framed biped equipment modal with inventory grid and role status.
+  - `CommandScepterScreen`: Interactive Command Hub displaying real-time selected unit counts, formation controls, blueprint preview thumbnails, and a one-click **✕ Deselect** button.
+  </details>
 
 ---
 
