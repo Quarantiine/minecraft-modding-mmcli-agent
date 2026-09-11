@@ -1,6 +1,9 @@
 package com.example.item;
 
 import com.example.ExampleMod;
+import com.example.entity.ModEntities;
+import com.example.item.custom.CommandScepterItem;
+import com.example.item.custom.MinionSpawnEggItem;
 import com.example.item.custom.TntStickItem;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.item.Item;
@@ -25,6 +28,22 @@ public class ModItems {
 	);
 
 	/**
+	 * Minion Spawn Egg for summoning autonomous minion thralls that auto-tame to the summoner.
+	 */
+	public static final Item MINION_SPAWN_EGG = registerItem(
+		"minion_spawn_egg",
+		new MinionSpawnEggItem(ModEntities.MINION, 0x2C3E50, 0xF1C40F, new Item.Settings())
+	);
+
+	/**
+	 * Loki Command Scepter for orchestrating minion thralls, transfiguration, and multiblock construction.
+	 */
+	public static final Item COMMAND_SCEPTER = registerItem(
+		"command_scepter",
+		new CommandScepterItem(new Item.Settings().maxCount(1).rarity(Rarity.EPIC))
+	);
+
+	/**
 	 * Helper method to register an item in the Minecraft item registry under the mod namespace.
 	 *
 	 * @param name The registry path name for the item.
@@ -42,9 +61,20 @@ public class ModItems {
 	public static void registerModItems() {
 		ExampleMod.LOGGER.info("Registering Mod Items for {}", ExampleMod.MOD_ID);
 
-		// Add TNT Stick to the Combat item group / creative tab
+		// Add TNT Stick and Command Scepter to the Combat item group / creative tab
 		ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
 			entries.add(TNT_STICK);
+			entries.add(COMMAND_SCEPTER);
+		});
+
+		// Add Command Scepter to the Tools item group / creative tab
+		ItemGroupEvents.modifyEntriesEvent(ItemGroups.TOOLS).register(entries -> {
+			entries.add(COMMAND_SCEPTER);
+		});
+
+		// Add Minion Spawn Egg to the Spawn Eggs creative tab
+		ItemGroupEvents.modifyEntriesEvent(ItemGroups.SPAWN_EGGS).register(entries -> {
+			entries.add(MINION_SPAWN_EGG);
 		});
 	}
 }

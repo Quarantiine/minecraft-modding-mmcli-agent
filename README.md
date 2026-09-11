@@ -8,18 +8,23 @@ This guide outlines the end-to-end mod development lifecycle, detailing how the 
 
 ## Features & Added Content
 
-This mod builds on the Fabric foundation with custom gameplay mechanics implemented using Fabric's recommended domain architecture. Custom features are organized into dedicated packages (`item`, `entity`, `block`, and client `renderer`) with decoupled registry lifecycles and asset schemas.
+This mod builds on the Fabric foundation with custom gameplay mechanics implemented using Fabric's recommended domain architecture. Custom features are organized into dedicated packages (`item`, `entity`, `block`, `component`, `blueprint`, `construction`, and client `renderer`) with decoupled registry lifecycles and asset schemas.
 
 > 📖 **Comprehensive Feature Guide**: For full mechanical specifications, entity physics details, explosion parameters, and architecture patterns, explore the dedicated [**FEATURES.md**](FEATURES.md) showcase.
 
 ### High-Level Content Overview
 
-| Feature | Category | Registry Identifier / Class | Core Mechanics & Characteristics |
-| :--- | :--- | :--- | :--- |
-| **TNT Stick** | Custom Item | `modid-mmcli-agent-modding:tnt_stick`<br>`com.example.item.custom.TntStickItem` | • Single-stack (`maxCount: 1`), `EPIC` rarity item in the Combat creative tab.<br>• Right-click triggers vanilla `ENTITY_TNT_PRIMED` audio feedback, launches a `TntProjectileEntity` server-side (velocity 1.5, divergence 1.0), increments player usage statistics, and enforces a 5-tick (0.25s) anti-spam cooldown.<br>• See [FEATURES.md — TNT Stick Item](FEATURES.md#1-tnt-stick-item). |
-| **TNT Projectile** | Custom Entity | `modid-mmcli-agent-modding:tnt_projectile`<br>`com.example.entity.custom.TntProjectileEntity` | • Thrown entity with `0.25 x 0.25` dimensions and `SpawnGroup.MISC`.<br>• Active client-side flight particles (continuous `SMOKE` trail + 60% chance `FLAME` particles per tick).<br>• Server-authoritative collision creates a 4.0F power TNT explosion (`World.ExplosionSourceType.TNT`) on impact with blocks or entities, discarding the entity afterwards.<br>• See [FEATURES.md — TNT Projectile Entity](FEATURES.md#2-tnt-projectile-entity). |
-| **Block Architecture** | Registry Scaffolding | `com.example.block.ModBlocks` | • Modular registration system pairing `Registries.BLOCK` entries with automatic `BlockItem` registration in `Registries.ITEM`.<br>• Clean initialization hook invoked from `ExampleMod.java`, prepared for custom explosive and decorative block expansion.<br>• See [FEATURES.md — Block Architecture](FEATURES.md#3-block-architecture). |
-| **Client Rendering** | Visuals & Models | `com.example.client.renderer.TntProjectileRenderer` | • Dedicated client entity renderer extending `FlyingItemEntityRenderer`.<br>• Registered in `ExampleModClient` via `EntityRendererRegistry` to render airborne projectiles as spinning 3D TNT blocks.<br>• Standard handheld model JSON and English localization (`en_us.json`).<br>• See [FEATURES.md — Client Rendering & Assets](FEATURES.md#4-client-rendering--assets). |
+| Feature                         | Category             | Registry Identifier / Class                                                                      | Core Mechanics & Characteristics                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| :------------------------------ | :------------------- | :----------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Loki Command Scepter**        | Custom Item          | `modid-mmcli-agent-modding:command_scepter`<br>`com.example.item.custom.CommandScepterItem`      | • Single-stack (`maxCount: 1`), `EPIC` rarity item in Combat and Tools creative tabs with enchanted glint.<br>• Shift + Right-Click cycles 6 Command Modes (`FOLLOW`, `STAY`, `ATTACK`, `MINE`, `BUILD`, `RECRUIT`) with pitch-shifted chime audio.<br>• Right-Click on ground in `BUILD` mode anchors automated multiblock construction.<br>• Shift + Left-Click or Right-Click in air in `BUILD` mode cycles active blueprints.<br>• Right-Click on mobs in `RECRUIT` mode transfigures them into obedient Minion thralls.<br>• Broadcasts tactical commands to all owned minions within 32 blocks.<br>• See [FEATURES.md — Loki Command Scepter](FEATURES.md#2-loki-command-scepter-commandscepteritem). |
+| **Minion Thrall**               | Custom Entity        | `modid-mmcli-agent-modding:minion`<br>`com.example.entity.custom.MinionEntity`                   | • Autonomous worker and combat thrall extending `TameableEntity` and implementing `InventoryOwner`.<br>• Contains a 9-slot persistent inventory.<br>• Sneak + Right-Click displays inventory in chat; empty-hand click toggles sit/stay; food/gold heals minion; item click deposits into minion inventory.<br>• Autonomous `MinionBuildGoal` detects master's construction sessions, claims topological tasks, and builds structures.<br>• See [FEATURES.md — Autonomous Minion Thrall Entity](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg).                                                                                                                                     |
+| **Minion Spawn Egg**            | Custom Item          | `modid-mmcli-agent-modding:minion_spawn_egg`<br>`net.minecraft.item.SpawnEggItem`                | • Registered in `ItemGroups.SPAWN_EGGS` with custom theme colors (`0x2C3E50` deep navy base, `0xF1C40F` arcane gold spots).<br>• Spawns a minion entity that can be tamed using gold ingots.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Blueprint Catalog & Sorting** | Multiblock Engine    | `com.example.blueprint.BlueprintRegistry`<br>`com.example.blueprint.StructureBlueprint`          | • Curated blueprints: Overlord Watchtower (7x7x9), Arcane Obelisk (5x5x8), Defensive Barricade (9x3x3).<br>• Deterministic bottom-up topological sorting ensures foundations and inverted stair arches are placed before dependent upper blocks.<br>• See [FEATURES.md — Curated Blueprint Catalog](FEATURES.md#6-curated-blueprint-catalog--topological-sorting).                                                                                                                                                                                                                                                                                                                                          |
+| **Construction Manager**        | Server Architecture  | `com.example.construction.ConstructionManager`<br>`com.example.construction.ConstructionSession` | • Server-side orchestrator tracking multiblock construction sessions, task leasing, and completion ceremonies.<br>• Generates periodic holographic bounding-box particles (`GLOW`, `PORTAL`, `WAX_ON`) around construction sites.<br>• Creative mode (zero-cost) and Survival mode (inventory and 12-block container scavenging) support.<br>• See [FEATURES.md — Multiblock Construction Manager](FEATURES.md#7-multiblock-construction-manager--session-orchestration).                                                                                                                                                                                                                                   |
+| **TNT Stick**                   | Custom Item          | `modid-mmcli-agent-modding:tnt_stick`<br>`com.example.item.custom.TntStickItem`                  | • Single-stack (`maxCount: 1`), `EPIC` rarity item in Combat creative tab.<br>• Right-click triggers vanilla `ENTITY_TNT_PRIMED` audio, launches `TntProjectileEntity` server-side (velocity 1.5), increments usage stats, and enforces a 5-tick (0.25s) anti-spam cooldown.<br>• See [FEATURES.md — Custom Items: TNT Stick](FEATURES.md#9-custom-items-tnt-stick).                                                                                                                                                                                                                                                                                                                                        |
+| **TNT Projectile**              | Custom Entity        | `modid-mmcli-agent-modding:tnt_projectile`<br>`com.example.entity.custom.TntProjectileEntity`    | • Thrown entity with `0.25 x 0.25` dimensions and `SpawnGroup.MISC`.<br>• In-flight smoke trail and flame sparks.<br>• Server-authoritative collision creates a 4.0F power TNT explosion on impact.<br>• See [FEATURES.md — Custom Entities: TNT Projectile](FEATURES.md#10-custom-entities-tnt-projectile).                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Block Architecture**          | Registry Scaffolding | `com.example.block.ModBlocks`                                                                    | • Modular registration system pairing `Registries.BLOCK` entries with automatic `BlockItem` registration in `Registries.ITEM`.<br>• See [FEATURES.md — Block Registration Architecture](FEATURES.md#12-block-registration-architecture-modblocks).                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Client Rendering**            | Visuals & Models     | `com.example.client.renderer.*`                                                                  | • `MinionEntityRenderer`: Biped renderer supporting equipped armor layers and held building blocks.<br>• `TntProjectileRenderer`: 3D spinning projectile renderer.<br>• Item models for TNT stick, command scepter, and spawn egg with complete English localization.<br>• See [FEATURES.md — Client Rendering Pipeline](FEATURES.md#11-client-rendering-pipeline).                                                                                                                                                                                                                                                                                                                                         |
 
 ---
 
@@ -27,13 +32,13 @@ This mod builds on the Fabric foundation with custom gameplay mechanics implemen
 
 Fabric provides a modular, lightweight modding stack designed for fast compilation, minimal overhead, and rapid updates across Minecraft versions:
 
-| Component | Role | Purpose |
-| :--- | :--- | :--- |
-| **Fabric Loader** | Runtime Core | Loads mods into the game process, manages Mixin transformations, and resolves dependencies. |
-| **Fabric API** | Essential Library | Hook library providing standard event listeners, registry wrappers, network channels, and rendering utilities. |
-| **Fabric Loom** | Gradle Plugin | Automates Minecraft deobfuscation, handles Yarn mapping generation, injects dev runs, and remaps production JARs. |
-| **Yarn Mappings** | Deobfuscation | Clean, open-source community mappings translating obfuscated Minecraft bytecode into human-readable symbols. |
-| **Sponge Mixin** | Bytecode Injection | Injects custom logic directly into Minecraft's runtime classes at class-load time without altering binary files. |
+| Component         | Role               | Purpose                                                                                                           |
+| :---------------- | :----------------- | :---------------------------------------------------------------------------------------------------------------- |
+| **Fabric Loader** | Runtime Core       | Loads mods into the game process, manages Mixin transformations, and resolves dependencies.                       |
+| **Fabric API**    | Essential Library  | Hook library providing standard event listeners, registry wrappers, network channels, and rendering utilities.    |
+| **Fabric Loom**   | Gradle Plugin      | Automates Minecraft deobfuscation, handles Yarn mapping generation, injects dev runs, and remaps production JARs. |
+| **Yarn Mappings** | Deobfuscation      | Clean, open-source community mappings translating obfuscated Minecraft bytecode into human-readable symbols.      |
+| **Sponge Mixin**  | Bytecode Injection | Injects custom logic directly into Minecraft's runtime classes at class-load time without altering binary files.  |
 
 ---
 
@@ -66,29 +71,47 @@ minecraft-modding/
     │   ├── java/com/example/
     │   │   ├── block/
     │   │   │   └── ModBlocks.java             # Block registry & automatic BlockItem registration
+    │   │   ├── blueprint/
+    │   │   │   ├── BlueprintBlock.java        # Block record with bottom-up topological sorting
+    │   │   │   ├── BlueprintRegistry.java     # Curated structure blueprints (Watchtower, Obelisk, Barricade)
+    │   │   │   └── StructureBlueprint.java    # Blueprint structure model & builder
+    │   │   ├── component/
+    │   │   │   ├── CommandMode.java           # Scepter mode enum with Codec & PacketCodec serialization
+    │   │   │   └── ModDataComponents.java     # 1.21 Data Component registration
+    │   │   ├── construction/
+    │   │   │   ├── ConstructionManager.java   # Server singleton managing active construction sessions & VFX
+    │   │   │   ├── ConstructionSession.java   # Session state, bounding boxes, and worker leasing
+    │   │   │   └── ConstructionTask.java      # Individual block placement task
     │   │   ├── entity/
+    │   │   │   ├── ai/goal/
+    │   │   │   │   └── MinionBuildGoal.java   # Minion autonomous construction & scavenging AI
     │   │   │   ├── custom/
+    │   │   │   │   ├── MinionEntity.java      # Tameable minion thrall with 9-slot inventory
     │   │   │   │   └── TntProjectileEntity.java # Explosive projectile entity with smoke/flame particle trails
     │   │   │   └── ModEntities.java           # EntityType registration, hitboxes & spawn groups
     │   │   ├── item/
     │   │   │   ├── custom/
+    │   │   │   │   ├── CommandScepterItem.java # Loki Command Scepter (modes, anchoring, recruiting, broadcasts)
     │   │   │   │   └── TntStickItem.java      # Handheld launcher item with sound & cooldown handling
-    │   │   │   └── ModItems.java              # Item registry & Combat creative tab integration
+    │   │   │   └── ModItems.java              # Item registry & creative tab integration
     │   │   ├── mixin/
     │   │   │   └── ExampleMixin.java          # Bytecode injection into MinecraftServer lifecycle
-    │   │   └── ExampleMod.java                # ModInitializer entrypoint bootstrapping registries
+    │   │   └── ExampleMod.java                # ModInitializer entrypoint bootstrapping registries & tick events
     │   └── resources/
     │       ├── assets/modid-mmcli-agent-modding/
     │       │   ├── lang/
-    │       │   │   └── en_us.json             # Translation keys (TNT Stick, TNT Projectile)
+    │       │   │   └── en_us.json             # Translation keys (Items, Entities, Modes, Blueprints, Tooltips)
     │       │   ├── models/item/
-    │       │   │   └── tnt_stick.json         # Handheld item model definition
+    │       │   │   ├── tnt_stick.json         # Handheld TNT Stick model
+    │       │   │   ├── command_scepter.json   # Handheld Loki Command Scepter model
+    │       │   │   └── minion_spawn_egg.json  # Template spawn egg model
     │       │   └── textures/item/             # Item texture asset storage
     │       ├── fabric.mod.json                # Mod metadata, entrypoints, and dependency rules
     │       └── modid.mixins.json              # Mixin configuration and rules
     └── client/                                # Client-only code & resources (split environment)
         └── java/com/example/client/
             ├── renderer/
+            │   ├── MinionEntityRenderer.java  # Biped renderer with armor and held item feature layers
             │   └── TntProjectileRenderer.java # FlyingItemEntityRenderer for 3D spinning projectile in flight
             └── ExampleModClient.java          # ClientModInitializer registering entity renderers
 ```
@@ -98,15 +121,18 @@ minecraft-modding/
 ## 4. In-Development Lifecycle (`./gradlew runClient`)
 
 ### Why the Official Launcher Is Not Used During Active Coding
-During active development, **you do not need the official Minecraft Launcher**. 
+
+During active development, **you do not need the official Minecraft Launcher**.
 
 Fabric Loom sets up a dedicated, sandboxed Minecraft instance in the `./run` folder with:
+
 - Automatic deobfuscation using Yarn mappings (clean class, method, and field names).
 - Classpath injection of your mod source code directly without creating a `.jar` first.
 - Full IDE debugger attachment with hot code replacement and breakpoint support.
 - Isolated save games, configurations, and logs that never alter your personal `.minecraft` directory.
 
 ### Launching the Development Client
+
 Run the following command in the workspace root:
 
 ```bash
@@ -116,14 +142,17 @@ Run the following command in the workspace root:
 Loom will download the vanilla Minecraft client, download Yarn mappings, map the game classes to readable names, merge in Fabric Loader and Fabric API, and launch the client window.
 
 ### Launching a Headless Dedicated Server
+
 To verify server-side behavior, network packets, or server-only mixins:
 
 ```bash
 ./gradlew runServer
 ```
-*(Accept the Minecraft EULA when prompted in `run/eula.txt` by setting `eula=true`.)*
+
+_(Accept the Minecraft EULA when prompted in `run/eula.txt` by setting `eula=true`.)_
 
 ### IDE Debugging Workflow
+
 - **IntelliJ IDEA**: Loom automatically creates `Minecraft Client` and `Minecraft Server` run configurations under the Gradle run menu. Click the **Debug (green bug)** icon to step through breakpoints inside `ExampleMod.java` or `ExampleMixin.java`.
 - **VS Code**: Use the Gradle sidebar task `loom > runClient` or configure a `.vscode/launch.json` targeting the Gradle `runClient` task.
 
@@ -134,9 +163,11 @@ To verify server-side behavior, network packets, or server-only mixins:
 Most gameplay mechanics (adding items, blocks, entity renderers, biomes, or events) rely on **Fabric API**.
 
 ### 1. In-Project Dependency (`gradle.properties` & `build.gradle`)
+
 The template pre-configures Fabric API as a compile and runtime dependency.
 
 In `gradle.properties`:
+
 ```properties
 minecraft_version=1.21
 yarn_mappings=1.21+build.9
@@ -145,6 +176,7 @@ fabric_version=0.100.4+1.21
 ```
 
 In `build.gradle`:
+
 ```groovy
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
@@ -157,6 +189,7 @@ dependencies {
 ```
 
 ### 2. Declaring Runtime Dependencies (`fabric.mod.json`)
+
 To ensure players running your mod have the matching Fabric API installed, declare it in `src/main/resources/fabric.mod.json`:
 
 ```json
@@ -167,6 +200,7 @@ To ensure players running your mod have the matching Fabric API installed, decla
     "fabric-api": "*"
 }
 ```
+
 If a player attempts to launch without Fabric API or on an incompatible version, Fabric Loader will stop launch and display an actionable error message identifying the missing dependency.
 
 ---
@@ -180,12 +214,14 @@ When you are ready to distribute or test your mod in a real game launcher:
 ```
 
 ### What Happens During Build?
+
 1. **Compilation**: Java files in `src/main` and `src/client` are compiled against Yarn mappings.
 2. **Resource Processing**: `${version}` placeholders in `fabric.mod.json` are populated with `mod_version` from `gradle.properties`.
 3. **Remapping (`remapJar`)**: Fabric Loom remaps the compiled bytecode from development (Yarn) mappings to **Intermediary** mappings (the standard runtime mappings shared across all Fabric mods).
 4. **Artifact Packaging**: The final production JAR is generated in `build/libs/`.
 
 ### Build Outputs (`build/libs/`):
+
 - `fabric-mmcli-agent-modding-1.0.0.jar`: **The distributable production mod.** This is the file installed in the Minecraft launcher.
 - `fabric-mmcli-agent-modding-1.0.0-sources.jar`: The source code archive (useful when publishing libraries for other modders).
 
@@ -196,11 +232,13 @@ When you are ready to distribute or test your mod in a real game launcher:
 Follow these steps to run your compiled mod inside the official Minecraft Launcher alongside Fabric Loader:
 
 ### Step 1: Install Vanilla Minecraft 1.21
+
 1. Open the **official Minecraft Launcher**.
 2. Go to the **Installations** tab.
 3. Verify that **Minecraft 1.21** (Latest Release) is installed. Launch it once to the title screen and exit so all core assets are downloaded.
 
 ### Step 2: Install the Fabric Loader
+
 1. Download the Fabric Installer from [fabricmc.net/use/installer](https://fabricmc.net/use/installer/).
 2. Run the installer:
    - Select the **Client** tab.
@@ -211,16 +249,20 @@ Follow these steps to run your compiled mod inside the official Minecraft Launch
 3. Re-open or restart the Minecraft Launcher. A new installation profile named **fabric-loader-1.21** will appear in your launcher list.
 
 ### Step 3: Download Fabric API JAR
+
 Fabric Loader only provides the core injection harness. Most mods require the separate Fabric API mod JAR:
+
 1. Download the matching **Fabric API** build for **Minecraft 1.21** from:
    - [Modrinth: Fabric API](https://modrinth.com/mod/fabric-api)
    - [CurseForge: Fabric API](https://curseforge.com/minecraft/mc-mods/fabric-api)
 2. Keep the downloaded file (e.g., `fabric-api-0.100.4+1.21.jar`).
 
 ### Step 4: Deploy Your Mod JAR
+
 Copy both **your compiled mod JAR** and the **Fabric API JAR** into your Minecraft `mods` folder:
 
 #### Platform Directory Paths:
+
 - **macOS**:
   ```bash
   mkdir -p ~/Library/Application\ Support/minecraft/mods
@@ -243,12 +285,14 @@ Copy both **your compiled mod JAR** and the **Fabric API JAR** into your Minecra
   ```
 
 ### Step 5: Launch & Verify
+
 1. In the Minecraft Launcher, choose the **fabric-loader-1.21** profile.
 2. Click **PLAY**.
 3. Verify your mod loaded:
    - Check `logs/latest.log` in your Minecraft directory for the initialization message:
      ```text
      [main/INFO] (modid-mmcli-agent-modding) Initializing Fabric 1.21 Example Mod: modid-mmcli-agent-modding
+     [main/INFO] (modid-mmcli-agent-modding) Registering Mod Data Components for modid-mmcli-agent-modding
      [main/INFO] (modid-mmcli-agent-modding) Registering Mod Items for modid-mmcli-agent-modding
      [main/INFO] (modid-mmcli-agent-modding) Registering Mod Blocks for modid-mmcli-agent-modding
      [main/INFO] (modid-mmcli-agent-modding) Registering Mod Entities for modid-mmcli-agent-modding
@@ -261,17 +305,21 @@ Copy both **your compiled mod JAR** and the **Fabric API JAR** into your Minecra
 ## 8. Common Troubleshooting & FAQs
 
 ### Error: `Incompatible mod set!` or `Mod 'modid' requires version X of fabric-api`
+
 - **Cause**: The Fabric API `.jar` is missing from your `mods/` directory, or its version is mismatched with the target Minecraft version.
 - **Fix**: Download the exact Fabric API `.jar` matching your Minecraft version (`1.21`) and ensure it is placed in the `mods/` folder.
 
 ### Error: `UnsupportedClassVersionError: ... (class file version 65.0)`
+
 - **Cause**: Minecraft 1.21 requires Java 21 (class version 65.0). The launcher or IDE is attempting to run with an older Java version (e.g., Java 17 or Java 8).
-- **Fix**: 
+- **Fix**:
   - For the official launcher: Go to **Installations** → **fabric-loader-1.21** → **Edit** → **More Options** → **Java Executable** and browse to your Java 21 binary (`bin/java`).
   - For Gradle CLI: Ensure `JAVA_HOME` points to your JDK 21 installation.
 
 ### Cache Corruption or Stale Mappings
+
 If Gradle fails after updating dependencies or mappings in `gradle.properties`:
+
 ```bash
 ./gradlew clean --refresh-dependencies
 ./gradlew build
