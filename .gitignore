@@ -20,3 +20,6 @@ run/
 .classpath
 .settings/
 bin/
+
+# MISC
+notes.md

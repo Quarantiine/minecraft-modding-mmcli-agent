@@ -3,7 +3,9 @@ package com.example.network;
 import com.example.ExampleMod;
 import com.example.blueprint.BlueprintRegistry;
 import com.example.component.CommandMode;
+import com.example.component.SquadGroup;
 import com.example.entity.custom.MinionEntity;
+import com.example.entity.custom.MinionRole;
 import com.example.item.ModItems;
 import com.example.item.custom.CommandScepterItem;
 import com.example.screen.MinionScreenHandler;
@@ -32,6 +34,7 @@ public class ModNetworking {
 	public static void registerC2SPayloads() {
 		ExampleMod.LOGGER.info("Registering C2S networking payloads for {}", ExampleMod.MOD_ID);
 		PayloadTypeRegistry.playC2S().register(UpdateScepterPayload.ID, UpdateScepterPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(UpdateMinionConfigPayload.ID, UpdateMinionConfigPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(DismissMinionPayload.ID, DismissMinionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(TeleportMinionPayload.ID, TeleportMinionPayload.PACKET_CODEC);
 	}
@@ -44,6 +47,10 @@ public class ModNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(UpdateScepterPayload.ID, (payload, context) -> {
 			ServerPlayerEntity player = context.player();
 			context.server().execute(() -> handleUpdateScepter(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(UpdateMinionConfigPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleUpdateMinionConfig(player, payload));
 		});
 		ServerPlayNetworking.registerGlobalReceiver(DismissMinionPayload.ID, (payload, context) -> {
 			ServerPlayerEntity player = context.player();
@@ -91,12 +98,16 @@ public class ModNetworking {
 		// 2. Apply updated CommandMode and active blueprint
 		CommandMode mode = payload.mode();
 		String blueprintId = payload.blueprintId();
+		SquadGroup targetSquad = payload.targetSquad();
 
 		if (mode != null) {
 			CommandScepterItem.setMode(scepterStack, mode);
 		}
 		if (blueprintId != null && !blueprintId.isBlank()) {
 			CommandScepterItem.setBlueprintId(scepterStack, blueprintId);
+		}
+		if (targetSquad != null) {
+			CommandScepterItem.setTargetSquad(scepterStack, targetSquad);
 		}
 
 		// 3. Audio & actionbar feedback
@@ -113,14 +124,55 @@ public class ModNetworking {
 		);
 
 		String bpName = BlueprintRegistry.getOrDefault(CommandScepterItem.getBlueprintId(scepterStack)).getName();
+		SquadGroup currentSquad = CommandScepterItem.getTargetSquad(scepterStack);
 		player.sendMessage(
-			Text.literal("§6✦ Scepter Updated: " + currentMode.getFormattedName() + " §7| §b" + bpName),
+			Text.literal("§6✦ Scepter Updated: " + currentMode.getFormattedName() + " §7| §b" + bpName + " §7| " + currentSquad.getFormattedName()),
 			true
 		);
 
 		// 4. Optionally execute tactical directive
 		if (payload.executeDirective()) {
-			CommandScepterItem.executeDirective(player, player.getServerWorld(), currentMode);
+			CommandScepterItem.executeDirective(player, player.getServerWorld(), currentMode, currentSquad);
+		}
+	}
+
+	/**
+	 * Handles minion configuration updates (archetype role and squad channel) dispatched from client management screens.
+	 * Verifies commanding player ownership before updating the target minion entity.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The update minion configuration payload.
+	 */
+	private static void handleUpdateMinionConfig(ServerPlayerEntity player, UpdateMinionConfigPayload payload) {
+		if (player == null || payload == null) {
+			return;
+		}
+
+		ServerWorld world = player.getServerWorld();
+		Entity entity = world.getEntityById(payload.minionId());
+		if (entity instanceof MinionEntity minion && minion.isOwner(player)) {
+			if (payload.role() != null) {
+				minion.setRole(payload.role());
+			}
+			if (payload.squad() != null) {
+				minion.setSquad(payload.squad());
+			}
+
+			world.playSound(
+				null,
+				minion.getX(),
+				minion.getY(),
+				minion.getZ(),
+				SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP,
+				SoundCategory.NEUTRAL,
+				0.6F,
+				1.2F
+			);
+
+			player.sendMessage(
+				Text.literal("§a✔ Minion configuration updated: " + minion.getRole().getFormattedName() + " §7| " + minion.getSquad().getFormattedName()),
+				true
+			);
 		}
 	}
 

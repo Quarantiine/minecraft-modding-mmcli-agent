@@ -39,6 +39,18 @@ public class ModDataComponents {
 	);
 
 	/**
+	 * Data component storing the active target {@link SquadGroup} filter on an item (e.g. Command Scepter).
+	 */
+	public static final ComponentType<SquadGroup> TARGET_SQUAD = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "target_squad"),
+		ComponentType.<SquadGroup>builder()
+			.codec(SquadGroup.CODEC)
+			.packetCodec(SquadGroup.PACKET_CODEC)
+			.build()
+	);
+
+	/**
 	 * Static initializer method invoked during mod initialization
 	 * to ensure all static component type registrations are registered.
 	 */

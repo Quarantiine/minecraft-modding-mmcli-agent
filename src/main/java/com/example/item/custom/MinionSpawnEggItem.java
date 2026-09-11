@@ -35,8 +35,8 @@ import net.minecraft.world.event.GameEvent;
 /**
  * Custom spawn egg for summoning {@link MinionEntity}.
  * Automatically binds the spawned minion to the summoning player upon spawning,
- * establishing ownership, clearing sitting state, and producing level-up chime
- * and heart particle effects.
+ * establishing ownership, initializing in standby/sitting guard mode to prevent
+ * instant aggressive charges, and producing level-up chime and heart particle effects.
  */
 public class MinionSpawnEggItem extends SpawnEggItem {
 
@@ -141,7 +141,8 @@ public class MinionSpawnEggItem extends SpawnEggItem {
 
 	/**
 	 * Automatically tames and binds a newly spawned minion to the player owner,
-	 * ensuring it starts in active following mode and emits positive sound and particle feedback.
+	 * initializing it in standby/sitting guard mode with a guard anchor at its spawn position
+	 * to prevent instant aggressive charges against nearby hostiles.
 	 *
 	 * @param world The server world where the entity exists.
 	 * @param entity The newly spawned entity.
@@ -150,7 +151,8 @@ public class MinionSpawnEggItem extends SpawnEggItem {
 	private void bindSpawnedMinion(ServerWorld world, Entity entity, PlayerEntity player) {
 		if (entity instanceof MinionEntity minion && player != null) {
 			minion.setOwner(player);
-			minion.setSitting(false);
+			minion.setSitting(true);
+			minion.setGuardAnchorPos(minion.getBlockPos());
 			minion.getNavigation().stop();
 			minion.setTarget(null);
 
@@ -180,7 +182,7 @@ public class MinionSpawnEggItem extends SpawnEggItem {
 			);
 			world.sendEntityStatus(minion, (byte) 7);
 
-			player.sendMessage(Text.literal("§6✦ You have bound a new Minion to your will!§r"), false);
+			player.sendMessage(Text.literal("§6✦ You have bound a new Minion to your will! (Standby / Guard Mode)§r"), false);
 		}
 	}
 }

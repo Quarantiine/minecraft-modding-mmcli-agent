@@ -28,12 +28,15 @@ public class ModEntities {
 
 	/**
 	 * Minion Entity: Autonomous worker and combat thrall bound to player command.
+	 * Registered with player-scale dimensions (0.6F width, 1.95F height) and eye-height (1.74F)
+	 * ensuring accurate overhead badge positioning and eye-level line of sight.
 	 */
 	public static final EntityType<MinionEntity> MINION = Registry.register(
 		Registries.ENTITY_TYPE,
 		Identifier.of(ExampleMod.MOD_ID, "minion"),
 		EntityType.Builder.<MinionEntity>create(MinionEntity::new, SpawnGroup.CREATURE)
 			.dimensions(0.6F, 1.95F)
+			.eyeHeight(1.74F)
 			.maxTrackingRange(8)
 			.trackingTickInterval(3)
 			.build()

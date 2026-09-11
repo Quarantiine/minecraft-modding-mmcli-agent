@@ -45,6 +45,9 @@ public class MinionEntityRenderer extends BipedEntityRenderer<MinionEntity, Play
 
 		// Outer clothing feature renderer adapted for player biped models
 		this.addFeature(new MinionClothingFeatureRenderer(this));
+
+		// Overhead billboard crest badge feature renderer (squad banner + role crest)
+		this.addFeature(new MinionOverheadBadgeFeatureRenderer(this, context.getTextRenderer(), context.getRenderDispatcher()));
 	}
 
 	@Override

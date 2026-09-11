@@ -3,8 +3,11 @@ package com.example.client.network;
 import com.example.ExampleMod;
 import com.example.client.ExampleModClient;
 import com.example.component.CommandMode;
+import com.example.component.SquadGroup;
+import com.example.entity.custom.MinionRole;
 import com.example.network.DismissMinionPayload;
 import com.example.network.TeleportMinionPayload;
+import com.example.network.UpdateMinionConfigPayload;
 import com.example.network.UpdateScepterPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
@@ -23,14 +26,38 @@ public class ModClientNetworking {
 	}
 
 	/**
-	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server.
+	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server including squad filtering.
+	 *
+	 * @param mode             The updated {@link CommandMode}.
+	 * @param blueprintId      The active architectural blueprint identifier.
+	 * @param targetSquad      The active target {@link SquadGroup} filter channel.
+	 * @param executeDirective True if immediate directive execution is requested.
+	 */
+	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, boolean executeDirective) {
+		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, targetSquad, executeDirective);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server with default squad wildcard (ALL).
 	 *
 	 * @param mode             The updated {@link CommandMode}.
 	 * @param blueprintId      The active architectural blueprint identifier.
 	 * @param executeDirective True if immediate directive execution is requested.
 	 */
 	public static void sendUpdateScepter(CommandMode mode, String blueprintId, boolean executeDirective) {
-		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, executeDirective);
+		sendUpdateScepter(mode, blueprintId, SquadGroup.ALL, executeDirective);
+	}
+
+	/**
+	 * Dispatches an {@link UpdateMinionConfigPayload} to update archetype role and squad assignment of a minion.
+	 *
+	 * @param minionId The entity ID of the target minion.
+	 * @param role     The assigned {@link MinionRole}.
+	 * @param squad    The assigned {@link SquadGroup}.
+	 */
+	public static void sendUpdateMinionConfig(int minionId, MinionRole role, SquadGroup squad) {
+		UpdateMinionConfigPayload payload = new UpdateMinionConfigPayload(minionId, role, squad);
 		ClientPlayNetworking.send(payload);
 	}
 

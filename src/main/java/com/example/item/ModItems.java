@@ -1,6 +1,10 @@
 package com.example.item;
 
 import com.example.ExampleMod;
+import com.example.blueprint.BlueprintRegistry;
+import com.example.component.CommandMode;
+import com.example.component.ModDataComponents;
+import com.example.component.SquadGroup;
 import com.example.entity.ModEntities;
 import com.example.item.custom.CommandScepterItem;
 import com.example.item.custom.MinionSpawnEggItem;
@@ -40,7 +44,14 @@ public class ModItems {
 	 */
 	public static final Item COMMAND_SCEPTER = registerItem(
 		"command_scepter",
-		new CommandScepterItem(new Item.Settings().maxCount(1).rarity(Rarity.EPIC))
+		new CommandScepterItem(
+			new Item.Settings()
+				.maxCount(1)
+				.rarity(Rarity.EPIC)
+				.component(ModDataComponents.COMMAND_MODE, CommandMode.FOLLOW)
+				.component(ModDataComponents.ACTIVE_BLUEPRINT, BlueprintRegistry.WATCHTOWER_ID)
+				.component(ModDataComponents.TARGET_SQUAD, SquadGroup.ALL)
+		)
 	);
 
 	/**

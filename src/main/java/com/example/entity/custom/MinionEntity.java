@@ -1,6 +1,13 @@
 package com.example.entity.custom;
 
+import com.example.component.SquadGroup;
+import com.example.entity.ai.goal.MinionActiveTargetGoal;
 import com.example.entity.ai.goal.MinionBuildGoal;
+import com.example.entity.ai.goal.MinionFormationFollowGoal;
+import com.example.entity.ai.goal.MinionRangedAttackGoal;
+import com.example.entity.ai.goal.MinionSapperGoal;
+import com.example.entity.ai.goal.SentinelGuardGoal;
+import com.example.entity.ai.goal.WaypointHoldGoal;
 import com.example.entity.ai.pathing.MinionNavigation;
 import com.example.screen.MinionScreenHandler;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
@@ -13,8 +20,8 @@ import net.minecraft.entity.EntityType;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.InventoryOwner;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.ai.RangedAttackMob;
 import net.minecraft.entity.ai.goal.AttackWithOwnerGoal;
-import net.minecraft.entity.ai.goal.FollowOwnerGoal;
 import net.minecraft.entity.ai.goal.LongDoorInteractGoal;
 import net.minecraft.entity.ai.goal.LookAroundGoal;
 import net.minecraft.entity.ai.goal.LookAtEntityGoal;
@@ -27,28 +34,41 @@ import net.minecraft.entity.ai.goal.WanderAroundFarGoal;
 import net.minecraft.entity.ai.pathing.EntityNavigation;
 import net.minecraft.entity.ai.pathing.MobNavigation;
 import net.minecraft.entity.ai.pathing.NavigationType;
+import net.minecraft.entity.ai.pathing.Path;
+import net.minecraft.entity.ai.pathing.PathNode;
 import net.minecraft.entity.ai.pathing.PathNodeType;
 import net.minecraft.entity.attribute.DefaultAttributeContainer;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.data.DataTracker;
+import net.minecraft.entity.data.TrackedData;
+import net.minecraft.entity.data.TrackedDataHandlerRegistry;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.passive.PassiveEntity;
 import net.minecraft.entity.passive.TameableEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.entity.projectile.PersistentProjectileEntity;
+import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.inventory.SimpleInventory;
 import net.minecraft.item.AxeItem;
+import net.minecraft.item.BowItem;
+import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.item.MaceItem;
+import net.minecraft.item.MiningToolItem;
+import net.minecraft.item.RangedWeaponItem;
 import net.minecraft.item.ShieldItem;
 import net.minecraft.item.SwordItem;
+import net.minecraft.item.TridentItem;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
@@ -66,13 +86,18 @@ import net.minecraft.world.World;
  * - Empty Hand Right-Click: toggles sitting / staying (following) state.
  * - Food / Gold Right-Click: heals wounded minion with particles and auditory feedback.
  */
-public class MinionEntity extends TameableEntity implements InventoryOwner {
+public class MinionEntity extends TameableEntity implements InventoryOwner, RangedAttackMob {
 
 	public static final int INVENTORY_SIZE = 9;
 	private final SimpleInventory inventory = new SimpleInventory(INVENTORY_SIZE);
 
+	private static final TrackedData<Integer> ROLE_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
+	private static final TrackedData<Integer> SQUAD_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
+
 	private LivingEntity lastCombatTarget;
 	private int outOfCombatTicks = 0;
+	private boolean climbingScaffolding = false;
+	private BlockPos guardAnchorPos = null;
 
 	public MinionEntity(EntityType<? extends TameableEntity> entityType, World world) {
 		super(entityType, world);
@@ -88,6 +113,61 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 		this.setPathfindingPenalty(PathNodeType.DOOR_WOOD_CLOSED, 0.0F);
 		this.setPathfindingPenalty(PathNodeType.WALKABLE_DOOR, 0.0F);
 		this.setPathfindingPenalty(PathNodeType.TRAPDOOR, 0.0F);
+	}
+
+	@Override
+	protected void initDataTracker(DataTracker.Builder builder) {
+		super.initDataTracker(builder);
+		builder.add(ROLE_ID, MinionRole.WARRIOR.getId());
+		builder.add(SQUAD_ID, SquadGroup.ALPHA.getId());
+	}
+
+	/**
+	 * @return The current tactical role assigned to this minion.
+	 */
+	public MinionRole getRole() {
+		return MinionRole.fromId(this.dataTracker.get(ROLE_ID));
+	}
+
+	/**
+	 * Sets the tactical role assigned to this minion.
+	 *
+	 * @param role The new role to assign.
+	 */
+	public void setRole(MinionRole role) {
+		this.dataTracker.set(ROLE_ID, role != null ? role.getId() : MinionRole.WARRIOR.getId());
+	}
+
+	/**
+	 * @return The squad organizational group this minion belongs to.
+	 */
+	public SquadGroup getSquad() {
+		return SquadGroup.fromId(this.dataTracker.get(SQUAD_ID));
+	}
+
+	/**
+	 * Sets the squad organizational group for this minion.
+	 *
+	 * @param squad The squad to assign.
+	 */
+	public void setSquad(SquadGroup squad) {
+		this.dataTracker.set(SQUAD_ID, squad != null ? squad.getId() : SquadGroup.ALPHA.getId());
+	}
+
+	/**
+	 * @return The anchor position for sentinel guard duty, or null if unset.
+	 */
+	public BlockPos getGuardAnchorPos() {
+		return this.guardAnchorPos;
+	}
+
+	/**
+	 * Sets the anchor position for sentinel guard duty.
+	 *
+	 * @param guardAnchorPos The guard anchor block coordinate.
+	 */
+	public void setGuardAnchorPos(BlockPos guardAnchorPos) {
+		this.guardAnchorPos = guardAnchorPos;
 	}
 
 	@Override
@@ -115,16 +195,29 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 		this.goalSelector.add(0, new SwimGoal(this));
 		this.goalSelector.add(1, new SitGoal(this));
 		this.goalSelector.add(2, new LongDoorInteractGoal(this, true));
+		this.goalSelector.add(2, new MinionSapperGoal(this));
+		this.goalSelector.add(3, new SentinelGuardGoal(this));
+		this.goalSelector.add(3, new WaypointHoldGoal(this));
 		this.goalSelector.add(3, new MinionBuildGoal(this));
-		this.goalSelector.add(4, new MeleeAttackGoal(this, 1.25D, true));
-		this.goalSelector.add(5, new FollowOwnerGoal(this, 1.15D, 3.0F, 1.5F));
-		this.goalSelector.add(6, new WanderAroundFarGoal(this, 1.0D));
-		this.goalSelector.add(7, new LookAtEntityGoal(this, PlayerEntity.class, 8.0F));
-		this.goalSelector.add(8, new LookAroundGoal(this));
+		this.goalSelector.add(4, new MinionRangedAttackGoal(this, 1.25D, 20));
+		this.goalSelector.add(5, new MeleeAttackGoal(this, 1.35D, true) {
+			@Override
+			public boolean canStart() {
+				if (MinionEntity.this.getRole() == MinionRole.RANGER && (MinionEntity.this.isHolding(Items.BOW) || MinionEntity.this.isHolding(Items.CROSSBOW) || MinionEntity.this.getMainHandStack().getItem() instanceof BowItem)) {
+					return false;
+				}
+				return super.canStart();
+			}
+		});
+		this.goalSelector.add(6, new MinionFormationFollowGoal(this));
+		this.goalSelector.add(7, new WanderAroundFarGoal(this, 1.0D));
+		this.goalSelector.add(8, new LookAtEntityGoal(this, PlayerEntity.class, 8.0F));
+		this.goalSelector.add(9, new LookAroundGoal(this));
 
 		this.targetSelector.add(1, new TrackOwnerAttackerGoal(this));
 		this.targetSelector.add(2, new AttackWithOwnerGoal(this));
 		this.targetSelector.add(3, new RevengeGoal(this).setGroupRevenge());
+		this.targetSelector.add(4, new MinionActiveTargetGoal(this, 24.0D));
 	}
 
 	@Override
@@ -157,6 +250,11 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 			if (this.age % 20 == 0) {
 				autoEquipFromInventory();
 			}
+
+			// Auto-clear climbing flag if minion is no longer within a scaffolding block
+			if (this.climbingScaffolding && !this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+				this.climbingScaffolding = false;
+			}
 		}
 	}
 
@@ -168,22 +266,180 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 	}
 
 	/**
-	 * Commands the minion to immediately pathfind back to its owner after combat concludes,
-	 * ensuring thralls quickly regroup and do not get estranged or lost.
+	 * Commands the minion to immediately pathfind back to its post or owner after combat concludes,
+	 * ensuring thralls quickly regroup at 1.35D sprint speed and do not get estranged or lost.
+	 * Sentinels return strictly to their guard anchor post; other roles return to the master.
 	 */
 	public void returnToOwnerPostCombat() {
 		if (this.isTamed() && !this.isSitting()) {
-			LivingEntity owner = this.getOwner();
-			if (owner != null && this.squaredDistanceTo(owner) > 4.0D) {
-				this.navigation.startMovingTo(owner, 1.25D);
+			BlockPos anchor = this.getGuardAnchorPos();
+			if (anchor != null) {
+				if (this.squaredDistanceTo(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D) > 4.0D) {
+					this.navigation.startMovingTo(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D, 1.35D);
+				}
+			} else if (this.getRole() == MinionRole.SENTINEL) {
+				LivingEntity owner = this.getOwner();
+				if (owner != null && this.squaredDistanceTo(owner) > 4.0D) {
+					this.navigation.startMovingTo(owner, 1.35D);
+				}
+			} else {
+				LivingEntity owner = this.getOwner();
+				if (owner != null && this.squaredDistanceTo(owner) > 4.0D) {
+					this.navigation.startMovingTo(owner, 1.35D);
+				}
 			}
 		}
+	}
+
+	@Override
+	public void shootAt(LivingEntity target, float pullProgress) {
+		ItemStack weapon = this.getMainHandStack();
+		if (!weapon.isOf(Items.BOW) && !weapon.isOf(Items.CROSSBOW) && !(weapon.getItem() instanceof BowItem)) {
+			ItemStack offhand = this.getOffHandStack();
+			if (offhand.isOf(Items.BOW) || offhand.isOf(Items.CROSSBOW) || offhand.getItem() instanceof BowItem) {
+				weapon = offhand;
+			}
+		}
+		ItemStack arrowStack = this.getProjectileType(weapon);
+		if (arrowStack.isEmpty()) {
+			arrowStack = new ItemStack(Items.ARROW);
+		}
+		PersistentProjectileEntity arrowEntity = ProjectileUtil.createArrowProjectile(
+			this,
+			arrowStack,
+			pullProgress,
+			weapon.isEmpty() ? null : weapon
+		);
+		if (this.isTamed()) {
+			arrowEntity.pickupType = PersistentProjectileEntity.PickupPermission.DISALLOWED;
+		}
+		double dx = target.getX() - this.getX();
+		double dy = target.getBodyY(0.3333333333333333D) - arrowEntity.getY();
+		double dz = target.getZ() - this.getZ();
+		double distance = Math.sqrt(dx * dx + dz * dz);
+		arrowEntity.setVelocity(dx, dy + distance * 0.20000000298023224D, dz, 1.6F, (float) (14 - this.getWorld().getDifficulty().getId() * 4));
+		this.playSound(SoundEvents.ENTITY_SKELETON_SHOOT, 1.0F, 1.0F / (this.getRandom().nextFloat() * 0.4F + 0.8F));
+		this.getWorld().spawnEntity(arrowEntity);
 	}
 
 	@Override
 	public void setSitting(boolean sitting) {
 		super.setSitting(sitting);
 		this.setInSittingPose(sitting);
+		this.climbingScaffolding = false;
+	}
+
+	/**
+	 * Returns whether the minion is actively climbing a scaffolding column under AI control.
+	 *
+	 * @return true if currently climbing scaffolding under AI control.
+	 */
+	public boolean isClimbingScaffolding() {
+		return this.climbingScaffolding;
+	}
+
+	/**
+	 * Sets whether the minion should actively climb inside a scaffolding column.
+	 *
+	 * @param climbing true to allow climbing scaffolding physics; false to treat scaffolding as walkable without climbing clamping.
+	 */
+	public void setClimbingScaffolding(boolean climbing) {
+		this.climbingScaffolding = climbing;
+	}
+
+	/**
+	 * Determines whether the minion is currently positioned within a scaffolding block
+	 * and actively navigating upward toward an elevated waypoint, destination, or target.
+	 *
+	 * @return true if inside scaffolding and ascending/navigating to a higher Y coordinate.
+	 */
+	public boolean isNavigatingUpwardInScaffolding() {
+		if (!this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+			return false;
+		}
+		// Explicit climbing flag from build or sapper AI goals
+		if (this.climbingScaffolding) {
+			return true;
+		}
+		// Entity has active jump input flag
+		if (this.jumping) {
+			return true;
+		}
+		// MoveControl target is higher than current position
+		if (this.getMoveControl().isMoving() && this.getMoveControl().getTargetY() > this.getY() + 0.1D) {
+			return true;
+		}
+		// Active navigation path has an elevated next waypoint or destination
+		if (!this.getNavigation().isIdle()) {
+			Path path = this.getNavigation().getCurrentPath();
+			if (path != null && !path.isFinished()) {
+				PathNode currentNode = path.getCurrentNode();
+				if (currentNode != null && currentNode.y > this.getBlockY()) {
+					return true;
+				}
+				BlockPos target = path.getTarget();
+				if (target != null && target.getY() > this.getBlockY()) {
+					return true;
+				}
+			}
+		}
+		// Combat target is elevated above minion
+		LivingEntity target = this.getTarget();
+		if (target != null && target.isAlive() && target.getY() > this.getY() + 0.5D) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Overrides vanilla climbing behavior to give the minion AI explicit control over scaffolding traversal.
+	 * If the minion is currently within a scaffolding block, climbing physics is enabled if
+	 * {@link #isClimbingScaffolding()} is true or if the minion is actively navigating upward
+	 * through the scaffolding column. For ladders, vines, and other climbables, defaults to vanilla logic.
+	 *
+	 * @return true if the minion is actively climbing.
+	 */
+	@Override
+	public boolean isClimbing() {
+		if (this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+			return this.climbingScaffolding || this.isNavigatingUpwardInScaffolding();
+		}
+		return super.isClimbing();
+	}
+
+	/**
+	 * Overrides entity travel physics to implement smooth scaffolding climbing mechanics for minions.
+	 * Because mob entities lack client jump input packets, vanilla scaffolding logic fails to propel
+	 * mobs upward when ascending. When inside scaffolding and navigating upward or toward elevated targets,
+	 * applies a continuous +0.25D vertical velocity impulse and zeroes fall distance.
+	 *
+	 * @param movementInput Lateral and forward directional movement vector.
+	 */
+	@Override
+	public void travel(Vec3d movementInput) {
+		boolean ascendingScaffolding = this.isAlive()
+			&& this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)
+			&& this.isNavigatingUpwardInScaffolding();
+
+		if (ascendingScaffolding) {
+			this.fallDistance = 0.0F;
+			Vec3d currentVelocity = this.getVelocity();
+			this.setVelocity(currentVelocity.x, 0.25D, currentVelocity.z);
+			this.velocityModified = true;
+		}
+
+		super.travel(movementInput);
+
+		if (this.isAlive() && this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+			this.fallDistance = 0.0F;
+			if (ascendingScaffolding) {
+				Vec3d currentVelocity = this.getVelocity();
+				if (currentVelocity.y < 0.25D) {
+					this.setVelocity(currentVelocity.x, 0.25D, currentVelocity.z);
+					this.velocityModified = true;
+				}
+			}
+		}
 	}
 
 	/**
@@ -211,10 +467,86 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 	 * Automatically equips armor, weapons, and defensive offhand items from the minion's
 	 * 9-slot storage inventory into any corresponding empty equipment slots.
 	 */
+	/**
+	 * Determines whether the given item is a ranged weapon (bow or crossbow).
+	 */
+	public static boolean isRangedWeapon(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return false;
+		return stack.isOf(Items.BOW) || stack.isOf(Items.CROSSBOW)
+			|| stack.getItem() instanceof BowItem
+			|| stack.getItem() instanceof CrossbowItem
+			|| stack.getItem() instanceof RangedWeaponItem;
+	}
+
+	/**
+	 * Determines whether the given item is a frontline melee weapon (sword, axe, mace, or trident).
+	 */
+	public static boolean isMeleeWeapon(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return false;
+		return stack.getItem() instanceof SwordItem
+			|| stack.getItem() instanceof AxeItem
+			|| stack.getItem() instanceof MaceItem
+			|| stack.getItem() instanceof TridentItem;
+	}
+
+	/**
+	 * Determines whether the given item is a shield.
+	 */
+	public static boolean isShield(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return false;
+		return stack.getItem() instanceof ShieldItem;
+	}
+
+	/**
+	 * Validates whether an item is eligible for auto-equipping into the mainhand slot
+	 * for the specified archetype role.
+	 *
+	 * @param role  The minion's active role.
+	 * @param stack The item stack candidate.
+	 * @return true if the item is permitted for the role, false otherwise.
+	 */
+	public static boolean canRoleAutoEquipMainhand(MinionRole role, ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return false;
+		return switch (role) {
+			case RANGER -> isRangedWeapon(stack);
+			case WARRIOR, SENTINEL -> isMeleeWeapon(stack);
+			case MINER -> stack.getItem() instanceof MiningToolItem || stack.getItem() instanceof SwordItem;
+			case BUILDER -> stack.getItem() instanceof MiningToolItem || isMeleeWeapon(stack);
+		};
+	}
+
+	/**
+	 * Determines if a candidate item in inventory should replace the currently equipped mainhand item
+	 * based on role specialization priorities.
+	 */
+	public static boolean isPreferredMainhandWeapon(MinionRole role, ItemStack candidate, ItemStack current) {
+		if (candidate == null || candidate.isEmpty()) return false;
+		if (current == null || current.isEmpty()) return canRoleAutoEquipMainhand(role, candidate);
+
+		return switch (role) {
+			case RANGER -> isRangedWeapon(candidate) && !isRangedWeapon(current);
+			case WARRIOR, SENTINEL -> isMeleeWeapon(candidate) && !isMeleeWeapon(current);
+			case MINER -> (candidate.getItem() instanceof MiningToolItem) && !(current.getItem() instanceof MiningToolItem);
+			case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
+		};
+	}
+
+	/**
+	 * Automatically equips armor, weapons, and defensive offhand items from the minion's
+	 * 9-slot storage inventory into corresponding equipment slots, strictly adhering to role restrictions:
+	 * - Rangers seek bows and crossbows (never melee weapons or mining tools).
+	 * - Warriors seek frontline melee weapons (swords, axes, maces; never ranged weapons).
+	 * - Sentinels seek melee weapons in mainhand and prioritize shields in offhand.
+	 * - Miners seek mining tools (pickaxes) and defense weapons.
+	 * - Builders seek construction tools and defense weapons.
+	 * - All roles equip available protective armor.
+	 */
 	public void autoEquipFromInventory() {
 		if (this.getWorld().isClient()) {
 			return;
 		}
+
+		MinionRole role = this.getRole();
 
 		for (int i = 0; i < this.inventory.size(); i++) {
 			ItemStack stack = this.inventory.getStack(i);
@@ -222,7 +554,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 				continue;
 			}
 
-			// 1. Check Armor slots (HEAD, CHEST, LEGS, FEET)
+			// 1. Check Armor slots (HEAD, CHEST, LEGS, FEET) - all roles equip available protective armor
 			EquipmentSlot preferredSlot = this.getPreferredEquipmentSlot(stack);
 			if (preferredSlot == EquipmentSlot.HEAD
 				|| preferredSlot == EquipmentSlot.CHEST
@@ -240,19 +572,56 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 				}
 			}
 
-			// 2. Check Weapon/Tool for MAINHAND
-			if (MinionScreenHandler.isWeaponOrTool(stack) && this.getEquippedStack(EquipmentSlot.MAINHAND).isEmpty()) {
+			// 2. Sentinel Offhand Priority: Sentinels specifically seek shields in offhand
+			if (role == MinionRole.SENTINEL && isShield(stack)) {
+				ItemStack currentOffhand = this.getEquippedStack(EquipmentSlot.OFFHAND);
+				if (!isShield(currentOffhand)) {
+					ItemStack toEquip = stack.split(1);
+					this.equipStack(EquipmentSlot.OFFHAND, toEquip);
+					if (stack.isEmpty()) {
+						this.inventory.setStack(i, currentOffhand);
+					} else {
+						this.inventory.setStack(i, stack);
+						if (!currentOffhand.isEmpty()) {
+							this.inventory.addStack(currentOffhand);
+						}
+					}
+					this.inventory.markDirty();
+					this.playSound(SoundEvents.ITEM_ARMOR_EQUIP_GENERIC.value(), 0.8F, 1.2F);
+					continue;
+				}
+			}
+
+			// 3. Mainhand Auto-Equip based on Role
+			ItemStack currentMainhand = this.getEquippedStack(EquipmentSlot.MAINHAND);
+			if (currentMainhand.isEmpty()) {
+				if (canRoleAutoEquipMainhand(role, stack)) {
+					ItemStack toEquip = stack.split(1);
+					this.equipStack(EquipmentSlot.MAINHAND, toEquip);
+					if (stack.isEmpty()) {
+						this.inventory.setStack(i, ItemStack.EMPTY);
+					}
+					this.inventory.markDirty();
+					this.playSound(SoundEvents.ITEM_ARMOR_EQUIP_GENERIC.value(), 0.8F, 1.2F);
+					continue;
+				}
+			} else if (isPreferredMainhandWeapon(role, stack, currentMainhand)) {
 				ItemStack toEquip = stack.split(1);
 				this.equipStack(EquipmentSlot.MAINHAND, toEquip);
 				if (stack.isEmpty()) {
-					this.inventory.setStack(i, ItemStack.EMPTY);
+					this.inventory.setStack(i, currentMainhand);
+				} else {
+					this.inventory.setStack(i, stack);
+					if (!currentMainhand.isEmpty()) {
+						this.inventory.addStack(currentMainhand);
+					}
 				}
 				this.inventory.markDirty();
 				this.playSound(SoundEvents.ITEM_ARMOR_EQUIP_GENERIC.value(), 0.8F, 1.2F);
 				continue;
 			}
 
-			// 3. Check Shield / Totem for OFFHAND
+			// 4. Offhand Auto-Equip (Shield / Totem) when offhand is empty
 			if (MinionScreenHandler.isShieldOrTotem(stack) && this.getEquippedStack(EquipmentSlot.OFFHAND).isEmpty()) {
 				ItemStack toEquip = stack.split(1);
 				this.equipStack(EquipmentSlot.OFFHAND, toEquip);
@@ -289,6 +658,13 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 	public void writeCustomDataToNbt(NbtCompound nbt) {
 		super.writeCustomDataToNbt(nbt);
 		nbt.put("Inventory", this.inventory.toNbtList(this.getRegistryManager()));
+		nbt.putString("MinionRole", this.getRole().asString());
+		nbt.putInt("MinionRoleId", this.getRole().getId());
+		nbt.putString("MinionSquad", this.getSquad().asString());
+		nbt.putInt("MinionSquadId", this.getSquad().getId());
+		if (this.guardAnchorPos != null) {
+			nbt.putLong("GuardAnchorPos", this.guardAnchorPos.asLong());
+		}
 	}
 
 	@Override
@@ -296,6 +672,33 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 		super.readCustomDataFromNbt(nbt);
 		if (nbt.contains("Inventory", NbtElement.LIST_TYPE)) {
 			this.inventory.readNbtList(nbt.getList("Inventory", NbtElement.COMPOUND_TYPE), this.getRegistryManager());
+		}
+		if (nbt.contains("MinionRoleId", NbtElement.INT_TYPE)) {
+			this.setRole(MinionRole.fromId(nbt.getInt("MinionRoleId")));
+		} else if (nbt.contains("MinionRole", NbtElement.STRING_TYPE)) {
+			String roleName = nbt.getString("MinionRole");
+			for (MinionRole r : MinionRole.values()) {
+				if (r.asString().equalsIgnoreCase(roleName)) {
+					this.setRole(r);
+					break;
+				}
+			}
+		}
+
+		if (nbt.contains("MinionSquadId", NbtElement.INT_TYPE)) {
+			this.setSquad(SquadGroup.fromId(nbt.getInt("MinionSquadId")));
+		} else if (nbt.contains("MinionSquad", NbtElement.STRING_TYPE)) {
+			String squadName = nbt.getString("MinionSquad");
+			for (SquadGroup s : SquadGroup.values()) {
+				if (s.asString().equalsIgnoreCase(squadName)) {
+					this.setSquad(s);
+					break;
+				}
+			}
+		}
+
+		if (nbt.contains("GuardAnchorPos", NbtElement.LONG_TYPE)) {
+			this.guardAnchorPos = BlockPos.fromLong(nbt.getLong("GuardAnchorPos"));
 		}
 	}
 
@@ -444,6 +847,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 	 * emitting poof particles and teleport sounds, and removing the entity from the world.
 	 */
 	public void dismiss() {
+		this.climbingScaffolding = false;
 		if (this.getWorld() instanceof ServerWorld serverWorld) {
 			for (EquipmentSlot slot : EquipmentSlot.values()) {
 				ItemStack stack = this.getEquippedStack(slot);
@@ -491,6 +895,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner {
 		if (player == null || !(this.getWorld() instanceof ServerWorld serverWorld)) {
 			return false;
 		}
+
+		this.climbingScaffolding = false;
 
 		double originX = this.getX();
 		double originY = this.getY();

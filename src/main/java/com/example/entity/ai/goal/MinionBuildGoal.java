@@ -4,6 +4,7 @@ import com.example.construction.ConstructionManager;
 import com.example.construction.ConstructionSession;
 import com.example.construction.ConstructionTask;
 import com.example.entity.custom.MinionEntity;
+import com.example.entity.custom.MinionRole;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Optional;
@@ -80,6 +81,12 @@ public class MinionBuildGoal extends Goal {
 			return false;
 		}
 
+		// Architectural gating: BUILDER participates in construction & deconstruction; MINER participates in deconstruction
+		MinionRole role = this.minion.getRole();
+		if (role != MinionRole.BUILDER && role != MinionRole.MINER) {
+			return false;
+		}
+
 		if (!(this.minion.getWorld() instanceof ServerWorld serverWorld)) {
 			return false;
 		}
@@ -89,12 +96,13 @@ public class MinionBuildGoal extends Goal {
 			return false;
 		}
 
-		// Find nearest active construction session belonging to minion's master within 48 blocks
+		// Find nearest active construction/dismantle session belonging to minion's master within 48 blocks
 		Optional<ConstructionSession> sessionOpt = ConstructionManager.getInstance().findNearestSessionForMinion(
 			serverWorld,
 			this.minion.getBlockPos(),
 			this.minion.getOwnerUuid(),
-			48.0D
+			48.0D,
+			role
 		);
 
 		if (sessionOpt.isEmpty()) {
@@ -102,6 +110,10 @@ public class MinionBuildGoal extends Goal {
 		}
 
 		ConstructionSession session = sessionOpt.get();
+		if (role == MinionRole.MINER && !session.isDismantle()) {
+			return false;
+		}
+
 		ConstructionTask task = session.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
 		if (task == null) {
 			return false;
@@ -140,6 +152,7 @@ public class MinionBuildGoal extends Goal {
 		this.workTicks = 0;
 		this.isAscendingScaffolding = false;
 		this.isDescendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
 		this.descentTicks = 0;
 		this.activeScaffoldColumn = null;
@@ -148,12 +161,17 @@ public class MinionBuildGoal extends Goal {
 		this.pendingNextTask = null;
 
 		if (this.currentTask != null) {
-			// Preserve held weapon before equipping preview block
+			// Preserve held weapon before equipping preview block or dismantle tool
 			saveHeldWeapon();
 
 			// Visually equip the item in main hand while working
-			ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
-			this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+			if (this.currentSession != null && this.currentSession.isDismantle()) {
+				ItemStack dismantleTool = resolveDismantleTool();
+				this.minion.equipStack(EquipmentSlot.MAINHAND, dismantleTool);
+			} else {
+				ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
+				this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+			}
 
 			if (this.minion.getWorld() instanceof ServerWorld serverWorld) {
 				setupNavigationForTask(serverWorld);
@@ -175,6 +193,7 @@ public class MinionBuildGoal extends Goal {
 		this.targetScaffoldBottomY = -1;
 		this.isAscendingScaffolding = false;
 		this.isDescendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
 		this.descentTicks = 0;
 		this.ticksNavigating = 0;
@@ -203,10 +222,33 @@ public class MinionBuildGoal extends Goal {
 			double alignX = scCenterX - this.minion.getX();
 			double alignZ = scCenterZ - this.minion.getZ();
 
+			// Removing scaffolding on descent in DISMANTLE mode
+			if (this.currentSession != null && this.currentSession.isDismantle() && this.activeScaffoldColumn != null) {
+				int minionY = this.minion.getBlockY();
+				for (int y = this.targetScaffoldTopY; y > minionY + 1; y--) {
+					BlockPos scaffoldPos = new BlockPos(this.activeScaffoldColumn.getX(), y, this.activeScaffoldColumn.getZ());
+					if (this.currentSession.isTemporaryScaffolding(scaffoldPos) && serverWorld.getBlockState(scaffoldPos).isOf(Blocks.SCAFFOLDING)) {
+						removeScaffoldBlockWithFeedback(serverWorld, scaffoldPos);
+					}
+				}
+			}
+
 			boolean onSolidGround = this.minion.isOnGround() && !serverWorld.getBlockState(this.minion.getBlockPos().down()).isOf(Blocks.SCAFFOLDING);
 			if (this.minion.getY() <= this.targetScaffoldBottomY + 0.15D || onSolidGround || this.descentTicks > 120) {
 				// Reached safe ground
+				// In dismantle mode, clean up remaining scaffold column blocks that were descended
+				if (this.currentSession != null && this.currentSession.isDismantle() && this.activeScaffoldColumn != null) {
+					int groundY = Math.max(serverWorld.getBottomY() + 1, (int) Math.floor(this.targetScaffoldBottomY));
+					for (int y = groundY; y <= this.targetScaffoldTopY; y++) {
+						BlockPos scaffoldPos = new BlockPos(this.activeScaffoldColumn.getX(), y, this.activeScaffoldColumn.getZ());
+						if (this.currentSession.isTemporaryScaffolding(scaffoldPos) && serverWorld.getBlockState(scaffoldPos).isOf(Blocks.SCAFFOLDING)) {
+							removeScaffoldBlockWithFeedback(serverWorld, scaffoldPos);
+						}
+					}
+				}
+
 				this.isDescendingScaffolding = false;
+				this.minion.setClimbingScaffolding(false);
 				this.descentTicks = 0;
 				this.minion.setVelocity(0.0D, 0.0D, 0.0D);
 				this.minion.velocityModified = true;
@@ -218,8 +260,12 @@ public class MinionBuildGoal extends Goal {
 				if (this.pendingNextTask != null) {
 					this.currentTask = this.pendingNextTask;
 					this.pendingNextTask = null;
-					ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
-					this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+					if (this.currentSession != null && this.currentSession.isDismantle()) {
+						this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
+					} else {
+						ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
+						this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+					}
 					setupNavigationForTask(serverWorld);
 				} else {
 					this.currentTask = null;
@@ -325,6 +371,7 @@ public class MinionBuildGoal extends Goal {
 
 					// Minion is at the base of the column or already ascending: climb scaffolding
 					this.isAscendingScaffolding = true;
+					this.minion.setClimbingScaffolding(true);
 					this.minion.getNavigation().stop();
 
 					if (this.minion.getY() < (double) this.targetScaffoldTopY) {
@@ -375,6 +422,7 @@ public class MinionBuildGoal extends Goal {
 						this.minion.velocityModified = true;
 						this.minion.fallDistance = 0.0F;
 						this.minion.setJumping(false);
+						this.minion.setClimbingScaffolding(false);
 					}
 				}
 			}
@@ -415,6 +463,11 @@ public class MinionBuildGoal extends Goal {
 		if (feetState.isOf(Blocks.SCAFFOLDING) || belowFeetState.isOf(Blocks.SCAFFOLDING)) {
 			this.minion.setVelocity(0.0D, 0.0D, 0.0D);
 			this.minion.velocityModified = true;
+		}
+
+		if (this.currentSession.isDismantle()) {
+			executeDismantleWork(serverWorld, targetPos);
+			return;
 		}
 
 		this.workTicks++;
@@ -520,18 +573,40 @@ public class MinionBuildGoal extends Goal {
 		if (nextTask != null) {
 			int currentY = this.minion.getBlockY();
 			int nextY = nextTask.getWorldPos().getY();
+			boolean elevated = this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld);
 
-			// If next task is significantly lower and minion is elevated on scaffolding, descend first
-			if (currentY - nextY > 2 && (this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld))) {
+			// Determine if next task cannot be reached safely from the current scaffolding platform:
+			// 1. Next task is lower (currentY - nextY > 2)
+			// 2. Next task is significantly higher than current scaffold top (Math.abs(currentY - nextY) > 2)
+			// 3. Next task is too far horizontally from the active scaffolding column
+			boolean needsDescent = false;
+			if (elevated) {
+				if (currentY - nextY > 2 || Math.abs(currentY - nextY) > 2) {
+					needsDescent = true;
+				} else if (this.activeScaffoldColumn != null) {
+					double colDx = this.activeScaffoldColumn.getX() - nextTask.getWorldPos().getX();
+					double colDz = this.activeScaffoldColumn.getZ() - nextTask.getWorldPos().getZ();
+					if ((colDx * colDx + colDz * colDz) > 12.0D) {
+						needsDescent = true;
+					}
+				}
+			}
+
+			if (needsDescent) {
 				this.pendingNextTask = nextTask;
 				this.isDescendingScaffolding = true;
+				this.minion.setClimbingScaffolding(false);
 				this.descentTicks = 0;
 				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
 				this.minion.getNavigation().stop();
 			} else {
 				this.currentTask = nextTask;
-				ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
-				this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+				if (this.currentSession != null && this.currentSession.isDismantle()) {
+					this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
+				} else {
+					ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
+					this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
+				}
 				setupNavigationForTask(serverWorld);
 			}
 		} else {
@@ -539,6 +614,7 @@ public class MinionBuildGoal extends Goal {
 			if (this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld)) {
 				this.pendingNextTask = null;
 				this.isDescendingScaffolding = true;
+				this.minion.setClimbingScaffolding(false);
 				this.descentTicks = 0;
 				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
 				this.minion.getNavigation().stop();
@@ -547,6 +623,7 @@ public class MinionBuildGoal extends Goal {
 				this.activeScaffoldColumn = null;
 				this.targetScaffoldTopY = -1;
 				this.isAscendingScaffolding = false;
+				this.minion.setClimbingScaffolding(false);
 				// Construction complete for this minion - restore held weapon
 				restoreHeldWeapon();
 			}
@@ -657,6 +734,7 @@ public class MinionBuildGoal extends Goal {
 		this.activeScaffoldColumn = null;
 		this.targetScaffoldTopY = -1;
 		this.isAscendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
 		this.ticksNavigating = 0;
 		this.workTicks = 0;
@@ -698,6 +776,7 @@ public class MinionBuildGoal extends Goal {
 				this.activeScaffoldColumn = scaffoldBase;
 				this.targetScaffoldTopY = targetPos.getY() - 1;
 				this.isAscendingScaffolding = false;
+				this.minion.setClimbingScaffolding(false);
 				this.climbTicks = 0;
 
 				// Navigate to base of scaffolding column along ground
@@ -720,6 +799,7 @@ public class MinionBuildGoal extends Goal {
 		this.activeScaffoldColumn = null;
 		this.targetScaffoldTopY = -1;
 		this.isAscendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
 		this.minion.getNavigation().startMovingTo(navX, navY, navZ, 1.15D);
 	}
@@ -735,6 +815,7 @@ public class MinionBuildGoal extends Goal {
 		this.targetScaffoldBottomY = -1;
 		this.isAscendingScaffolding = false;
 		this.isDescendingScaffolding = false;
+		this.minion.setClimbingScaffolding(false);
 		this.climbTicks = 0;
 		this.descentTicks = 0;
 		this.ticksNavigating = 0;
@@ -854,7 +935,9 @@ public class MinionBuildGoal extends Goal {
 					baseY--;
 				}
 				BlockPos base = new BlockPos(x, baseY, z);
-				if (!isBlueprintColumnBlocked(x, z, baseY, targetY - 1)) {
+				if (!isPosInDoorwayCorridor(world, x, z, baseY, targetY + 1)
+					&& isHeadroomClear(world, x, z, targetY - 1)
+					&& !isBlueprintColumnBlocked(x, z, baseY, targetY - 1)) {
 					return base;
 				}
 			}
@@ -1012,6 +1095,15 @@ public class MinionBuildGoal extends Goal {
 			}
 		}
 
+		// Validate that candidate column is not in doorway corridor and has headroom clearance
+		if (isPosInDoorwayCorridor(world, x, z, groundY, topY + 2)) {
+			return null;
+		}
+
+		if (!isHeadroomClear(world, x, z, topY)) {
+			return null;
+		}
+
 		return new BlockPos(x, groundY, z);
 	}
 
@@ -1089,5 +1181,307 @@ public class MinionBuildGoal extends Goal {
 		boolean headPassable = head.isAir() || head.isOf(Blocks.SCAFFOLDING) || head.canPathfindThrough(NavigationType.LAND);
 
 		return feetPassable && headPassable && !feet.isOf(Blocks.LAVA) && !feet.isOf(Blocks.FIRE);
+	}
+
+	/**
+	 * Determines whether a position (x, z) falls within a doorway or entrance corridor within
+	 * the specified vertical range.
+	 *
+	 * Doorway corridors include the door block itself and immediate horizontal neighbors (cardinal)
+	 * within 1 block distance. Checks both active session blueprint tasks (for planned door blocks)
+	 * and existing world door blocks.
+	 *
+	 * @param world The server world.
+	 * @param x     The X coordinate to test.
+	 * @param z     The Z coordinate to test.
+	 * @param minY  The minimum Y coordinate of the vertical range.
+	 * @param maxY  The maximum Y coordinate of the vertical range.
+	 * @return true if (x, z) is inside or adjacent to a doorway corridor; false otherwise.
+	 */
+	public boolean isPosInDoorwayCorridor(ServerWorld world, int x, int z, int minY, int maxY) {
+		// 1. Check blueprint tasks in the active session for door blocks
+		if (this.currentSession != null) {
+			for (ConstructionTask task : this.currentSession.getTasks()) {
+				BlockPos taskPos = task.getWorldPos();
+				if (taskPos.getY() >= minY - 1 && taskPos.getY() <= maxY + 1) {
+					BlockState blueprintState = task.getBlueprintBlock().state();
+					if (isDoorBlock(blueprintState)) {
+						if (isWithinDoorwayCorridor(x, z, taskPos.getX(), taskPos.getZ())) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		// 2. Check world blocks in the vicinity for placed door blocks
+		int checkMinY = Math.max(world.getBottomY(), minY - 1);
+		int checkMaxY = Math.min(world.getTopY(), maxY + 1);
+
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dz = -1; dz <= 1; dz++) {
+				for (int y = checkMinY; y <= checkMaxY; y++) {
+					BlockPos p = new BlockPos(x + dx, y, z + dz);
+					BlockState st = world.getBlockState(p);
+					if (isDoorBlock(st)) {
+						if (isWithinDoorwayCorridor(x, z, p.getX(), p.getZ())) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Helper to determine if a block state represents any door type.
+	 */
+	public static boolean isDoorBlock(BlockState state) {
+		return state.getBlock() instanceof DoorBlock;
+	}
+
+	/**
+	 * Helper to test if (x, z) is at or cardinally adjacent to the doorway anchor (doorX, doorZ).
+	 */
+	private static boolean isWithinDoorwayCorridor(int x, int z, int doorX, int doorZ) {
+		int diffX = Math.abs(x - doorX);
+		int diffZ = Math.abs(z - doorZ);
+		// Same block or directly adjacent cardinal corridor block (distance <= 1)
+		return (diffX + diffZ) <= 1;
+	}
+
+	/**
+	 * Checks vertical headroom clearance above a scaffolding column top platform (topY).
+	 * Ensures that topY + 1 and topY + 2 are free of solid blocks (both in the world and
+	 * in pending blueprint tasks) so that a standing minion does not suffocate or become trapped.
+	 *
+	 * @param world The server world.
+	 * @param x     The column X coordinate.
+	 * @param z     The column Z coordinate.
+	 * @param topY  The Y level of the top scaffolding block.
+	 * @return true if 2 blocks of vertical headroom above topY are completely unobstructed.
+	 */
+	public boolean isHeadroomClear(ServerWorld world, int x, int z, int topY) {
+		// Verify world blocks at topY + 1 and topY + 2
+		for (int yOffset = 1; yOffset <= 2; yOffset++) {
+			int y = topY + yOffset;
+			if (y > world.getTopY()) {
+				return false;
+			}
+			BlockPos p = new BlockPos(x, y, z);
+			BlockState st = world.getBlockState(p);
+			if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SCAFFOLDING)) {
+				return false;
+			}
+		}
+
+		// Verify uncompleted blueprint tasks scheduled to place solid blocks at topY + 1 and topY + 2
+		if (this.currentSession != null) {
+			for (ConstructionTask task : this.currentSession.getTasks()) {
+				if (!task.isCompleted()) {
+					BlockPos pos = task.getWorldPos();
+					if (pos.getX() == x && pos.getZ() == z && (pos.getY() == topY + 1 || pos.getY() == topY + 2)) {
+						BlockState plannedState = task.getBlueprintBlock().state();
+						if (!plannedState.isAir() && !plannedState.isReplaceable() && !plannedState.isOf(Blocks.SCAFFOLDING)) {
+							return false;
+						}
+					}
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Executes deconstruction work on a target block: plays break sounds and particles,
+	 * drops harvested items in survival, handles multi-block doors, and completes the task.
+	 */
+	private void executeDismantleWork(ServerWorld serverWorld, BlockPos targetPos) {
+		this.minion.getNavigation().stop();
+		this.minion.setJumping(false);
+		this.minion.fallDistance = 0.0F;
+
+		BlockPos feetPos = this.minion.getBlockPos();
+		BlockState feetState = serverWorld.getBlockState(feetPos);
+		BlockState belowFeetState = serverWorld.getBlockState(feetPos.down());
+		if (feetState.isOf(Blocks.SCAFFOLDING) || belowFeetState.isOf(Blocks.SCAFFOLDING)) {
+			this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+			this.minion.velocityModified = true;
+		}
+
+		this.workTicks++;
+
+		// 4 ticks deliberate work delay
+		if (this.workTicks < 4) {
+			return;
+		}
+
+		BlockState currentState = serverWorld.getBlockState(targetPos);
+		boolean alreadyAir = currentState.isAir();
+
+		if (!alreadyAir) {
+			// Handle double doors cleanly
+			if (currentState.getBlock() instanceof DoorBlock) {
+				if (currentState.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+					BlockPos upper = targetPos.up();
+					if (serverWorld.getBlockState(upper).isOf(currentState.getBlock())) {
+						serverWorld.breakBlock(upper, !this.currentSession.isCreative(), this.minion);
+					}
+				} else {
+					BlockPos lower = targetPos.down();
+					if (serverWorld.getBlockState(lower).isOf(currentState.getBlock())) {
+						serverWorld.breakBlock(lower, !this.currentSession.isCreative(), this.minion);
+					}
+				}
+			}
+
+			// Break block: SFX, breaking particles, and item drops in survival
+			boolean dropResources = !this.currentSession.isCreative();
+			serverWorld.breakBlock(targetPos, dropResources, this.minion);
+
+			// Extra block break particles and sound
+			serverWorld.spawnParticles(
+				new BlockStateParticleEffect(ParticleTypes.BLOCK, currentState),
+				targetPos.getX() + 0.5D,
+				targetPos.getY() + 0.5D,
+				targetPos.getZ() + 0.5D,
+				16,
+				0.3,
+				0.3,
+				0.3,
+				0.15
+			);
+
+			serverWorld.playSound(
+				null,
+				targetPos,
+				currentState.getSoundGroup().getBreakSound(),
+				SoundCategory.BLOCKS,
+				1.0F,
+				0.9F + (this.minion.getRandom().nextFloat() * 0.2F)
+			);
+		}
+
+		// Minion hand swing and vocalization
+		this.minion.swingHand(Hand.MAIN_HAND);
+		serverWorld.playSound(
+			null,
+			this.minion.getX(),
+			this.minion.getY(),
+			this.minion.getZ(),
+			SoundEvents.ENTITY_VILLAGER_YES,
+			SoundCategory.NEUTRAL,
+			0.8F,
+			1.0F + (this.minion.getRandom().nextFloat() * 0.2F)
+		);
+
+		// Complete the task in session
+		this.currentSession.completeTask(this.currentTask, serverWorld);
+
+		// Reset work and navigation counters
+		this.workTicks = 0;
+		this.ticksNavigating = 0;
+		this.climbTicks = 0;
+
+		// Immediately try to claim the next top-down task for seamless deconstruction
+		ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
+		if (nextTask != null) {
+			int currentY = this.minion.getBlockY();
+			int nextY = nextTask.getWorldPos().getY();
+			boolean elevated = this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld);
+
+			boolean needsDescent = false;
+			if (elevated) {
+				if (currentY - nextY > 2 || Math.abs(currentY - nextY) > 2) {
+					needsDescent = true;
+				} else if (this.activeScaffoldColumn != null) {
+					double colDx = this.activeScaffoldColumn.getX() - nextTask.getWorldPos().getX();
+					double colDz = this.activeScaffoldColumn.getZ() - nextTask.getWorldPos().getZ();
+					if ((colDx * colDx + colDz * colDz) > 12.0D) {
+						needsDescent = true;
+					}
+				}
+			}
+
+			if (needsDescent) {
+				this.pendingNextTask = nextTask;
+				this.isDescendingScaffolding = true;
+				this.minion.setClimbingScaffolding(false);
+				this.descentTicks = 0;
+				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
+				this.minion.getNavigation().stop();
+			} else {
+				this.currentTask = nextTask;
+				this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
+				setupNavigationForTask(serverWorld);
+			}
+		} else {
+			// No more tasks: if minion is elevated on scaffolding, descend and tear down scaffolding on descent
+			if (this.activeScaffoldColumn != null || isStandingOnScaffolding(serverWorld)) {
+				this.pendingNextTask = null;
+				this.isDescendingScaffolding = true;
+				this.minion.setClimbingScaffolding(false);
+				this.descentTicks = 0;
+				this.targetScaffoldBottomY = getGroundYBelow(serverWorld, this.minion.getBlockPos());
+				this.minion.getNavigation().stop();
+			} else {
+				this.currentTask = null;
+				this.activeScaffoldColumn = null;
+				this.targetScaffoldTopY = -1;
+				this.isAscendingScaffolding = false;
+				this.minion.setClimbingScaffolding(false);
+				restoreHeldWeapon();
+			}
+		}
+	}
+
+	private void removeScaffoldBlockWithFeedback(ServerWorld world, BlockPos pos) {
+		if (this.currentSession != null) {
+			this.currentSession.removeTemporaryScaffolding(pos);
+		}
+		world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
+		world.spawnParticles(
+			new BlockStateParticleEffect(ParticleTypes.BLOCK, Blocks.SCAFFOLDING.getDefaultState()),
+			pos.getX() + 0.5D,
+			pos.getY() + 0.5D,
+			pos.getZ() + 0.5D,
+			8,
+			0.2,
+			0.2,
+			0.2,
+			0.05
+		);
+		world.playSound(
+			null,
+			pos,
+			SoundEvents.BLOCK_SCAFFOLDING_BREAK,
+			SoundCategory.BLOCKS,
+			0.8F,
+			1.0F
+		);
+	}
+
+	private ItemStack resolveDismantleTool() {
+		if (!this.savedHeldWeapon.isEmpty() && isPickaxe(this.savedHeldWeapon)) {
+			return this.savedHeldWeapon.copy();
+		}
+		SimpleInventory inv = this.minion.getInventory();
+		for (int i = 0; i < inv.size(); i++) {
+			ItemStack st = inv.getStack(i);
+			if (!st.isEmpty() && isPickaxe(st)) {
+				return st.copy();
+			}
+		}
+		return new ItemStack(Items.IRON_PICKAXE);
+	}
+
+	private static boolean isPickaxe(ItemStack stack) {
+		Item item = stack.getItem();
+		return item == Items.DIAMOND_PICKAXE || item == Items.NETHERITE_PICKAXE ||
+			   item == Items.IRON_PICKAXE || item == Items.GOLDEN_PICKAXE ||
+			   item == Items.STONE_PICKAXE || item == Items.WOODEN_PICKAXE;
 	}
 }
