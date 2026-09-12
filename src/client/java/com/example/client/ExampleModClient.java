@@ -99,13 +99,24 @@ public class ExampleModClient implements ClientModInitializer {
 				}
 			}
 
-			// Open-air sneak + left-click shortcut to deselect all minions when no block or entity is targeted
+			// Open-air sneak + left-click shortcut:
+			// In BUILD mode: cycle rotation locally, play chime sound/actionbar, and dispatch network update
+			// In other modes: deselect all minions
 			if (client.player != null && client.options.attackKey.wasPressed()) {
 				ItemStack heldScepter = CommandScepterItem.getHeldScepter(client.player);
 				if (client.player.isSneaking() && !heldScepter.isEmpty()) {
 					if (client.crosshairTarget == null || client.crosshairTarget.getType() == HitResult.Type.MISS) {
 						CommandMode mode = CommandScepterItem.getMode(heldScepter);
-						if (mode != CommandMode.BUILD) {
+						if (mode == CommandMode.BUILD) {
+							CommandScepterItem.cycleRotation(heldScepter, client.player);
+							ModClientNetworking.sendUpdateScepter(
+								mode,
+								CommandScepterItem.getBlueprintId(heldScepter),
+								CommandScepterItem.getTargetSquad(heldScepter),
+								CommandScepterItem.getRotationIndex(heldScepter),
+								false
+							);
+						} else {
 							ModClientNetworking.sendDeselectAllMinions();
 						}
 					}

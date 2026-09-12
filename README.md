@@ -20,8 +20,8 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
 
 | Feature                      | Domain            | Identifier / Class                                                  | Core Capability                                                                     |                                                           Specs                                                            |
 | :--------------------------- | :---------------- | :------------------------------------------------------------------ | :---------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------: |
-| **Loki Command Scepter**     | Custom Item       | `modid-mmcli-agent-modding:command_scepter`<br>`CommandScepterItem` | 32-block raycast unit selection, ground waypoints, rally ring & Command Hub GUI     |                             [Section 2](FEATURES.md#2-loki-command-scepter-commandscepteritem)                             |
-| **Minion Thrall**            | Custom Entity     | `modid-mmcli-agent-modding:minion`<br>`MinionEntity`                | 9-slot inventory, 5 archetype roles, upright guard posture & friendly-fire immunity |                     [Section 4](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)                     |
+| **Loki Command Scepter**     | Custom Item       | `modid-mmcli-agent-modding:command_scepter`<br>`CommandScepterItem` | 32-block raycast unit selection, ground waypoints, rally ring, 4-quadrant rotation & door sparkle HUD |                             [Section 2](FEATURES.md#2-loki-command-scepter-commandscepteritem)                             |
+| **Minion Thrall**            | Custom Entity     | `modid-mmcli-agent-modding:minion`<br>`MinionEntity`                | 9-slot inventory, 5 archetype roles, upright guard posture, friendly-fire immunity & host auto-adoption |                     [Section 4](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)                     |
 | **Minion Spawn Egg**         | Custom Item       | `modid-mmcli-agent-modding:minion_spawn_egg`<br>`SpawnEggItem`      | Deep navy & arcane gold spawn egg; primes minions in standby stance                 |                     [Section 4](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)                     |
 | **Tactical Army AI**         | Squad AI          | `MinionRole`<br>`SquadGroup`                                        | Wildcard (`ALL`) and discrete squads (`ALPHA`–`DELTA`), formations & focus-fire     |             [Section 19](FEATURES.md#19-tactical-army--squad-architecture-roles-squads-formations-rally--sfx)              |
 | **Construction Manager**     | Server Engine     | `ConstructionManager`<br>`ConstructionSession`                      | Multi-phase build/dismantle sessions with holographic bounding particles            |                    [Section 11](FEATURES.md#11-multiblock-construction-manager--session-orchestration)                     |
@@ -30,7 +30,7 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
 | **Combat Sappers**           | Traversal AI      | `MinionSapperGoal`<br>`TraversalScaffoldingManager`                 | Autonomous chasm bridging, cliff ascent ladders & timed decay safety                | [Section 22](FEATURES.md#22-combat-sappers--ephemeral-traversal-scaffolding-minionsappergoal--traversalscaffoldingmanager) |
 | **TNT Stick**                | Custom Item       | `modid-mmcli-agent-modding:tnt_stick`<br>`TntStickItem`             | Single-stack throwable explosive stick with 5-tick anti-spam cooldown               |                                    [Section 13](FEATURES.md#13-custom-items-tnt-stick)                                     |
 | **TNT Projectile**           | Custom Entity     | `modid-mmcli-agent-modding:tnt_projectile`<br>`TntProjectileEntity` | Server-authoritative projectile with smoke trail and 4.0F explosion                 |                           [Section 14](FEATURES.md#14-custom-entities-tnt-projectile--renderer)                            |
-| **Client Rendering & GUIs**  | Visuals & UI      | `com.example.client.renderer.*`<br>`com.example.client.gui.*`       | Billboarded overhead badges, fullbright cave text, MinionScreen & Command Hub       |                   [Section 7](FEATURES.md#7-biped-model--client-rendering-pipeline-minionentityrenderer)                   |
+| **Client Rendering & GUIs**  | Visuals & UI      | `com.example.client.renderer.*`<br>`com.example.client.gui.*`       | Billboarded overhead badges, 3D rotating wireframes, MinionScreen (Smart Shift-Close) & Command Hub |                   [Section 7](FEATURES.md#7-biped-model--client-rendering-pipeline-minionentityrenderer)                   |
 | **Block Architecture**       | Registry System   | `ModBlocks`                                                         | Automated dual registration pairing `Registries.BLOCK` with `Registries.ITEM`       |                       [Section 15](FEATURES.md#15-screen-handlers--block-registration-architecture)                        |
 
 ---
@@ -47,15 +47,17 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
   - **Squad Outlines**: Selected units glow with squad-specific team colors (Alpha Red, Bravo Blue, Charlie Green, Delta Gold, All White).
   - **Banner of Courage**: Hold right-click to project a charging rally ring, gathering enclosed thralls into the active squad channel.
   - **Command Hub GUI**: Shift + Right-click opens the interactive hub for squad switching, formation selection, and the paginated blueprint catalog.
-  - **Rapid Deselection**: In-world Sneak + Left-Click or GUI **✕ Deselect** clears active unit selections instantly.
+  - **Rapid Deselection**: In-world Sneak + Left-Click (in non-`BUILD` modes) or GUI **✕ Deselect** clears active unit selections instantly.
   - **Focus-Fire Pings**: Right-click hostile mobs to order squad-wide coordinated strikes.
+  - **Sneak + Left-Click Rotation Cycling**: In `BUILD` mode, Sneak + Left-Click cycles blueprint rotation through 0° → 90° → 180° → 270° with chime audio and actionbar updates.
 
 - **Autonomous Minion Thrall** ([`MinionEntity`](FEATURES.md#4-autonomous-minion-thrall-entity-minionentity--spawn-egg)):
   - **Decoupled Guard Posture**: Idle/holding units stand upright at attention at their post rather than dropping into a seated pose.
   - **Persistent Inventory**: 9 inventory slots + 6 equipment slots managed via Sneak + Right-Click modal GUI.
   - **Friendly-Fire Immunity**: Custom damage gating prevents allied arrow fire, Sweeping Edge strikes, or accidental hits among teammates.
   - **5 Archetype Roles**: `WARRIOR` (melee sweep), `SENTINEL` (8-block perimeter guard), `BUILDER` (architectural construction), `MINER` (excavation), and `RANGER` (dynamic archery strafing in an 8–16 block pocket).
-  - **Scaffolding Kinematics**: Ascends scaffolding with continuous `+0.25D` vertical velocity impulses.
+  - **Scaffolding Kinematics**: Ascends scaffolding with continuous `+0.25D` vertical velocity impulses and descends via top-block phase-through snapping.
+  - **Singleplayer Host Auto-Adoption**: Server-safe ownership evaluation automatically adopts and rebinds tamed minions to the host player across client/server restarts.
 
 - **Tactical Army Hierarchy** ([`SquadGroup`](FEATURES.md#19-tactical-army--squad-architecture-roles-squads-formations-rally--sfx)):
   - Flexible routing across `ALL` or dedicated squads (`ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`) with network synchronization via custom Fabric C2S packets.
@@ -72,6 +74,8 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
 - **Blueprint Catalog & Topological Sorting** ([`BlueprintRegistry`](FEATURES.md#10-curated-blueprint-catalog--topological-sorting)):
   - Pre-engineered structures: _Overlord Watchtower_ (7×7×9), _Arcane Obelisk_ (5×5×8), and _Defensive Barricade_ (9×3×3).
   - Deterministic bottom-up topological sorting ensures foundations, pillars, and inverted stair arches are constructed prior to upper dependent blocks.
+  - **4-Quadrant Rotation Engine**: Full origin $(0, 0)$ rotation matrices (0°, 90°, 180°, 270°) with automatic BlockState rotation, bounding box recalculation, and topological re-sorting.
+  - **Door Offset Discovery & Sparkle Beams**: Automatically discovers lower door coordinates, projecting vertical sparkle beams (`HAPPY_VILLAGER` + `END_ROD`) and HUD actionbar door direction readouts.
 
 - **Structure Deconstruction** ([`ConstructionSession`](FEATURES.md#23-structure-deconstruction--dismantling-mode-sessionmodedismantle)):
   - Reverse topological dismantling demolishes roofs and upper decorations before clearing foundational supports.
@@ -104,9 +108,34 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
   - Rendered with `LightmapTextureManager.MAX_LIGHT_COORDINATE` for crisp, fullbright legibility in deep caves and night raids.
 
 - **Custom Screen Interfaces**:
-  - `MinionScreen`: Framed biped equipment modal with inventory grid and role status.
-  - `CommandScepterScreen`: Interactive Command Hub displaying real-time selected unit counts, formation controls, blueprint preview thumbnails, and a one-click **✕ Deselect** button.
+  - `MinionScreen`: Framed biped equipment modal with inventory grid, role/squad status, and **Smart Shift-to-Close** with item transfer latching (`SmartCloseHandler`).
+  - `CommandScepterScreen`: Interactive Command Hub displaying real-time selected unit counts, formation controls, blueprint preview thumbnails, and a one-click **✕ Deselect** button with fast Shift dismissal.
+  - `BlueprintHologramRenderer`: Translucent neon-cyan 3D wireframes rotating synchronously in real time with the active scepter rotation.
   </details>
+
+---
+
+### 🌟 The 5 Architectural Refinements
+
+The codebase incorporates five foundational engineering refinements designed to maximize operational stability, eliminate edge-case crashes, and deliver seamless tactile UX:
+
+1. **Refinement 1 — Singleplayer Host Ownership Auto-Adoption (Server-Safe)**:
+   - Server-side singleplayer host validation (`server.isSingleplayer() && server.isHost(...)`) in `MinionEntity.isOwner` adopts tamed thralls if offline development UUIDs change across client restarts.
+   - Strictly enforces server-safe invariants: zero imports of `MinecraftClient` in common code (`src/main/java`), completely preventing dedicated server crashes.
+2. **Refinement 2 — Scaffolding Descent Phase-Through Kinematics**:
+   - Suppresses climbing flags (`climbingScaffolding = false`) during descent, preventing horizontal collisions from triggering vanilla upward climbing impulses.
+   - Centers and snaps the minion 0.25 blocks inside the top scaffold block (`targetScaffoldTopY + 0.75D`) with downward velocity `-0.25D`, smoothly phasing through the column without hopping.
+   - Relaxes landing detection (`targetScaffoldBottomY + 0.35D` or solid ground) and bypasses descent when already at/below ground level.
+3. **Refinement 3 — Synchronous 3D Holographic Wireframe Rotation**:
+   - `BlueprintHologramRenderer` dynamically rotates blueprints (`blueprint.rotate(rotation)`) using the active scepter rotation component before rendering.
+   - Guarantees that neon-cyan wireframes, yellow anchor boxes, and ghost blocks align with in-world particle guides and server-side placement.
+4. **Refinement 4 — Smart Shift-to-Close with Item Transfer Latching (`MinionScreen`)**:
+   - Tracks `slotClickedWithShift`: clicking inventory slots while holding Shift latches item transfer mode, ensuring releasing Shift after a `quickMove` does **NOT** close the screen.
+   - Clean Shift taps without slot clicks dismiss the modal instantly; `'E'` and `Escape` provide universal fast exit.
+5. **Refinement 5 — Sneak + Left-Click Blueprint Rotation Cycling & Door Sparkle HUD**:
+   - Sneak + Left-Click in `BUILD` mode cycles rotation through $0^\circ \to 90^\circ \to 180^\circ \to 270^\circ$, updating client and server state seamlessly.
+   - Scepter `inventoryTick` performs 32-block crosshair raycasting, projecting rotating perimeter particles, vertical door sparkle beams (`HAPPY_VILLAGER` + `END_ROD`), and a real-time HUD actionbar readout (`§6🏗 [Name] §8| §bRotation: [Deg]° §8| §a🚪 Door: [Dir]`).
+
 
 ---
 

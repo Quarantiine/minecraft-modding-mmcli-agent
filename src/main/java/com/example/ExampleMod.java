@@ -48,7 +48,7 @@ public class ExampleMod implements ModInitializer {
 		});
 
 		// Register sneak + left-click attack block callback:
-		// In BUILD mode: cycles blueprint
+		// In BUILD mode: cycles rotation
 		// In other modes: deselects all minions
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
 			if (!player.isSneaking()) {
@@ -59,7 +59,7 @@ public class ExampleMod implements ModInitializer {
 				CommandMode mode = CommandScepterItem.getMode(stack);
 				if (mode == CommandMode.BUILD) {
 					if (!world.isClient()) {
-						CommandScepterItem.cycleBlueprint(stack, player, world);
+						CommandScepterItem.cycleRotation(stack, player);
 					}
 					return ActionResult.SUCCESS;
 				} else {
@@ -74,7 +74,7 @@ public class ExampleMod implements ModInitializer {
 
 		// Register attack entity callback:
 		// 1. Prevents damaging owned minions with the Command Scepter, toggling selection instead.
-		// 2. Handles sneak + left-click deselecting / blueprint cycling when clicking entities.
+		// 2. Handles sneak + left-click deselecting / rotation cycling when clicking entities.
 		AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
 			ItemStack stack = CommandScepterItem.getHeldScepter(player);
 			if (!stack.isEmpty()) {
@@ -82,7 +82,7 @@ public class ExampleMod implements ModInitializer {
 					CommandMode mode = CommandScepterItem.getMode(stack);
 					if (mode == CommandMode.BUILD) {
 						if (!world.isClient()) {
-							CommandScepterItem.cycleBlueprint(stack, player, world);
+							CommandScepterItem.cycleRotation(stack, player);
 						}
 						return ActionResult.SUCCESS;
 					} else {

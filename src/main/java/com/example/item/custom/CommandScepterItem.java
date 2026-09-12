@@ -1,5 +1,6 @@
 package com.example.item.custom;
 
+import com.example.blueprint.BlueprintBlock;
 import com.example.blueprint.BlueprintRegistry;
 import com.example.blueprint.StructureBlueprint;
 import com.example.component.CommandMode;
@@ -15,6 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import net.minecraft.block.DoorBlock;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.InventoryOwner;
@@ -34,12 +36,14 @@ import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
+import net.minecraft.util.BlockRotation;
 import net.minecraft.util.Hand;
 import net.minecraft.util.TypedActionResult;
 import net.minecraft.util.UseAction;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -258,6 +262,110 @@ public class CommandScepterItem extends Item {
 		return next;
 	}
 
+	/**
+	 * Resolves the active blueprint rotation index stored in the item's data component.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return Integer rotation index modulo 4 (0 -> 0°, 1 -> 90°, 2 -> 180°, 3 -> 270°).
+	 */
+	public static int getRotationIndex(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) {
+			return 0;
+		}
+		return Math.floorMod(stack.getOrDefault(ModDataComponents.STRUCTURE_ROTATION, 0), 4);
+	}
+
+	/**
+	 * Sets the active blueprint rotation index on the item stack.
+	 *
+	 * @param stack         The scepter ItemStack.
+	 * @param rotationIndex The rotation index (normalized modulo 4).
+	 */
+	public static void setRotationIndex(ItemStack stack, int rotationIndex) {
+		if (stack != null && !stack.isEmpty()) {
+			stack.set(ModDataComponents.STRUCTURE_ROTATION, Math.floorMod(rotationIndex, 4));
+		}
+	}
+
+	/**
+	 * Resolves the active {@link BlockRotation} from the item stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The corresponding BlockRotation enum value.
+	 */
+	public static BlockRotation getRotation(ItemStack stack) {
+		int index = getRotationIndex(stack);
+		return switch (index) {
+			case 1 -> BlockRotation.CLOCKWISE_90;
+			case 2 -> BlockRotation.CLOCKWISE_180;
+			case 3 -> BlockRotation.COUNTERCLOCKWISE_90;
+			default -> BlockRotation.NONE;
+		};
+	}
+
+	/**
+	 * Sets the active {@link BlockRotation} on the item stack.
+	 *
+	 * @param stack    The scepter ItemStack.
+	 * @param rotation The target BlockRotation.
+	 */
+	public static void setRotation(ItemStack stack, BlockRotation rotation) {
+		int index = switch (rotation == null ? BlockRotation.NONE : rotation) {
+			case CLOCKWISE_90 -> 1;
+			case CLOCKWISE_180 -> 2;
+			case COUNTERCLOCKWISE_90 -> 3;
+			default -> 0;
+		};
+		setRotationIndex(stack, index);
+	}
+
+	/**
+	 * Cycles to the next 90-degree structure rotation (0° -> 90° -> 180° -> 270° -> 0°),
+	 * emits a chime sound, and projects an actionbar notification.
+	 *
+	 * @param stack  The scepter ItemStack.
+	 * @param player The commanding player.
+	 * @return The newly selected BlockRotation.
+	 */
+	public static BlockRotation cycleRotation(ItemStack stack, PlayerEntity player) {
+		int nextIndex = Math.floorMod(getRotationIndex(stack) + 1, 4);
+		setRotationIndex(stack, nextIndex);
+		BlockRotation newRot = getRotation(stack);
+
+		if (player != null) {
+			if (player.getWorld() != null) {
+				player.getWorld().playSound(
+					null,
+					player.getX(),
+					player.getY(),
+					player.getZ(),
+					SoundEvents.BLOCK_NOTE_BLOCK_CHIME,
+					SoundCategory.PLAYERS,
+					0.8F,
+					1.0F + (nextIndex * 0.15F)
+				);
+			}
+			int degrees = nextIndex * 90;
+			player.sendMessage(
+				Text.literal("§6🏗 Rotation: §b" + degrees + "° §7(" + newRot.name() + ")§r"),
+				true
+			);
+		}
+		return newRot;
+	}
+
+	/**
+	 * Convenience overload cycling structure rotation with world context.
+	 *
+	 * @param stack  The scepter ItemStack.
+	 * @param player The commanding player.
+	 * @param world  The interaction world.
+	 * @return The newly selected BlockRotation.
+	 */
+	public static BlockRotation cycleRotation(ItemStack stack, PlayerEntity player, World world) {
+		return cycleRotation(stack, player);
+	}
+
 	// -----------------------------------------------------------------------------------------
 	// ITEM USAGE & CHANNELED RALLY RING (BANNER OF COURAGE)
 	// -----------------------------------------------------------------------------------------
@@ -459,6 +567,147 @@ public class CommandScepterItem extends Item {
 	}
 
 	// -----------------------------------------------------------------------------------------
+	// CLIENT INVENTORY TICK: BLUEPRINT PREVIEW PARTICLES & ACTION-BAR READOUT
+	// -----------------------------------------------------------------------------------------
+
+	@Override
+	public void inventoryTick(ItemStack stack, World world, Entity entity, int slot, boolean selected) {
+		if (!world.isClient() || !(entity instanceof PlayerEntity player)) {
+			return;
+		}
+
+		// Active only when the scepter is held in main hand or off hand
+		boolean isHeld = selected || player.getOffHandStack() == stack;
+		if (!isHeld) {
+			return;
+		}
+
+		// Active only in BUILD mode
+		if (getMode(stack) != CommandMode.BUILD) {
+			return;
+		}
+
+		// Throttle particle and HUD updates to every 4 ticks
+		if (player.age % 4 != 0) {
+			return;
+		}
+
+		// Perform 32-block crosshair raycast against terrain
+		BlockHitResult hitResult = raycastBlockTarget(player, MINION_COMMAND_RADIUS);
+		if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) {
+			return;
+		}
+
+		BlockPos clickedPos = hitResult.getBlockPos();
+		Direction side = hitResult.getSide();
+		BlockPos anchorPos = world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
+
+		String bpId = getBlueprintId(stack);
+		StructureBlueprint blueprint = BlueprintRegistry.getOrDefault(bpId);
+		if (blueprint == null || blueprint.getBlockCount() == 0) {
+			return;
+		}
+
+		BlockRotation rotation = getRotation(stack);
+		StructureBlueprint rotatedBlueprint = blueprint.rotate(rotation);
+
+		// Render perimeter ground bounding particles
+		renderPerimeterParticles(world, anchorPos, rotatedBlueprint);
+
+		// Render door sparkle beams or front guide particles
+		renderDoorParticles(world, anchorPos, rotatedBlueprint, rotation);
+
+		// Project real-time HUD action-bar readout
+		int angle = getRotationIndex(stack) * 90;
+		String doorDir = resolveDoorDirection(rotatedBlueprint, rotation);
+		player.sendMessage(
+			Text.literal("§6🏗 " + rotatedBlueprint.getName() + " §8| §bRotation: " + angle + "° §8| §a🚪 Door: " + doorDir),
+			true
+		);
+	}
+
+	private static void renderPerimeterParticles(World world, BlockPos anchorPos, StructureBlueprint blueprint) {
+		BlockBox box = blueprint.getBoundingBox();
+		double minX = anchorPos.getX() + box.getMinX();
+		double minY = anchorPos.getY() + box.getMinY() + 0.05D;
+		double minZ = anchorPos.getZ() + box.getMinZ();
+		double maxX = anchorPos.getX() + box.getMaxX() + 1.0D;
+		double maxZ = anchorPos.getZ() + box.getMaxZ() + 1.0D;
+
+		for (double x = minX; x <= maxX; x += 1.0D) {
+			world.addParticle(ParticleTypes.WAX_ON, x, minY, minZ, 0.0D, 0.01D, 0.0D);
+			world.addParticle(ParticleTypes.WAX_ON, x, minY, maxZ, 0.0D, 0.01D, 0.0D);
+		}
+		for (double z = minZ; z <= maxZ; z += 1.0D) {
+			world.addParticle(ParticleTypes.WAX_ON, minX, minY, z, 0.0D, 0.01D, 0.0D);
+			world.addParticle(ParticleTypes.WAX_ON, maxX, minY, z, 0.0D, 0.01D, 0.0D);
+		}
+	}
+
+	private static void renderDoorParticles(World world, BlockPos anchorPos, StructureBlueprint blueprint, BlockRotation rotation) {
+		List<BlockPos> doorOffsets = blueprint.getDoorOffsets();
+		if (doorOffsets != null && !doorOffsets.isEmpty()) {
+			for (BlockPos offset : doorOffsets) {
+				double doorX = anchorPos.getX() + offset.getX() + 0.5D;
+				double baseDoorY = anchorPos.getY() + offset.getY();
+				double doorZ = anchorPos.getZ() + offset.getZ() + 0.5D;
+
+				for (double dy = 0.2D; dy <= 2.2D; dy += 0.5D) {
+					world.addParticle(ParticleTypes.HAPPY_VILLAGER, doorX, baseDoorY + dy, doorZ, 0.0D, 0.02D, 0.0D);
+					world.addParticle(ParticleTypes.END_ROD, doorX, baseDoorY + dy, doorZ, 0.0D, 0.04D, 0.0D);
+				}
+			}
+		} else {
+			BlockBox box = blueprint.getBoundingBox();
+			double minX = anchorPos.getX() + box.getMinX();
+			double maxX = anchorPos.getX() + box.getMaxX() + 1.0D;
+			double minZ = anchorPos.getZ() + box.getMinZ();
+			double maxZ = anchorPos.getZ() + box.getMaxZ() + 1.0D;
+
+			double guideX;
+			double guideZ;
+			switch (rotation) {
+				case CLOCKWISE_90 -> {
+					guideX = minX;
+					guideZ = (minZ + maxZ) / 2.0D;
+				}
+				case CLOCKWISE_180 -> {
+					guideX = (minX + maxX) / 2.0D;
+					guideZ = minZ;
+				}
+				case COUNTERCLOCKWISE_90 -> {
+					guideX = maxX;
+					guideZ = (minZ + maxZ) / 2.0D;
+				}
+				default -> {
+					guideX = (minX + maxX) / 2.0D;
+					guideZ = maxZ;
+				}
+			}
+			double guideBaseY = anchorPos.getY() + box.getMinY();
+			for (double dy = 0.2D; dy <= 1.8D; dy += 0.4D) {
+				world.addParticle(ParticleTypes.HAPPY_VILLAGER, guideX, guideBaseY + dy, guideZ, 0.0D, 0.02D, 0.0D);
+				world.addParticle(ParticleTypes.END_ROD, guideX, guideBaseY + dy, guideZ, 0.0D, 0.03D, 0.0D);
+			}
+		}
+	}
+
+	private static String resolveDoorDirection(StructureBlueprint blueprint, BlockRotation rotation) {
+		for (BlueprintBlock block : blueprint.getBlocks()) {
+			if (block.state().getBlock() instanceof DoorBlock && block.state().contains(DoorBlock.FACING)) {
+				return block.state().get(DoorBlock.FACING).getName().toUpperCase();
+			}
+		}
+		Direction frontDir = switch (rotation) {
+			case CLOCKWISE_90 -> Direction.WEST;
+			case CLOCKWISE_180 -> Direction.NORTH;
+			case COUNTERCLOCKWISE_90 -> Direction.EAST;
+			default -> Direction.SOUTH;
+		};
+		return frontDir.getName().toUpperCase();
+	}
+
+	// -----------------------------------------------------------------------------------------
 	// RIGHT-CLICK ON BLOCK (GROUND ANCHORING & WAYPOINT PINGS)
 	// -----------------------------------------------------------------------------------------
 
@@ -519,6 +768,9 @@ public class CommandScepterItem extends Item {
 				BlockPos anchorPos = world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
 				String bpId = getBlueprintId(stack);
 				StructureBlueprint blueprint = BlueprintRegistry.getOrDefault(bpId);
+				if (blueprint != null) {
+					blueprint = blueprint.rotate(getRotation(stack));
+				}
 				if (player.isSneaking()) {
 					ConstructionManager.getInstance().startDismantleSession(serverWorld, anchorPos, blueprint, player);
 				} else {
@@ -542,7 +794,10 @@ public class CommandScepterItem extends Item {
 					}
 				}
 				String bpId = getBlueprintId(stack);
-				StructureBlueprint blueprint = existing.map(ConstructionSession::getBlueprint).orElseGet(() -> BlueprintRegistry.getOrDefault(bpId));
+				StructureBlueprint blueprint = existing.map(ConstructionSession::getBlueprint).orElseGet(() -> {
+					StructureBlueprint raw = BlueprintRegistry.getOrDefault(bpId);
+					return raw != null ? raw.rotate(getRotation(stack)) : null;
+				});
 				BlockPos targetAnchor = existing.map(ConstructionSession::getAnchorPos).orElse(anchorPos);
 				ConstructionManager.getInstance().startDismantleSession(serverWorld, targetAnchor, blueprint, player);
 			}
@@ -1424,7 +1679,9 @@ public class CommandScepterItem extends Item {
 		if (mode == CommandMode.BUILD) {
 			String bpId = getBlueprintId(stack);
 			StructureBlueprint bp = BlueprintRegistry.getOrDefault(bpId);
+			int degrees = getRotationIndex(stack) * 90;
 			tooltip.add(Text.literal("§7Active Blueprint: §b" + bp.getName() + " §8(" + bp.getBlockCount() + " blocks)"));
+			tooltip.add(Text.literal("§7Rotation: §b" + degrees + "° §7(" + getRotation(stack).name() + ")"));
 		}
 
 		tooltip.add(Text.empty());
@@ -1433,7 +1690,7 @@ public class CommandScepterItem extends Item {
 		tooltip.add(Text.literal("§8• Right-Click Minion: Select / Deselect Unit (Squad Glowing Outline)"));
 		tooltip.add(Text.literal("§8• Right-Click Ground: 32b Waypoint Ping (Selected Units Move & Hold)"));
 		tooltip.add(Text.literal("§8• Right-Click Hostile: 32b Focus-Fire Ping (Crosshair Aiming & Drum SFX)"));
-		tooltip.add(Text.literal("§8• Shift + Left-Click: Deselect All Minions (Cycle Blueprint in Build)"));
+		tooltip.add(Text.literal("§8• Shift + Left-Click: Deselect All Minions (Cycle Rotation in Build)"));
 		tooltip.add(Text.literal("§8• Right-Click Air (Build): Cycle Blueprint"));
 		tooltip.add(Text.literal("§8• Right-Click Ground (Build): Anchor Construction"));
 		tooltip.add(Text.literal("§8• Right-Click Mob (Recruit): Enthrall into Minion"));

@@ -27,6 +27,20 @@ public class ModClientNetworking {
 	}
 
 	/**
+	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server including squad filtering and rotation.
+	 *
+	 * @param mode             The updated {@link CommandMode}.
+	 * @param blueprintId      The active architectural blueprint identifier.
+	 * @param targetSquad      The active target {@link SquadGroup} filter channel.
+	 * @param rotation         The structure rotation index (0 -> 0°, 1 -> 90°, 2 -> 180°, 3 -> 270°).
+	 * @param executeDirective True if immediate directive execution is requested.
+	 */
+	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, int rotation, boolean executeDirective) {
+		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, targetSquad, rotation, executeDirective);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
 	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server including squad filtering.
 	 *
 	 * @param mode             The updated {@link CommandMode}.
@@ -35,8 +49,7 @@ public class ModClientNetworking {
 	 * @param executeDirective True if immediate directive execution is requested.
 	 */
 	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, boolean executeDirective) {
-		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, targetSquad, executeDirective);
-		ClientPlayNetworking.send(payload);
+		sendUpdateScepter(mode, blueprintId, targetSquad, 0, executeDirective);
 	}
 
 	/**

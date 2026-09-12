@@ -7,16 +7,20 @@ import com.example.entity.custom.MinionRole;
 import com.example.screen.MinionScreenHandler;
 import java.util.ArrayList;
 import java.util.List;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.CyclingButtonWidget;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import org.lwjgl.glfw.GLFW;
 
 /**
  * Client-side GUI screen for inspecting and managing minion equipment, inventory,
@@ -35,9 +39,9 @@ import net.minecraft.util.Identifier;
 public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 
 	private static final Identifier CONTAINER_TEXTURE = Identifier.ofVanilla("textures/gui/container/inventory.png");
-	public static final int TOP_PANEL_HEIGHT = 24;
+	public static final int TOP_PANEL_HEIGHT = 36;
 	public static final int BOTTOM_PANEL_HEIGHT = 24;
-	public static final int TOTAL_MODAL_HEIGHT = 166 + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT; // 214px
+	public static final int TOTAL_MODAL_HEIGHT = 166 + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT; // 226px
 
 	private MinionRole currentRole;
 	private SquadGroup currentSquad;
@@ -47,13 +51,16 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 	private ButtonWidget teleportBtn;
 	private ButtonWidget dismissBtn;
 
+	// Smart Shift-to-close & interaction state controller (Refinement 4)
+	private final SmartCloseHandler closeHandler = new SmartCloseHandler();
+
 	public MinionScreen(MinionScreenHandler handler, PlayerInventory inventory, Text title) {
-		super(handler, inventory, title);
+		super(handler, inventory, title != null ? title : Text.literal("Minion"));
 		this.backgroundWidth = 176;
 		this.backgroundHeight = 166;
 		this.playerInventoryTitleY = this.backgroundHeight - 94;
 
-		MinionEntity minion = handler.getMinion();
+		MinionEntity minion = handler != null ? handler.getMinion() : null;
 		if (minion != null) {
 			this.currentRole = minion.getRole();
 			this.currentSquad = minion.getSquad();
@@ -70,9 +77,21 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		}
 	}
 
+	/**
+	 * Factory helper to construct a standalone MinionScreen for testing or headless execution.
+	 *
+	 * @return A new MinionScreen instance with default test handlers.
+	 */
+	public static MinionScreen createForTest() {
+		return new MinionScreen(null, null, Text.literal("Minion"));
+	}
+
 	@Override
 	protected void init() {
 		super.init();
+
+		// Capture physical shift state upon opening to prevent immediate closure
+		this.closeHandler.initOpenState(isShiftOrSneakDown());
 
 		// Calculate vertical placement dynamically so the full unified modal (top badges + inventory + action buttons)
 		// remains perfectly centered and never clips off the top or bottom on any screen resolution or GUI scale
@@ -83,8 +102,8 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		}
 		this.y = topY + TOP_PANEL_HEIGHT;
 
-		MinionEntity minion = this.handler.getMinion();
-		boolean isOwner = minion != null && (minion.getOwner() == null || minion.isOwner(this.client.player));
+		MinionEntity minion = this.handler != null ? this.handler.getMinion() : null;
+		boolean isOwner = isMinionOwner(minion);
 
 		int btnWidth = 82;
 		int btnHeight = 20;
@@ -176,6 +195,9 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 	}
 
 	private int resolveMinionId() {
+		if (this.handler == null) {
+			return -1;
+		}
 		int id = this.handler.getMinionId();
 		if (id < 0 && this.handler.getMinion() != null) {
 			return this.handler.getMinion().getId();
@@ -188,11 +210,52 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		if (id >= 0) {
 			ModClientNetworking.sendUpdateMinionConfig(id, this.currentRole, this.currentSquad);
 		}
-		MinionEntity minion = this.handler.getMinion();
-		if (minion != null) {
-			minion.setRole(this.currentRole);
-			minion.setSquad(this.currentSquad);
+		if (this.handler != null) {
+			MinionEntity minion = this.handler.getMinion();
+			if (minion != null) {
+				minion.setRole(this.currentRole);
+				minion.setSquad(this.currentSquad);
+			}
 		}
+	}
+
+	/**
+	 * Evaluates whether a minion is considered owned under client-safe singleplayer bypass rules.
+	 *
+	 * @param inSingleplayer Whether the client is currently in a local singleplayer world.
+	 * @param isTamed Whether the target minion is tamed.
+	 * @param isOwnerEntity Whether the minion recognizes the local player entity as its owner.
+	 * @param hasOwnerUuid Whether the minion currently has a recorded owner UUID.
+	 * @return True if authorized as owner, false otherwise.
+	 */
+	public static boolean evaluateOwnership(boolean inSingleplayer, boolean isTamed, boolean isOwnerEntity, boolean hasOwnerUuid) {
+		if (!hasOwnerUuid) {
+			return true;
+		}
+		if (inSingleplayer && isTamed) {
+			return true;
+		}
+		return isOwnerEntity;
+	}
+
+	/**
+	 * Evaluates whether the local player is authorized as the owner of the minion.
+	 * Incorporates client-safe singleplayer bypass checks (Refinement 1) so that the host
+	 * of a local singleplayer world can always configure and command tamed minions even
+	 * if player UUIDs shift across offline/development sessions.
+	 *
+	 * @param minion The target minion entity, or null.
+	 * @return True if the minion is owned by the local player, unowned, or in singleplayer mode.
+	 */
+	public boolean isMinionOwner(MinionEntity minion) {
+		if (minion == null) {
+			return false;
+		}
+		boolean hasOwnerUuid = minion.getOwnerUuid() != null;
+		boolean inSingleplayer = this.client != null && this.client.isInSingleplayer();
+		boolean isTamed = minion.isTamed();
+		boolean isOwnerEntity = this.client != null && this.client.player != null && minion.isOwner(this.client.player);
+		return evaluateOwnership(inSingleplayer, isTamed, isOwnerEntity, hasOwnerUuid);
 	}
 
 	private static String getRoleBadgeSymbol(MinionRole role) {
@@ -251,6 +314,19 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		context.fill(startX, startY - TOP_PANEL_HEIGHT, startX + this.backgroundWidth, startY, 0xEE141923);
 		context.drawBorder(startX, startY - TOP_PANEL_HEIGHT, this.backgroundWidth, TOP_PANEL_HEIGHT, squadColor);
 
+		// Top header title and subtle [Shift] Close indicator
+		if (this.textRenderer != null) {
+			Text headerTitle = Text.literal("§6✦ MINION COMMAND ✦");
+			context.drawTextWithShadow(this.textRenderer, headerTitle, startX + 4, startY - TOP_PANEL_HEIGHT + 3, 0xFFFFFF);
+
+			Text shiftCloseText = Text.literal("§e[Shift] §7Close");
+			int shiftCloseWidth = this.textRenderer.getWidth(shiftCloseText);
+			context.drawTextWithShadow(this.textRenderer, shiftCloseText, startX + this.backgroundWidth - shiftCloseWidth - 4, startY - TOP_PANEL_HEIGHT + 3, 0xE0E0E0);
+		}
+
+		// Subtle header separator divider above role/squad badges
+		context.fill(startX + 2, startY - 24, startX + this.backgroundWidth - 2, startY - 23, 0x443D4F66);
+
 		// Real-time dynamic accent trims under Role and Squad badge widgets
 		context.fill(startX + 4, startY - 2, startX + 86, startY, roleColor);
 		context.fill(startX + 90, startY - 2, startX + 172, startY, squadColor);
@@ -262,9 +338,11 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		context.fill(startX + 7, startY + 16, startX + 169, startY + 75, 0xFFC6C6C6);
 
 		// 3. Draw slot frames for equipment (slots 0..5) and minion inventory (slots 6..14)
-		for (int i = 0; i < MinionScreenHandler.MINION_INV_END; i++) {
-			Slot slot = this.handler.getSlot(i);
-			context.drawTexture(CONTAINER_TEXTURE, startX + slot.x - 1, startY + slot.y - 1, 7, 83, 18, 18);
+		if (this.handler != null) {
+			for (int i = 0; i < MinionScreenHandler.MINION_INV_END; i++) {
+				Slot slot = this.handler.getSlot(i);
+				context.drawTexture(CONTAINER_TEXTURE, startX + slot.x - 1, startY + slot.y - 1, 7, 83, 18, 18);
+			}
 		}
 
 		// 4. Center 3D entity preview frame with real-time dynamic squad & role color trims
@@ -293,7 +371,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		context.fill(startX + 4, bottomPanelY, startX + 86, bottomPanelY + 2, 0xFFE040FB);
 		context.fill(startX + 90, bottomPanelY, startX + 172, bottomPanelY + 2, 0xFFFF5252);
 
-		MinionEntity minion = this.handler.getMinion();
+		MinionEntity minion = this.handler != null ? this.handler.getMinion() : null;
 		if (minion != null) {
 			InventoryScreen.drawEntity(
 				context,
@@ -326,7 +404,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		context.drawText(this.textRenderer, this.playerInventoryTitle, this.playerInventoryTitleX, this.playerInventoryTitleY, 0x404040, false);
 
 		// Center Minion title
-		MinionEntity minion = this.handler.getMinion();
+		MinionEntity minion = this.handler != null ? this.handler.getMinion() : null;
 		Text nameText = (minion != null && minion.hasCustomName()) ? minion.getCustomName() : this.title;
 		int nameWidth = this.textRenderer.getWidth(nameText);
 		int nameX = 47 + (66 - nameWidth) / 2;
@@ -335,8 +413,11 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 
 	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+		// Zero-latency release transition check: clear open-state guard as soon as physical shift is released
+		this.closeHandler.tickOrRender(isShiftOrSneakDown());
+
 		// Synchronize state if minion data tracker changed externally
-		MinionEntity minion = this.handler.getMinion();
+		MinionEntity minion = this.handler != null ? this.handler.getMinion() : null;
 		if (minion != null) {
 			MinionRole entityRole = minion.getRole();
 			if (entityRole != null && entityRole != this.currentRole && this.roleButton != null) {
@@ -377,5 +458,267 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		// Encompass top badges and bottom action bar within the container bounds so clicks never drop items
 		return mouseX < (double) left || mouseX >= (double) (left + this.backgroundWidth)
 			|| mouseY < (double) (top - TOP_PANEL_HEIGHT) || mouseY >= (double) (top + this.backgroundHeight + BOTTOM_PANEL_HEIGHT);
+	}
+
+	@Override
+	protected void handledScreenTick() {
+		super.handledScreenTick();
+		// Periodic zero-latency fallback to clear shiftHeldOnOpen
+		this.closeHandler.tickOrRender(isShiftOrSneakDown());
+	}
+
+	@Override
+	public boolean mouseClicked(double mouseX, double mouseY, int button) {
+		// Refinement 4: When holding Shift while clicking on slots/widgets, latch the transfer flag
+		// so that releasing Shift afterwards will NOT accidentally close the screen
+		this.closeHandler.onMouseClicked(isShiftOrSneakDown());
+		if (this.client == null) {
+			return false;
+		}
+		return super.mouseClicked(mouseX, mouseY, button);
+	}
+
+	@Override
+	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+		boolean isShift = isShiftOrSneakKey(keyCode, scanCode);
+		boolean isInv = isInventoryKey(keyCode, scanCode);
+		boolean isEsc = (keyCode == GLFW.GLFW_KEY_ESCAPE && this.shouldCloseOnEsc());
+
+		if (this.closeHandler.onKeyPressed(keyCode, scanCode, isShift, isInv, isEsc, this::close)) {
+			return true;
+		}
+
+		return super.keyPressed(keyCode, scanCode, modifiers);
+	}
+
+	@Override
+	public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+		boolean isShift = isShiftOrSneakKey(keyCode, scanCode);
+		boolean isShiftDown = isShiftOrSneakDown();
+
+		if (this.closeHandler.onKeyReleased(keyCode, scanCode, isShift, isShiftDown, this::close)) {
+			return true;
+		}
+
+		return super.keyReleased(keyCode, scanCode, modifiers);
+	}
+
+	@Override
+	public void close() {
+		this.closeHandler.setClosed(true);
+		if (this.client != null) {
+			super.close();
+		}
+	}
+
+	/**
+	 * Checks whether Left Shift, Right Shift, or the configured sneak key is physically held down.
+	 *
+	 * @return True if a shift or sneak key is physically pressed, false otherwise.
+	 */
+	public boolean isShiftOrSneakDown() {
+		try {
+			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
+			if (mc != null && mc.getWindow() != null) {
+				long handle = mc.getWindow().getHandle();
+				if (handle != 0L) {
+					if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_LEFT_SHIFT)
+						|| InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_RIGHT_SHIFT)) {
+						return true;
+					}
+					if (mc.options != null && mc.options.sneakKey != null) {
+						InputUtil.Key boundKey = KeyBindingHelper.getBoundKeyOf(mc.options.sneakKey);
+						if (boundKey != null && boundKey.getCategory() == InputUtil.Type.KEYSYM) {
+							int code = boundKey.getCode();
+							if (code > 0 && InputUtil.isKeyPressed(handle, code)) {
+								return true;
+							}
+						}
+					}
+				}
+			}
+		} catch (Throwable ignored) {
+			// Graceful fallback for headless or uninitialized test environments
+		}
+		return false;
+	}
+
+	/**
+	 * Checks if the given GLFW keycode / scancode corresponds to Shift or the player's configured sneak key.
+	 *
+	 * @param keyCode GLFW keycode.
+	 * @param scanCode Physical scancode.
+	 * @return True if matching Left/Right Shift or Sneak.
+	 */
+	public boolean isShiftOrSneakKey(int keyCode, int scanCode) {
+		if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT || keyCode == GLFW.GLFW_KEY_RIGHT_SHIFT) {
+			return true;
+		}
+		try {
+			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
+			if (mc != null && mc.options != null && mc.options.sneakKey != null) {
+				if (mc.options.sneakKey.matchesKey(keyCode, scanCode)) {
+					return true;
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return false;
+	}
+
+	/**
+	 * Checks if the given GLFW keycode / scancode corresponds to the Inventory key (default 'E').
+	 *
+	 * @param keyCode GLFW keycode.
+	 * @param scanCode Physical scancode.
+	 * @return True if matching inventory keybinding or GLFW_KEY_E.
+	 */
+	public boolean isInventoryKey(int keyCode, int scanCode) {
+		try {
+			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
+			if (mc != null && mc.options != null && mc.options.inventoryKey != null) {
+				if (mc.options.inventoryKey.matchesKey(keyCode, scanCode)) {
+					return true;
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return keyCode == GLFW.GLFW_KEY_E;
+	}
+
+	public SmartCloseHandler getCloseHandler() {
+		return this.closeHandler;
+	}
+
+	public boolean isShiftHeldOnOpen() {
+		return this.closeHandler.isShiftHeldOnOpen();
+	}
+
+	public void setShiftHeldOnOpen(boolean shiftHeldOnOpen) {
+		this.closeHandler.setShiftHeldOnOpen(shiftHeldOnOpen);
+	}
+
+	public boolean isSlotClickedWithShift() {
+		return this.closeHandler.isSlotClickedWithShift();
+	}
+
+	public void setSlotClickedWithShift(boolean slotClickedWithShift) {
+		this.closeHandler.setSlotClickedWithShift(slotClickedWithShift);
+	}
+
+	public boolean isClosed() {
+		return this.closeHandler.isClosed();
+	}
+
+	public void setClosed(boolean closed) {
+		this.closeHandler.setClosed(closed);
+	}
+
+	public boolean isInitializedOpenState() {
+		return this.closeHandler.isInitializedOpenState();
+	}
+
+	public void setInitializedOpenState(boolean initializedOpenState) {
+		this.closeHandler.setInitializedOpenState(initializedOpenState);
+	}
+
+	/**
+	 * State controller encapsulating the smart Shift-to-close state machine,
+	 * open-state guards, GLFW key repeat absorption, and shift-click item transfer
+	 * latching (Refinement 4).
+	 */
+	public static class SmartCloseHandler {
+		private boolean shiftHeldOnOpen;
+		private boolean slotClickedWithShift;
+		private boolean initializedOpenState;
+		private boolean closed;
+
+		public SmartCloseHandler() {}
+
+		public void initOpenState(boolean shiftOrSneakDown) {
+			if (!this.initializedOpenState) {
+				this.shiftHeldOnOpen = shiftOrSneakDown;
+				this.initializedOpenState = true;
+			}
+		}
+
+		public void tickOrRender(boolean shiftOrSneakDown) {
+			if (this.shiftHeldOnOpen && !shiftOrSneakDown) {
+				this.shiftHeldOnOpen = false;
+			}
+		}
+
+		public void onMouseClicked(boolean shiftOrSneakDown) {
+			if (shiftOrSneakDown) {
+				this.slotClickedWithShift = true;
+			}
+		}
+
+		public boolean onKeyPressed(int keyCode, int scanCode, boolean isShiftOrSneak, boolean isInventory, boolean isEscape, Runnable closeAction) {
+			if (isShiftOrSneak) {
+				// Absorb Shift key press events
+				return true;
+			}
+			if (isInventory || isEscape) {
+				this.closed = true;
+				if (closeAction != null) {
+					closeAction.run();
+				}
+				return true;
+			}
+			return false;
+		}
+
+		public boolean onKeyReleased(int keyCode, int scanCode, boolean isShiftOrSneak, boolean shiftOrSneakDown, Runnable closeAction) {
+			if (isShiftOrSneak) {
+				if (!this.slotClickedWithShift && !this.shiftHeldOnOpen) {
+					this.closed = true;
+					if (closeAction != null) {
+						closeAction.run();
+					}
+					this.slotClickedWithShift = false;
+					return true;
+				}
+				this.shiftHeldOnOpen = false;
+				this.slotClickedWithShift = false;
+			}
+			if (this.shiftHeldOnOpen && !shiftOrSneakDown) {
+				this.shiftHeldOnOpen = false;
+			}
+			return false;
+		}
+
+		public boolean isShiftHeldOnOpen() {
+			return this.shiftHeldOnOpen;
+		}
+
+		public void setShiftHeldOnOpen(boolean shiftHeldOnOpen) {
+			this.shiftHeldOnOpen = shiftHeldOnOpen;
+			this.initializedOpenState = true;
+		}
+
+		public boolean isSlotClickedWithShift() {
+			return this.slotClickedWithShift;
+		}
+
+		public void setSlotClickedWithShift(boolean slotClickedWithShift) {
+			this.slotClickedWithShift = slotClickedWithShift;
+		}
+
+		public boolean isClosed() {
+			return this.closed;
+		}
+
+		public void setClosed(boolean closed) {
+			this.closed = closed;
+		}
+
+		public boolean isInitializedOpenState() {
+			return this.initializedOpenState;
+		}
+
+		public void setInitializedOpenState(boolean initializedOpenState) {
+			this.initializedOpenState = initializedOpenState;
+		}
 	}
 }

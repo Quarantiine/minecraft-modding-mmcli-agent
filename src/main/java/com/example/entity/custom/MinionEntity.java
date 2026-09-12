@@ -66,6 +66,7 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.screen.ScreenHandler;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
@@ -813,6 +814,33 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	@Override
 	public boolean isBreedingItem(ItemStack stack) {
+		return false;
+	}
+
+	/**
+	 * Verifies whether the specified entity is the legitimate owner of this minion.
+	 * In standard environments, evaluates direct UUID match via {@code super.isOwner(entity)}.
+	 * In singleplayer integrated environments, automatically adopts the host player if the minion
+	 * is tamed, ensuring seamless ownership persistence across dev restarts and offline UUID shifts
+	 * without referencing client-only classes.
+	 *
+	 * @param entity The living entity attempting to exercise ownership.
+	 * @return true if the entity is the owner or singleplayer host; false otherwise.
+	 */
+	@Override
+	public boolean isOwner(LivingEntity entity) {
+		if (super.isOwner(entity)) {
+			return true;
+		}
+		if (entity instanceof PlayerEntity player && this.getWorld() instanceof ServerWorld serverWorld) {
+			MinecraftServer server = serverWorld.getServer();
+			if (server != null && server.isSingleplayer() && server.isHost(player.getGameProfile())) {
+				if (this.isTamed()) {
+					this.setOwner(player);
+					return true;
+				}
+			}
+		}
 		return false;
 	}
 

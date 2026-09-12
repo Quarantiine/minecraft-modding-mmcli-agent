@@ -33,6 +33,7 @@ This document provides a comprehensive breakdown of all features, items, entitie
 25. [Formation Yaw Anchoring, Rank Resolution & Two-Pass Badge Rendering](#25-formation-yaw-anchoring-rank-resolution--two-pass-badge-rendering)
 26. [Architectural Scaffolding Navigation, Platform Kinematics & Multi-Minion Coordination](#26-architectural-scaffolding-navigation-platform-kinematics--multi-minion-coordination)
 27. [Shift-to-Close GUI Architecture, Open-State Guard & Fast Dismissals (`CommandScepterScreen`)](#27-shift-to-close-gui-architecture-open-state-guard--fast-dismissals-commandscepterscreen)
+28. [The 5 Architectural Refinements: Rotation Mathematics, Door Beacons, Ownership Persistence, Descent Kinematics & Smart Shift-Close](#28-the-5-architectural-refinements-rotation-mathematics-door-beacons-ownership-persistence-descent-kinematics--smart-shift-close)
 
 ---
 
@@ -108,7 +109,7 @@ The **Loki Command Scepter** is a high-tier tactical relic that allows players t
 | **Right-Click Ground**                    | `BUILD` Mode             | Anchors a new multiblock `ConstructionSession` (`SessionMode.BUILD`) at the clicked block face using the active blueprint. Emits beacon sound and enchantment particle blast.                                                                                                                                                                                                                                                                               |
 | **Shift + Right-Click Ground**            | `BUILD` Mode             | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block face, commanding builders and miners to dismantle the active blueprint top-down.                                                                                                                                                                                                                                                                                 |
 | **Right-Click Ground / Box**              | `MINE` Mode              | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block or existing active structure bounding box. If an active session is clicked, targets its blueprint; otherwise targets the held blueprint.                                                                                                                                                                                                                         |
-| **Shift + Left-Click**                    | `BUILD` Mode             | Intercepted via `AttackBlockCallback.EVENT` / air click: Cycles active blueprint (`WATCHTOWER` → `OBELISK` → `BARRICADE`), plays bell sound, and displays action-bar notification without breaking blocks. Supported in main or offhand.                                                                                                                                                                                                                    |
+| **Shift + Left-Click**                    | `BUILD` Mode             | **Cycle Blueprint Rotation (`cycleRotation`)**: Cycles rotation through 0° → 90° → 180° → 270° → 0°, plays chime audio, updates scepter component, dispatches `UpdateScepterPayload` to server, and renders updated actionbar readout with door sparkle guide. Supported in main or offhand against air or blocks without breaking blocks. |
 | **Right-Click Air**                       | `BUILD` Mode             | Alternate blueprint cycling trigger without targeting a block.                                                                                                                                                                                                                                                                                                                                                                                              |
 | **Right-Click Mob**                       | `RECRUIT` Mode           | Enthralls target living mob into an obedient `MinionEntity` thrall primed in standby (supports up to 32-block crosshair alignment).                                                                                                                                                                                                                                                                                                                         |
 | **Right-Click Ground / Air**              | `FOLLOW` Mode            | Orders all owned minions within 32 blocks to stand up, selects them, and follows the player (`speed: 1.25`). Quick-taps evaluate 32-block crosshair hits.                                                                                                                                                                                                                                                                                                   |
@@ -166,6 +167,15 @@ public static final ComponentType<String> ACTIVE_BLUEPRINT = Registry.register(
     ComponentType.<String>builder()
         .codec(Codec.STRING)
         .packetCodec(PacketCodecs.STRING)
+        .build()
+);
+
+public static final ComponentType<Integer> STRUCTURE_ROTATION = Registry.register(
+    Registries.DATA_COMPONENT_TYPE,
+    Identifier.of(ExampleMod.MOD_ID, "structure_rotation"),
+    ComponentType.<Integer>builder()
+        .codec(Codec.INT)
+        .packetCodec(PacketCodecs.INTEGER)
         .build()
 );
 ```
@@ -1928,3 +1938,244 @@ To verify the open-state guard, key repeat filtering, zero-latency release trans
 | `testKeyRecognitionHelpers`                              | Validates `isShiftOrSneakKey`, `isCommandHubKey`, and `isInventoryKey` helper methods against GLFW key codes.                                                                                    |
 | `testStateFlagsAndSetters`                               | Tests lifecycle getters and setters (`setShiftHeldOnOpen`, `setClosed`, `setInitializedOpenState`) for test harness control.                                                                     |
 | `testCloseIdempotency`                                   | Validates that repeated invocations of `close()` remain strictly idempotent without throwing exceptions or corrupting lifecycle state.                                                           |
+
+---
+
+## 28. The 5 Architectural Refinements: Rotation Mathematics, Door Beacons, Ownership Persistence, Descent Kinematics & Smart Shift-Close
+
+This section provides comprehensive engineering documentation for the five pivotal architectural refinements implemented across the tactical minion ecosystem, multiblock construction engine, client rendering pipeline, and GUI lifecycle.
+
+```
+                                  [5 Architectural Refinements]
+                                                │
+         ┌──────────────────┬───────────────────┼───────────────────┬──────────────────┐
+         ▼                  ▼                   ▼                   ▼                  ▼
+   [Refinement 1]     [Refinement 2]      [Refinement 3]      [Refinement 4]     [Refinement 5]
+   Singleplayer       Scaffolding         Synchronous 3D      Smart Shift-Close  Sneak + Left-Click
+   Host Ownership     Descent Phase-      Hologram Wireframe  with Item Transfer Blueprint Rotation
+   Auto-Adoption      Through Kinematics  & Particle Preview  Latching in GUI    & Door Sparkle HUD
+```
+
+---
+
+### Refinement 1: Singleplayer Host Ownership Persistence & Auto-Adoption (Server-Safe)
+
+#### Problem & Root Cause Breakdown
+In Minecraft singleplayer environments—particularly within development instances launched via Gradle Loom—the player's profile UUID can change between sessions (e.g. offline dev profile `--username Developer` vs authenticated Mojang account UUIDs). Previously, when a world was reloaded:
+1. `MinionEntity` restored its owner UUID from NBT (`Owner`).
+2. If the current player's UUID did not strictly equal the stored NBT UUID, `super.isOwner(player)` returned `false`.
+3. Consequently, the minion treated its creator as an unauthorized stranger:
+   - In `MinionScreen`, the Role and Squad cycling buttons as well as the Teleport and Dismiss action buttons were completely disabled (`button.active = false`).
+   - Ground waypoint directives and Banner of Courage rally rings failed to command the minions.
+4. **Dedicated Server Crash Hazard**: Attempting to resolve this naively by querying client singleplayer status (`MinecraftClient.getInstance().isInSingleplayer()`) inside common entity code (`MinionEntity.java`) causes immediate `NoClassDefFoundError: net/minecraft/client/MinecraftClient` crashes on dedicated servers.
+
+#### Architectural Solution: Server-Authoritative Host Auto-Adoption
+`MinionEntity` overrides `isOwner(LivingEntity entity)` with server-safe host resolution:
+
+```java
+@Override
+public boolean isOwner(LivingEntity entity) {
+    if (super.isOwner(entity)) {
+        return true;
+    }
+    // Server-safe singleplayer host fallback: adopt the hosting player
+    if (entity instanceof PlayerEntity player && this.getWorld() instanceof ServerWorld serverWorld) {
+        MinecraftServer server = serverWorld.getServer();
+        if (server != null && server.isSingleplayer() && server.isHost(player.getGameProfile())) {
+            if (this.isTamed()) {
+                this.setOwner(player); // Adopt host player and persist new UUID
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+- **Server-Safe Singleplayer Validation**: Evaluates `server.isSingleplayer() && server.isHost(player.getGameProfile())` purely through `ServerWorld` and `MinecraftServer` APIs. Zero references to client classes in `src/main/java`.
+- **Automatic Adoption & NBT Re-binding**: When the singleplayer host interacts with an owned tamed minion whose stored UUID is mismatched, the minion automatically updates its owner binding (`setOwner(player)`), persisting the active session's UUID into NBT.
+- **Client GUI Interactivity Parity (`MinionScreen.java`)**:
+  In the client GUI, button enablement evaluates:
+  ```java
+  boolean isOwner = minion != null && (
+      (this.client != null && this.client.isInSingleplayer() && minion.isTamed())
+      || (this.client != null && minion.isOwner(this.client.player))
+      || minion.getOwnerUuid() == null
+  );
+  ```
+  The host player in singleplayer always has interactive access to role, squad, teleport, and dismiss buttons.
+- **Gradle Loom Dev Stability**: In `build.gradle`, client launch arguments configure `programArgs "--username", "Developer"`, guaranteeing consistent offline UUID generation across debug sessions.
+
+---
+
+### Refinement 2: Scaffolding Descent Phase-Through Fix & Landing Kinematics
+
+#### Problem & Root Cause Breakdown
+During multiblock construction and deconstruction, when a minion completed elevated tasks and attempted to descend down a scaffolding column:
+1. `MinionBuildGoal.initiateDescent()` historically set `minion.setClimbingScaffolding(true)`.
+2. Vanilla Minecraft scaffolding physics treats entities with `isClimbing() == true` as climbing upwards whenever horizontal motion collides with a ladder block.
+3. Because the minion was standing on the platform directly above the top scaffolding block, any downward gravity or horizontal centering collided with the top face, immediately triggering upward climbing velocity (`+0.20D`).
+4. This trapped the minion in an infinite jitter loop at the top platform: hopping up and down, unable to penetrate the scaffolding column surface to descend.
+
+#### Architectural Solution: Descent Phase-Through & Kinematic Snapping
+`MinionBuildGoal` re-engineers both descent and ascent transitions:
+
+1. **Climbing Flag Suppression During Descent**:
+   - `minion.setClimbingScaffolding(false)` is strictly maintained throughout descent.
+   - Prevents horizontal contact from firing vanilla upward climbing impulses.
+2. **Top Block Penetration Snapping**:
+   - In `initiateDescent(ServerWorld world, boolean demobilizing)`:
+     ```java
+     this.isDescendingScaffolding = true;
+     this.isAscendingScaffolding = false;
+     this.minion.setClimbingScaffolding(false);
+     double topYBoundary = (double) this.targetScaffoldTopY + 0.75D;
+     this.minion.setPosition(scCenterX, Math.min(this.minion.getY(), topYBoundary), scCenterZ);
+     this.minion.setVelocity(0.0D, -0.25D, 0.0D);
+     this.minion.velocityModified = true;
+     this.minion.fallDistance = 0.0F;
+     ```
+   - The minion is snapped 0.25 blocks below the platform top (`targetScaffoldTopY + 0.75D`), placing its collision box inside the permeable interior of the scaffolding column.
+   - Downward velocity is directly set to `-0.25D` with zeroed fall distance, allowing the minion to glide downwards smoothly through the column rungs.
+3. **Ground Bypass Guard**:
+   - If `targetScaffoldTopY <= targetScaffoldBottomY`, descent is immediately bypassed, flags are cleared, and the column reservation is safely released.
+4. **Relaxed Landing Threshold & Timeout Safety**:
+   - In `tick()`, descent completes when `minion.getY() <= (double) targetScaffoldBottomY + 0.35D` or solid ground is detected under feet (`isOnGround()`).
+   - Descent safety timeout is reduced from 140 ticks to 50 ticks (2.5 seconds).
+5. **Ascent Platform Snapping Calibration**:
+   - Platform landing arrival threshold lowered from `+0.95D` to `+0.70D`.
+   - When `minion.getY() >= targetScaffoldTopY + 0.70D`, minion cleanly snaps to `(scCenterX, targetScaffoldTopY + 1.0D, scCenterZ)`, vertical velocity is zeroed, and climbing flags are disarmed.
+   - Dynamic displacement stall threshold expanded from 10 to 25 ticks, preventing false aborts caused by tick rate fluctuations.
+   - Post-failure navigation cooldown reduced from 40L to 15L ticks.
+
+---
+
+### Refinement 3: Synchronous 3D Holographic Wireframe & Particle Preview Rotation
+
+#### Problem & Root Cause Breakdown
+When rotating a blueprint (e.g. from 0° to 90°), the particle perimeter and server-authoritative construction sessions were correctly rotated, but the client-side `BlueprintHologramRenderer` rendered the unrotated base blueprint wireframe. As a result:
+- The neon-cyan 3D wireframe box and ghost blocks faced North/South while the particles and spawned building faced East/West.
+- Commanders experienced severe visual disorientation when placing rotated structures.
+
+#### Architectural Solution: Rotation Matrix & Synchronous Hologram Rendering
+1. **Blueprint Coordinate Transformation Engine (`StructureBlueprint.rotate`)**:
+   `StructureBlueprint` implements exact origin-centered $(0, 0)$ rotation matrices:
+   $$\begin{aligned}
+   R_0(x, y, z) &= (x, y, z) \\
+   R_{90}(x, y, z) &= (-z, y, x) \\
+   R_{180}(x, y, z) &= (-x, y, -z) \\
+   R_{270}(x, y, z) &= (z, y, -x)
+   \end{aligned}$$
+   - Rotates all block states using `state.rotate(rotation)` to properly re-orient stairs, doors, logs, and directional blocks.
+   - Transposes dimensions: $(S_x, S_y, S_z) \mapsto (S_z, S_y, S_x)$ on 90° and 270° rotations.
+   - Recomputes exact `BlockBox` bounding geometry.
+   - Topologically re-sorts blocks in bottom-up construction order (`Collections.sort(rotatedBlocks)`).
+2. **Synchronous Hologram Pipeline (`BlueprintHologramRenderer.java`)**:
+   In `render(WorldRenderContext context)`:
+   ```java
+   String blueprintId = CommandScepterItem.getBlueprintId(scepterStack);
+   StructureBlueprint baseBlueprint = BlueprintRegistry.getOrDefault(blueprintId);
+   BlockRotation rotation = CommandScepterItem.getRotation(scepterStack);
+   StructureBlueprint blueprint = baseBlueprint.rotate(rotation);
+   ```
+   - Dynamically resolves the rotated blueprint before deriving the render bounding box and block schematic offsets.
+   - The neon-cyan wireframe, yellow anchor box, and translucent cyan ghost blocks rotate synchronously in 3D world space, matching particle boundaries and server placement with zero visual drift.
+
+---
+
+### Refinement 4: Smart Shift-to-Close in `MinionScreen` with Shift-Click Transfer Latching
+
+#### Problem & Root Cause Breakdown
+Commanders frequently use `Shift-Click` (`quickMove`) to rapidly transfer armor, weapons, and construction materials into a minion's 9-slot inventory and 6 equipment slots. If Shift-to-close were implemented naively on key release:
+- The moment a player released `Shift` after transferring a sword or chestplate, the modal would instantly close, disrupting inventory management.
+- If a player opened the screen while sneaking, releasing `Shift` would close the modal before they could inspect anything.
+
+#### Architectural Solution: `SmartCloseHandler` & Transfer Latching
+`MinionScreen` incorporates `SmartCloseHandler` to manage the smart close lifecycle:
+
+```
+                           [Player Presses Shift]
+                                     │
+                    ┌────────────────┴────────────────┐
+                    ▼                                 ▼
+         [Click Item Slot]                   [Zero Slot Clicks]
+       slotClickedWithShift = TRUE                    │
+                    │                                 ▼
+                    ▼                       [Release Shift Key]
+          [Release Shift Key]                        │
+       • Close SUPPRESSED                            ▼
+       • slotClickedWithShift = FALSE          [Modal Closes]
+       • Modal remains open
+```
+
+1. **Open-State Guard (`shiftHeldOnOpen`)**:
+   - If Shift is held down when sneak-right-clicking a minion, `shiftHeldOnOpen` is armed.
+   - GLFW key repeats are absorbed; releasing the initial opening Shift disarms the guard without dismissing the screen.
+2. **Shift-Click Item Transfer Latching (`slotClickedWithShift`)**:
+   - In `MinionScreen.mouseClicked(double mouseX, double mouseY, int button)`:
+     ```java
+     if (this.smartCloseHandler.isShiftDown()) {
+         this.smartCloseHandler.onMouseClicked(true);
+     }
+     ```
+   - Clicking any slot while Shift is down latches `slotClickedWithShift = true`.
+3. **Ergonomic Release Gate (`keyReleased`)**:
+   - When the player releases Shift:
+     ```java
+     this.smartCloseHandler.onKeyReleased(keyCode, scanCode, isShift, isEscape, () -> this.close());
+     ```
+   - If `slotClickedWithShift` was latched, the close callback is **bypassed**, the flag is cleared, and the screen stays open.
+   - If no item slot was clicked (a deliberate Shift tap), the screen closes immediately.
+4. **Universal Hotkey Dismissals**:
+   - Pressing `'E'` (`client.options.inventoryKey`) or `Escape` dismisses the screen immediately, bypassing transfer latching.
+5. **Header UX Indicator**:
+   - Framed header renders an intuitive indicator badge: `§e[Shift] §7Close`.
+
+---
+
+### Refinement 5: Sneak + Left-Click Blueprint Rotation Cycling & Tactical Door Sparkle Readouts
+
+#### Problem & Root Cause Breakdown
+Prior to this refinement, rotating a blueprint required repeatedly opening the Command Hub GUI or cycling through unrelated modes. Furthermore, players could not easily tell which side had the doorway or entrance, frequently placing watchtowers facing the wrong direction.
+
+#### Architectural Solution: Real-Time Scepter Controls & Door Guidance
+1. **Mode-Aware Left-Click Dispatch Invariant**:
+   - **`BUILD` Mode**: Sneak + Left-Click cycles the blueprint's rotation angle:
+     $$0^\circ \longrightarrow 90^\circ \longrightarrow 180^\circ \longrightarrow 270^\circ \longrightarrow 0^\circ$$
+     - Intercepted on the client (`ExampleModClient`) and server (`AttackBlockCallback` & `AttackEntityCallback`).
+     - Dispatches `ModClientNetworking.sendUpdateScepter(...)` with the updated rotation index.
+     - Plays item pickup chime (`SoundEvents.ENTITY_ITEM_PICKUP`) and emits an instant actionbar update.
+   - **Non-`BUILD` Modes**: Sneak + Left-Click deselects all active minions within 64 blocks and sets their standing guard anchors.
+2. **Door Offset Discovery (`StructureBlueprint.getDoorOffsets`)**:
+   - During blueprint construction, `StructureBlueprint` inspects all blocks for `DoorBlock` instances:
+     ```java
+     if (state.getBlock() instanceof DoorBlock) {
+         if (!state.contains(DoorBlock.HALF) || state.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+             doors.add(block.offset());
+         }
+     }
+     ```
+   - Extracts relative offsets for lower door blocks, automatically rotating them via `rotate(rotation)`.
+3. **Tactical Door Sparkle Beams & Front Guide (`inventoryTick`)**:
+   - When holding the Command Scepter in `BUILD` mode, `inventoryTick` performs a 32-block crosshair raycast.
+   - Every 4 ticks:
+     - Spawns rotating perimeter particles outlining the structure footprint.
+     - For blueprints with doors (e.g. Overlord Watchtower), spawns vibrant vertical sparkle beams (`ParticleTypes.HAPPY_VILLAGER` + `ParticleTypes.END_ROD`) at each discovered door entrance.
+     - For doorless structures (e.g. Arcane Obelisk, Defensive Barricade), spawns an emerald front guide line along the forward perimeter.
+4. **Actionbar Real-Time HUD Readout**:
+   - Displays live structural telemetry in the actionbar:
+     `"§6🏗 Overlord Watchtower §8| §bRotation: 90° §8| §a🚪 Door: West"`
+   - Direction dynamically reflects rotated door facing (`South` → `West` → `North` → `East`), giving commanders total confidence prior to right-click placement.
+
+---
+
+### Verification Matrix: The 5 Refinements
+
+| Refinement | Primary Class / Component | Verification Test Suite | Verified Invariants & Assertions |
+| :--- | :--- | :--- | :--- |
+| **Refinement 1** (Singleplayer Ownership) | `MinionEntity`<br>`MinionScreen` | `MinionScreenCloseTest`<br>`MinionSquadAndRoleTest` | Singleplayer host auto-adoption; zero server `MinecraftClient` imports; GUI button active state parity across restarts. |
+| **Refinement 2** (Scaffolding Descent) | `MinionBuildGoal`<br>`TraversalScaffoldingManager` | `ScaffoldingTest` | Centering penetration at $y \le \text{topY} + 0.75\text{D}$; climbing flag suppression during descent; relaxed landing detection; ground bypass. |
+| **Refinement 3** (Synchronous Hologram) | `BlueprintHologramRenderer`<br>`StructureBlueprint` | `BlueprintRotationTest`<br>`CommandScepterRotationTest` | Bounding box dimension swaps ($S_x \leftrightarrow S_z$ on 90°/270°); topological sorting stability; ghost block schematic alignment. |
+| **Refinement 4** (Smart Shift-Close) | `MinionScreen`<br>`SmartCloseHandler` | `MinionScreenCloseTest` | Shift-click item transfer latching (`slotClickedWithShift`); repeat suppression; 'E' and Esc dismissal; clean Shift tap close. |
+| **Refinement 5** (Rotation & Door Beacons) | `CommandScepterItem`<br>`ModDataComponents` | `CommandScepterRotationTest`<br>`NetworkingPayloadTest` | 4-quadrant rotation index mapping; door offset extraction; sneak left-click BUILD dispatch vs minion deselection. |
+

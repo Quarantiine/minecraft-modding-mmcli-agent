@@ -25,6 +25,12 @@ loom {
 			sourceSet sourceSets.client
 		}
 	}
+
+	runs {
+		client {
+			programArgs "--username", "Developer"
+		}
+	}
 }
 
 dependencies {

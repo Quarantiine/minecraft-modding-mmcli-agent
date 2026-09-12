@@ -7,7 +7,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.DoorBlock;
+import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.item.Item;
+import net.minecraft.util.BlockRotation;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 
@@ -25,6 +28,7 @@ public class StructureBlueprint {
 	private final int sizeY;
 	private final int sizeZ;
 	private final List<BlueprintBlock> blocks;
+	private final List<BlockPos> doorOffsets;
 	private final Map<Item, Integer> requiredItems;
 	private final BlockBox boundingBox;
 
@@ -48,6 +52,17 @@ public class StructureBlueprint {
 		this.blocks = Collections.unmodifiableList(blocks);
 		this.requiredItems = Collections.unmodifiableMap(requiredItems);
 		this.boundingBox = boundingBox;
+
+		List<BlockPos> doors = new ArrayList<>();
+		for (BlueprintBlock block : blocks) {
+			BlockState state = block.state();
+			if (state.getBlock() instanceof DoorBlock) {
+				if (!state.contains(DoorBlock.HALF) || state.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+					doors.add(block.offset());
+				}
+			}
+		}
+		this.doorOffsets = Collections.unmodifiableList(doors);
 	}
 
 	public String getId() {
@@ -109,6 +124,128 @@ public class StructureBlueprint {
 	 */
 	public BlockBox getBoundingBox() {
 		return this.boundingBox;
+	}
+
+	/**
+	 * Returns an unmodifiable list of relative BlockPos offsets for lower door blocks in this blueprint.
+	 * Used for door beacon particle alignment and entrance guide indicators.
+	 *
+	 * @return Unmodifiable list of door base offsets relative to blueprint origin.
+	 */
+	public List<BlockPos> getDoorOffsets() {
+		return this.doorOffsets;
+	}
+
+	/**
+	 * Rotates this blueprint around the origin (0, 0) by the specified {@link BlockRotation}.
+	 * Transforms coordinates according to standard rotation matrices:
+	 * - NONE: (x, y, z)
+	 * - CLOCKWISE_90: (-z, y, x)
+	 * - CLOCKWISE_180: (-x, y, -z)
+	 * - COUNTERCLOCKWISE_90: (z, y, -x)
+	 * Rotates block states via {@link BlockState#rotate(BlockRotation)} (orienting stairs, doors, etc.),
+	 * recomputes bounding box and dimensions, and re-sorts blocks in bottom-up topological order.
+	 *
+	 * @param rotation The BlockRotation to apply.
+	 * @return A new rotated StructureBlueprint, or this if rotation is NONE or null.
+	 */
+	public StructureBlueprint rotate(BlockRotation rotation) {
+		if (rotation == null || rotation == BlockRotation.NONE || this.blocks.isEmpty()) {
+			return this;
+		}
+
+		List<BlueprintBlock> rotatedBlocks = new ArrayList<>(this.blocks.size());
+		int minX = 0, minY = 0, minZ = 0;
+		int maxX = 0, maxY = 0, maxZ = 0;
+		boolean first = true;
+
+		for (BlueprintBlock block : this.blocks) {
+			BlockPos oldPos = block.offset();
+			int newX;
+			int newZ;
+			int newY = oldPos.getY();
+
+			switch (rotation) {
+				case CLOCKWISE_90 -> {
+					newX = -oldPos.getZ();
+					newZ = oldPos.getX();
+				}
+				case CLOCKWISE_180 -> {
+					newX = -oldPos.getX();
+					newZ = -oldPos.getZ();
+				}
+				case COUNTERCLOCKWISE_90 -> {
+					newX = oldPos.getZ();
+					newZ = -oldPos.getX();
+				}
+				default -> {
+					newX = oldPos.getX();
+					newZ = oldPos.getZ();
+				}
+			}
+
+			BlockPos newPos = new BlockPos(newX, newY, newZ);
+			BlockState rotatedState = block.state().rotate(rotation);
+			if (rotatedState == null) {
+				rotatedState = block.state();
+			}
+
+			rotatedBlocks.add(new BlueprintBlock(newPos, rotatedState));
+
+			if (first) {
+				minX = newX;
+				maxX = newX;
+				minY = newY;
+				maxY = newY;
+				minZ = newZ;
+				maxZ = newZ;
+				first = false;
+			} else {
+				minX = Math.min(minX, newX);
+				maxX = Math.max(maxX, newX);
+				minY = Math.min(minY, newY);
+				maxY = Math.max(maxY, newY);
+				minZ = Math.min(minZ, newZ);
+				maxZ = Math.max(maxZ, newZ);
+			}
+		}
+
+		// Topologically re-sort rotated blocks (bottom-up vertical layers, then Manhattan distance)
+		Collections.sort(rotatedBlocks);
+
+		int sizeX = first ? 0 : (maxX - minX + 1);
+		int sizeY = first ? 0 : (maxY - minY + 1);
+		int sizeZ = first ? 0 : (maxZ - minZ + 1);
+		BlockBox box = first ? new BlockBox(0, 0, 0, 0, 0, 0) : new BlockBox(minX, minY, minZ, maxX, maxY, maxZ);
+
+		return new StructureBlueprint(
+			this.id,
+			this.name,
+			this.description,
+			sizeX,
+			sizeY,
+			sizeZ,
+			rotatedBlocks,
+			this.requiredItems,
+			box
+		);
+	}
+
+	/**
+	 * Convenience overload to rotate this blueprint by an integer index:
+	 * 0 -> 0° (NONE), 1 -> 90° (CLOCKWISE_90), 2 -> 180° (CLOCKWISE_180), 3 -> 270° (COUNTERCLOCKWISE_90).
+	 *
+	 * @param rotationIndex The rotation index modulo 4.
+	 * @return A new rotated StructureBlueprint.
+	 */
+	public StructureBlueprint rotate(int rotationIndex) {
+		int normalized = Math.floorMod(rotationIndex, 4);
+		return switch (normalized) {
+			case 1 -> rotate(BlockRotation.CLOCKWISE_90);
+			case 2 -> rotate(BlockRotation.CLOCKWISE_180);
+			case 3 -> rotate(BlockRotation.COUNTERCLOCKWISE_90);
+			default -> rotate(BlockRotation.NONE);
+		};
 	}
 
 	/**

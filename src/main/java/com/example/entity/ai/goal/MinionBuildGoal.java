@@ -254,7 +254,7 @@ public class MinionBuildGoal extends Goal {
 			}
 
 			boolean onSolidGround = this.minion.isOnGround() && !serverWorld.getBlockState(this.minion.getBlockPos().down()).isOf(Blocks.SCAFFOLDING);
-			if (this.minion.getY() <= this.targetScaffoldBottomY + 0.15D || onSolidGround || this.descentTicks > 120) {
+			if (this.minion.getY() <= this.targetScaffoldBottomY + 0.35D || onSolidGround || this.descentTicks > 50) {
 				// Reached safe ground
 				// Clean up remaining scaffold column blocks that were descended
 				if (shouldTeardownOnDescent()) {
@@ -300,7 +300,7 @@ public class MinionBuildGoal extends Goal {
 			}
 
 			// Controlled downward descent through scaffolding column
-			this.minion.setVelocity(alignX * 0.25D, -0.22D, alignZ * 0.25D);
+			this.minion.setVelocity(alignX * 0.25D, -0.25D, alignZ * 0.25D);
 			this.minion.velocityModified = true;
 			this.minion.fallDistance = 0.0F;
 
@@ -359,13 +359,13 @@ public class MinionBuildGoal extends Goal {
 				this.lastClimbY = this.minion.getY();
 			}
 
-			if (ceilingBlocked || this.stallTicks > 10 || this.climbTicks > 140) {
+			if (ceilingBlocked || this.stallTicks > 25 || this.climbTicks > 140) {
 				abortClimbAndDescend(serverWorld);
 				return;
 			}
 
-			// Ascend vertically until reaching platform surface at targetScaffoldTopY + 1.0D
-			if (this.minion.getY() < (double) this.targetScaffoldTopY + 0.95D) {
+			// Ascend vertically until reaching platform landing threshold at targetScaffoldTopY + 0.70D
+			if (this.minion.getY() < (double) this.targetScaffoldTopY + 0.70D) {
 				// Vertical climb impulse (+0.25D) with horizontal centering lock
 				this.minion.setVelocity(alignX * 0.3D, 0.25D, alignZ * 0.3D);
 				this.minion.velocityModified = true;
@@ -904,7 +904,7 @@ public class MinionBuildGoal extends Goal {
 		this.workTicks = 0;
 		this.minion.getNavigation().stop();
 		this.minion.fallDistance = 0.0F;
-		this.failureCooldownUntilTick = serverWorld.getTime() + 40L;
+		this.failureCooldownUntilTick = serverWorld.getTime() + 15L;
 		restoreHeldWeapon();
 	}
 
@@ -1700,18 +1700,39 @@ public class MinionBuildGoal extends Goal {
 
 	/**
 	 * Initiates a controlled downward descent through a scaffolding column towards safe ground.
+	 * Keeps climbing flags cleared to avoid upward collision impulses, positions the minion
+	 * inside the top scaffolding block to phase down cleanly, and bypasses descent if already
+	 * at or below target ground level.
 	 *
 	 * @param world        The server world.
 	 * @param demobilizing True if this descent is part of teardown / session completion.
 	 */
 	private void initiateDescent(ServerWorld world, boolean demobilizing) {
+		this.targetScaffoldBottomY = getGroundYBelow(world, this.minion.getBlockPos());
+		if (this.targetScaffoldTopY != -1 && this.targetScaffoldTopY <= this.targetScaffoldBottomY) {
+			this.isDescendingScaffolding = false;
+			this.isAscendingScaffolding = false;
+			this.minion.setClimbingScaffolding(false);
+			if (this.activeScaffoldColumn != null && this.currentSession != null) {
+				this.currentSession.releaseScaffoldColumn(this.activeScaffoldColumn, this.minion.getUuid());
+			}
+			this.activeScaffoldColumn = null;
+			this.targetScaffoldTopY = -1;
+			this.targetScaffoldBottomY = -1;
+			return;
+		}
+
 		this.isDescendingScaffolding = true;
 		this.isAscendingScaffolding = false;
 		this.minion.setClimbingScaffolding(false);
 		this.descentTicks = 0;
-		this.targetScaffoldBottomY = getGroundYBelow(world, this.minion.getBlockPos());
 		this.minion.getNavigation().stop();
-		this.minion.setVelocity(0.0D, -0.22D, 0.0D);
+
+		double scCenterX = (this.activeScaffoldColumn != null ? this.activeScaffoldColumn.getX() : this.minion.getBlockX()) + 0.5D;
+		double scCenterZ = (this.activeScaffoldColumn != null ? this.activeScaffoldColumn.getZ() : this.minion.getBlockZ()) + 0.5D;
+		double topYBoundary = this.targetScaffoldTopY != -1 ? (double) this.targetScaffoldTopY + 0.75D : this.minion.getY();
+		this.minion.setPosition(scCenterX, Math.min(this.minion.getY(), topYBoundary), scCenterZ);
+		this.minion.setVelocity(0.0D, -0.25D, 0.0D);
 		this.minion.velocityModified = true;
 		this.minion.fallDistance = 0.0F;
 	}

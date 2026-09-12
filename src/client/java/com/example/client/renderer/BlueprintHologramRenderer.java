@@ -101,12 +101,13 @@ public class BlueprintHologramRenderer {
 		Direction side = hitResult.getSide();
 		BlockPos anchorPos = client.world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
 
-		// 5. Resolve active blueprint from item data component
+		// 5. Resolve active blueprint from item data component and apply current scepter rotation
 		String blueprintId = CommandScepterItem.getBlueprintId(scepterStack);
 		StructureBlueprint blueprint = BlueprintRegistry.getOrDefault(blueprintId);
 		if (blueprint == null || blueprint.getBlockCount() == 0) {
 			return;
 		}
+		blueprint = blueprint.rotate(CommandScepterItem.getRotation(scepterStack));
 
 		// 6. Compute bounding boxes in world space
 		BlockBox localBox = blueprint.getBoundingBox();

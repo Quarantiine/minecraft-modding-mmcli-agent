@@ -51,6 +51,19 @@ public class ModDataComponents {
 	);
 
 	/**
+	 * Data component storing the active architectural structure rotation index on an item (e.g. Command Scepter).
+	 * Stored as an integer index: 0 -> 0°, 1 -> 90°, 2 -> 180°, 3 -> 270°.
+	 */
+	public static final ComponentType<Integer> STRUCTURE_ROTATION = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "structure_rotation"),
+		ComponentType.<Integer>builder()
+			.codec(Codec.INT)
+			.packetCodec(PacketCodecs.INTEGER)
+			.build()
+	);
+
+	/**
 	 * Static initializer method invoked during mod initialization
 	 * to ensure all static component type registrations are registered.
 	 */

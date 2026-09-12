@@ -337,7 +337,8 @@ public class CommandScepterScreen extends Screen {
 	}
 
 	private void syncToServer(boolean executeDirective) {
-		ModClientNetworking.sendUpdateScepter(this.selectedMode, this.selectedBlueprintId, this.selectedSquad, executeDirective);
+		int rotation = CommandScepterItem.getRotationIndex(this.scepterStack);
+		ModClientNetworking.sendUpdateScepter(this.selectedMode, this.selectedBlueprintId, this.selectedSquad, rotation, executeDirective);
 	}
 
 	private void refreshButtonLabels() {

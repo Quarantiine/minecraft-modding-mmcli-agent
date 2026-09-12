@@ -100,10 +100,11 @@ public class ModNetworking {
 			return;
 		}
 
-		// 2. Apply updated CommandMode and active blueprint
+		// 2. Apply updated CommandMode, active blueprint, target squad, and rotation
 		CommandMode mode = payload.mode();
 		String blueprintId = payload.blueprintId();
 		SquadGroup targetSquad = payload.targetSquad();
+		int rotation = payload.rotation();
 
 		if (mode != null) {
 			CommandScepterItem.setMode(scepterStack, mode);
@@ -114,6 +115,7 @@ public class ModNetworking {
 		if (targetSquad != null) {
 			CommandScepterItem.setTargetSquad(scepterStack, targetSquad);
 		}
+		CommandScepterItem.setRotationIndex(scepterStack, rotation);
 
 		// 3. Audio & actionbar feedback
 		CommandMode currentMode = CommandScepterItem.getMode(scepterStack);
@@ -130,8 +132,9 @@ public class ModNetworking {
 
 		String bpName = BlueprintRegistry.getOrDefault(CommandScepterItem.getBlueprintId(scepterStack)).getName();
 		SquadGroup currentSquad = CommandScepterItem.getTargetSquad(scepterStack);
+		int currentRotDeg = CommandScepterItem.getRotationIndex(scepterStack) * 90;
 		player.sendMessage(
-			Text.literal("§6✦ Scepter Updated: " + currentMode.getFormattedName() + " §7| §b" + bpName + " §7| " + currentSquad.getFormattedName()),
+			Text.literal("§6✦ Scepter Updated: " + currentMode.getFormattedName() + " §7| §b" + bpName + " §7(" + currentRotDeg + "°) §7| " + currentSquad.getFormattedName()),
 			true
 		);
 

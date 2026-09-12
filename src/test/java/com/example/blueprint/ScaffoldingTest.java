@@ -455,8 +455,8 @@ public class ScaffoldingTest {
 
 			void tick() {
 				if (this.isAscending) {
-					// Check arrival at surface threshold: targetScaffoldTopY + 0.95D
-					if (this.y < (double) this.targetScaffoldTopY + 0.95D) {
+					// Check arrival at surface threshold: targetScaffoldTopY + 0.70D
+					if (this.y < (double) this.targetScaffoldTopY + 0.70D) {
 						this.velY = 0.25D;
 						this.y += this.velY;
 					} else {
@@ -619,7 +619,7 @@ public class ScaffoldingTest {
 						lastClimbY = y;
 					}
 
-					if (ceilingBlocked || stallTicks > 10) {
+					if (ceilingBlocked || stallTicks > 25) {
 						// Abort climb
 						isAscending = false;
 						isDescending = true;
@@ -636,13 +636,13 @@ public class ScaffoldingTest {
 		Assertions.assertTrue(ceilingSim.isDescending);
 		Assertions.assertTrue(ceilingSim.columnBlacklisted);
 
-		// Scenario 2: Vertical stall (>10 ticks with no elevation gain) triggers abort
+		// Scenario 2: Vertical stall (>25 ticks with no elevation gain) triggers abort
 		MockClimbSensorSimulation stallSim = new MockClimbSensorSimulation();
-		for (int i = 0; i < 10; i++) {
+		for (int i = 0; i < 25; i++) {
 			stallSim.tick(false, false);
 			Assertions.assertTrue(stallSim.isAscending);
 		}
-		// 11th tick exceeds stall threshold (stallTicks > 10)
+		// 26th tick exceeds stall threshold (stallTicks > 25)
 		stallSim.tick(false, false);
 		Assertions.assertFalse(stallSim.isAscending);
 		Assertions.assertTrue(stallSim.isDescending);
@@ -757,7 +757,7 @@ public class ScaffoldingTest {
 				double alignX = scCenterX - x;
 				double alignZ = scCenterZ - z;
 
-				if (y < (double) targetTopY + 0.95D) {
+				if (y < (double) targetTopY + 0.70D) {
 					// Apply centering velocity vector
 					velX = alignX * 0.3D;
 					velY = 0.25D;
@@ -902,5 +902,62 @@ public class ScaffoldingTest {
 		// Candidate B: at (8, 10) situated 1 block further out past the flared eaves
 		Assertions.assertTrue(checker.isColumnClearUpTo(8, 10, groundY, elevatedTargetY),
 			"Candidate outside the flared eaves must pass vertical clearance");
+	}
+
+	@Test
+	@DisplayName("Descent phase-through positioning snaps inside top block and bypasses when at/below ground")
+	public void testDescentPhaseThroughKinematicsAndBypass() {
+		class MockDescentInitiator {
+			int targetScaffoldTopY = 70;
+			int targetScaffoldBottomY = 64;
+			double minionX = 10.5D;
+			double minionY = 71.0D; // Standing atop platform (topY + 1.0)
+			double minionZ = 10.5D;
+			double velY = 0.0D;
+			float fallDistance = 5.0F;
+			boolean isDescending = false;
+			boolean isAscending = true;
+			boolean climbingScaffolding = true;
+			boolean columnReleased = false;
+
+			void initiateDescent(int groundY) {
+				this.targetScaffoldBottomY = groundY;
+				if (this.targetScaffoldTopY != -1 && this.targetScaffoldTopY <= this.targetScaffoldBottomY) {
+					this.isDescending = false;
+					this.isAscending = false;
+					this.climbingScaffolding = false;
+					this.columnReleased = true;
+					return;
+				}
+
+				this.isDescending = true;
+				this.isAscending = false;
+				this.climbingScaffolding = false;
+				double topYBoundary = (double) this.targetScaffoldTopY + 0.75D;
+				this.minionY = Math.min(this.minionY, topYBoundary);
+				this.velY = -0.25D;
+				this.fallDistance = 0.0F;
+			}
+		}
+
+		// Case 1: Standard descent from platform top (Y=71.0) down to ground (Y=64)
+		MockDescentInitiator normalDescent = new MockDescentInitiator();
+		normalDescent.initiateDescent(64);
+
+		Assertions.assertTrue(normalDescent.isDescending);
+		Assertions.assertFalse(normalDescent.isAscending);
+		Assertions.assertFalse(normalDescent.climbingScaffolding, "Climbing flag must remain cleared during descent");
+		Assertions.assertEquals(70.75D, normalDescent.minionY, 1e-6, "Minion must snap 0.25 blocks into top scaffold block to phase through");
+		Assertions.assertEquals(-0.25D, normalDescent.velY, 1e-6, "Downward descent velocity must be -0.25D");
+		Assertions.assertEquals(0.0F, normalDescent.fallDistance, "Fall distance must be zeroed during descent initiation");
+
+		// Case 2: Bypass descent if targetScaffoldTopY <= targetScaffoldBottomY
+		MockDescentInitiator bypassDescent = new MockDescentInitiator();
+		bypassDescent.targetScaffoldTopY = 64;
+		bypassDescent.initiateDescent(64);
+
+		Assertions.assertFalse(bypassDescent.isDescending, "Descent must be bypassed when topY <= bottomY");
+		Assertions.assertFalse(bypassDescent.climbingScaffolding);
+		Assertions.assertTrue(bypassDescent.columnReleased, "Scaffold column must be released when descent is bypassed");
 	}
 }

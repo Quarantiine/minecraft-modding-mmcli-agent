@@ -12,6 +12,9 @@ import org.junit.jupiter.api.Test;
  * Unit tests validating networking payloads:
  * - {@link UpdateMinionConfigPayload}
  * - {@link UpdateScepterPayload}
+ * - {@link TeleportMinionPayload}
+ * - {@link DismissMinionPayload}
+ * - {@link DeselectMinionsPayload}
  */
 public class NetworkingPayloadTest {
 
@@ -38,25 +41,37 @@ public class NetworkingPayloadTest {
 	}
 
 	@Test
-	@DisplayName("Validate UpdateScepterPayload squad group channel, IDs, and backward-compatible constructor")
+	@DisplayName("Validate UpdateScepterPayload squad group channel, rotation parameter, IDs, and backward-compatible constructors")
 	void testUpdateScepterPayload() {
+		UpdateScepterPayload payloadWithRotation = new UpdateScepterPayload(
+			CommandMode.ATTACK,
+			"modid-mmcli-agent-modding:watchtower",
+			SquadGroup.DELTA,
+			2,
+			true
+		);
+
+		Assertions.assertEquals(CommandMode.ATTACK, payloadWithRotation.mode());
+		Assertions.assertEquals("modid-mmcli-agent-modding:watchtower", payloadWithRotation.blueprintId());
+		Assertions.assertEquals(SquadGroup.DELTA, payloadWithRotation.targetSquad());
+		Assertions.assertEquals(2, payloadWithRotation.rotation());
+		Assertions.assertTrue(payloadWithRotation.executeDirective());
+		Assertions.assertEquals(UpdateScepterPayload.ID, payloadWithRotation.getId());
+		Assertions.assertEquals(ExampleMod.MOD_ID, payloadWithRotation.getId().id().getNamespace());
+		Assertions.assertEquals("update_scepter", payloadWithRotation.getId().id().getPath());
+		Assertions.assertNotNull(UpdateScepterPayload.PACKET_CODEC);
+
+		// Backward-compatible constructor defaulting to rotation = 0
 		UpdateScepterPayload payloadWithSquad = new UpdateScepterPayload(
 			CommandMode.ATTACK,
 			"modid-mmcli-agent-modding:watchtower",
 			SquadGroup.DELTA,
 			true
 		);
-
-		Assertions.assertEquals(CommandMode.ATTACK, payloadWithSquad.mode());
-		Assertions.assertEquals("modid-mmcli-agent-modding:watchtower", payloadWithSquad.blueprintId());
+		Assertions.assertEquals(0, payloadWithSquad.rotation());
 		Assertions.assertEquals(SquadGroup.DELTA, payloadWithSquad.targetSquad());
-		Assertions.assertTrue(payloadWithSquad.executeDirective());
-		Assertions.assertEquals(UpdateScepterPayload.ID, payloadWithSquad.getId());
-		Assertions.assertEquals(ExampleMod.MOD_ID, payloadWithSquad.getId().id().getNamespace());
-		Assertions.assertEquals("update_scepter", payloadWithSquad.getId().id().getPath());
-		Assertions.assertNotNull(UpdateScepterPayload.PACKET_CODEC);
 
-		// Backward-compatible constructor defaulting to SquadGroup.ALL
+		// Backward-compatible constructor defaulting to SquadGroup.ALL and rotation = 0
 		UpdateScepterPayload legacyPayload = new UpdateScepterPayload(
 			CommandMode.BUILD,
 			"modid-mmcli-agent-modding:obelisk",
@@ -66,15 +81,127 @@ public class NetworkingPayloadTest {
 		Assertions.assertEquals(CommandMode.BUILD, legacyPayload.mode());
 		Assertions.assertEquals("modid-mmcli-agent-modding:obelisk", legacyPayload.blueprintId());
 		Assertions.assertEquals(SquadGroup.ALL, legacyPayload.targetSquad());
+		Assertions.assertEquals(0, legacyPayload.rotation());
 		Assertions.assertFalse(legacyPayload.executeDirective());
+
+		// Constructor with mode, blueprintId, rotation, and executeDirective
+		UpdateScepterPayload rotOnlyPayload = new UpdateScepterPayload(
+			CommandMode.BUILD,
+			"modid-mmcli-agent-modding:obelisk",
+			3,
+			false
+		);
+		Assertions.assertEquals(SquadGroup.ALL, rotOnlyPayload.targetSquad());
+		Assertions.assertEquals(3, rotOnlyPayload.rotation());
 
 		// Equality
 		UpdateScepterPayload explicitAll = new UpdateScepterPayload(
 			CommandMode.BUILD,
 			"modid-mmcli-agent-modding:obelisk",
 			SquadGroup.ALL,
+			0,
 			false
 		);
 		Assertions.assertEquals(legacyPayload, explicitAll);
+	}
+
+	@Test
+	@DisplayName("Validate TeleportMinionPayload single minion and recall-all records and IDs")
+	void testTeleportMinionPayload() {
+		// Single minion teleport
+		TeleportMinionPayload single = new TeleportMinionPayload(105, false);
+		Assertions.assertEquals(105, single.minionId());
+		Assertions.assertFalse(single.teleportAll());
+		Assertions.assertEquals(TeleportMinionPayload.ID, single.getId());
+		Assertions.assertEquals(ExampleMod.MOD_ID, single.getId().id().getNamespace());
+		Assertions.assertEquals("teleport_minion", single.getId().id().getPath());
+		Assertions.assertNotNull(TeleportMinionPayload.PACKET_CODEC);
+
+		// Recall all minions
+		TeleportMinionPayload all = new TeleportMinionPayload(-1, true);
+		Assertions.assertEquals(-1, all.minionId());
+		Assertions.assertTrue(all.teleportAll());
+
+		// Single minion convenience constructor
+		TeleportMinionPayload conv = new TeleportMinionPayload(200);
+		Assertions.assertEquals(200, conv.minionId());
+		Assertions.assertFalse(conv.teleportAll());
+
+		// Negative id convenience constructor defaults to teleportAll = true
+		TeleportMinionPayload convAll = new TeleportMinionPayload(-1);
+		Assertions.assertEquals(-1, convAll.minionId());
+		Assertions.assertTrue(convAll.teleportAll());
+
+		// Equality and hashing
+		TeleportMinionPayload copy = new TeleportMinionPayload(105, false);
+		Assertions.assertEquals(single, copy);
+		Assertions.assertEquals(single.hashCode(), copy.hashCode());
+		Assertions.assertNotEquals(single, all);
+	}
+
+	@Test
+	@DisplayName("Validate DismissMinionPayload single minion and dismiss-all records and IDs")
+	void testDismissMinionPayload() {
+		// Single minion dismiss
+		DismissMinionPayload single = new DismissMinionPayload(88, false);
+		Assertions.assertEquals(88, single.minionId());
+		Assertions.assertFalse(single.dismissAll());
+		Assertions.assertEquals(DismissMinionPayload.ID, single.getId());
+		Assertions.assertEquals(ExampleMod.MOD_ID, single.getId().id().getNamespace());
+		Assertions.assertEquals("dismiss_minion", single.getId().id().getPath());
+		Assertions.assertNotNull(DismissMinionPayload.PACKET_CODEC);
+
+		// Dismiss all minions
+		DismissMinionPayload all = new DismissMinionPayload(-1, true);
+		Assertions.assertEquals(-1, all.minionId());
+		Assertions.assertTrue(all.dismissAll());
+
+		// Convenience constructors
+		DismissMinionPayload convSingle = new DismissMinionPayload(77);
+		Assertions.assertEquals(77, convSingle.minionId());
+		Assertions.assertFalse(convSingle.dismissAll());
+
+		DismissMinionPayload convAll = new DismissMinionPayload(-1);
+		Assertions.assertEquals(-1, convAll.minionId());
+		Assertions.assertTrue(convAll.dismissAll());
+
+		// Equality & hashing
+		DismissMinionPayload copy = new DismissMinionPayload(88, false);
+		Assertions.assertEquals(single, copy);
+		Assertions.assertEquals(single.hashCode(), copy.hashCode());
+		Assertions.assertNotEquals(single, all);
+	}
+
+	@Test
+	@DisplayName("Validate DeselectMinionsPayload single minion and deselect-all records and IDs")
+	void testDeselectMinionsPayload() {
+		// Single minion deselect
+		DeselectMinionsPayload single = new DeselectMinionsPayload(55, false);
+		Assertions.assertEquals(55, single.minionId());
+		Assertions.assertFalse(single.deselectAll());
+		Assertions.assertEquals(DeselectMinionsPayload.ID, single.getId());
+		Assertions.assertEquals(ExampleMod.MOD_ID, single.getId().id().getNamespace());
+		Assertions.assertEquals("deselect_minions", single.getId().id().getPath());
+		Assertions.assertNotNull(DeselectMinionsPayload.PACKET_CODEC);
+
+		// Deselect all
+		DeselectMinionsPayload all = new DeselectMinionsPayload();
+		Assertions.assertEquals(-1, all.minionId());
+		Assertions.assertTrue(all.deselectAll());
+
+		// Convenience constructor
+		DeselectMinionsPayload convSingle = new DeselectMinionsPayload(55);
+		Assertions.assertEquals(55, convSingle.minionId());
+		Assertions.assertFalse(convSingle.deselectAll());
+
+		DeselectMinionsPayload convAll = new DeselectMinionsPayload(-5);
+		Assertions.assertEquals(-5, convAll.minionId());
+		Assertions.assertTrue(convAll.deselectAll());
+
+		// Equality & hashing
+		DeselectMinionsPayload copy = new DeselectMinionsPayload(55, false);
+		Assertions.assertEquals(single, copy);
+		Assertions.assertEquals(single.hashCode(), copy.hashCode());
+		Assertions.assertNotEquals(single, all);
 	}
 }
