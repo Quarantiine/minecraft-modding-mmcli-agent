@@ -1,5 +1,6 @@
 package com.example.entity.ai.goal;
 
+import com.example.block.ModBlocks;
 import com.example.component.SquadGroup;
 import com.example.construction.ConstructionManager;
 import com.example.construction.TraversalScaffoldingManager;
@@ -40,15 +41,20 @@ import net.minecraft.util.math.Vec3d;
  *   <li><b>Chasm & Ravine Bridging:</b> Detects sudden terrain drops (>= 2 blocks deep or liquid hazards)
  *       1.2–2.0 blocks ahead and computes bridging scaffolding coordinates up to 6 blocks across the gap.</li>
  *   <li><b>Cliff & Mountain Ascent:</b> Detects solid vertical obstacles rising > 1.0625 blocks ahead and
- *       generates vertical climbing column/shaft coordinates up to 6 blocks to reach elevated ledges.</li>
+ *       generates vertical climbing column/shaft coordinates up to 6 blocks to reach elevated ledges,
+ *       enforcing strict overhead ceiling and headroom clearance checks so minions never bump into ceilings.</li>
+ *   <li><b>Climbing Safety & Stall Sensors:</b> Features climbing stall sensors (aborts if vertical progress halts
+ *       for &gt; 20 ticks), safety timeouts (max 120 climb ticks), and ceiling collision detection.</li>
+ *   <li><b>Multi-Minion Coordination:</b> Claims and respects vertical climbing column reservations via
+ *       {@link TraversalScaffoldingManager} to avoid collision crowding and ensure column spacing.</li>
  *   <li><b>Combat Sapper Dynamic:</b> Minions with {@link MinionRole#BUILDER} act as dedicated squad sappers
- *       placing temporary scaffolding at zero resource cost. Other minion archetypes consume scaffolding from
- *       their 9-slot inventory, or signal nearby squad {@code BUILDER} minions within 24 blocks to rush to
- *       the obstacle.</li>
+ *       placing temporary scaffolding/construction blocks at zero resource cost. Other minion archetypes consume
+ *       scaffolding/construction items from their 9-slot inventory, or signal nearby squad {@code BUILDER} minions
+ *       within 24 blocks to rush to the obstacle.</li>
  * </ul>
  *
  * Placed scaffolding is registered with {@link TraversalScaffoldingManager} for ephemeral decay and
- * entity safety protection.
+ * entity safety protection. Uses {@link ModBlocks#CONSTRUCTION_BLOCK} or {@link Blocks#SCAFFOLDING}.
  */
 public class MinionSapperGoal extends Goal {
 
@@ -71,6 +77,10 @@ public class MinionSapperGoal extends Goal {
 	public static final long SIGNAL_TIMEOUT_TICKS = 200L;
 	public static final double STEP_HEIGHT = 1.0625D;
 
+	public static final int MAX_CLIMB_TICKS = 120; // 6 seconds max climbing safety timeout
+	public static final int STALL_THRESHOLD_TICKS = 20; // 1 second without upward movement aborts climb
+	public static final double MIN_VERTICAL_PROGRESS_PER_TICK = 0.02D;
+
 	private static final Map<UUID, SapperRequest> ACTIVE_REQUESTS = new ConcurrentHashMap<>();
 
 	private final MinionEntity minion;
@@ -82,6 +92,10 @@ public class MinionSapperGoal extends Goal {
 	private int targetClimbTopY = -1;
 	private int executionTicks = 0;
 	private int checkCooldown = 0;
+
+	// Climbing stall & safety sensor state
+	private double lastClimbY = Double.NEGATIVE_INFINITY;
+	private int stallTicks = 0;
 
 	public MinionSapperGoal(MinionEntity minion) {
 		this.minion = minion;
@@ -174,12 +188,29 @@ public class MinionSapperGoal extends Goal {
 
 		// Builder role or minions carrying scaffolding can build immediately
 		if (canMinionBuildScaffolding()) {
+			// If ascending a cliff, verify and claim the climbing column reservation
+			if (type == ObstacleType.CLIFF_ASCENT && colBase != null) {
+				if (!TraversalScaffoldingManager.getInstance().claimClimbingColumn(world, colBase, this.minion.getUuid())) {
+					// Column claimed by another minion; wait or back off
+					this.checkCooldown = 10;
+					return false;
+				}
+			}
 			return true;
 		}
 
 		// Non-builder without scaffolding: search for nearby allied BUILDER to signal
 		MinionEntity squadBuilder = findNearbySquadBuilder(world);
 		if (squadBuilder != null) {
+			// Also ensure column is not claimed by another minion if cliff ascent
+			if (type == ObstacleType.CLIFF_ASCENT && colBase != null) {
+				if (!TraversalScaffoldingManager.getInstance().isColumnAvailable(world, colBase, squadBuilder.getUuid())
+					&& !TraversalScaffoldingManager.getInstance().isColumnAvailable(world, colBase, this.minion.getUuid())) {
+					this.checkCooldown = 10;
+					return false;
+				}
+			}
+
 			ACTIVE_REQUESTS.put(squadBuilder.getUuid(), new SapperRequest(
 				this.minion,
 				this.minion.getBlockPos(),
@@ -212,7 +243,12 @@ public class MinionSapperGoal extends Goal {
 			return false;
 		}
 		if (this.state == SapperState.CLIMBING) {
-			if (this.executionTicks > 120) {
+			// Hard safety timeout
+			if (this.executionTicks > MAX_CLIMB_TICKS) {
+				return false;
+			}
+			// Vertical stall sensor timeout
+			if (this.stallTicks > STALL_THRESHOLD_TICKS) {
 				return false;
 			}
 			return this.minion.getY() < (double) this.targetClimbTopY;
@@ -223,6 +259,8 @@ public class MinionSapperGoal extends Goal {
 	@Override
 	public void start() {
 		this.executionTicks = 0;
+		this.stallTicks = 0;
+		this.lastClimbY = this.minion.getY();
 
 		if (!(this.minion.getWorld() instanceof ServerWorld serverWorld)) {
 			return;
@@ -230,6 +268,11 @@ public class MinionSapperGoal extends Goal {
 
 		if (this.plannedBlocks.isEmpty()) {
 			return;
+		}
+
+		// Ensure column reservation is held if ascending
+		if (this.obstacleType == ObstacleType.CLIFF_ASCENT && this.activeColumnBase != null) {
+			TraversalScaffoldingManager.getInstance().claimClimbingColumn(serverWorld, this.activeColumnBase, this.minion.getUuid());
 		}
 
 		// Consume resource and deploy scaffolding blocks
@@ -253,6 +296,32 @@ public class MinionSapperGoal extends Goal {
 			this.minion.setClimbingScaffolding(true);
 			this.minion.fallDistance = 0.0F;
 
+			// Stall detection: measure vertical progress
+			double currentY = this.minion.getY();
+			if (currentY - this.lastClimbY < MIN_VERTICAL_PROGRESS_PER_TICK) {
+				this.stallTicks++;
+			} else {
+				this.stallTicks = 0;
+			}
+			this.lastClimbY = currentY;
+
+			// Overhead ceiling collision check directly above minion head
+			if (this.minion.getWorld() instanceof ServerWorld serverWorld) {
+				BlockPos headPos = this.minion.getBlockPos().up(2);
+				BlockState headState = serverWorld.getBlockState(headPos);
+				if (headState.isSolidBlock(serverWorld, headPos) && !isPassableScaffolding(headState)) {
+					// Overhead ceiling collision detected; abort climb immediately to avoid hammering head
+					this.stop();
+					return;
+				}
+			}
+
+			// If stalled for too long, abort climb
+			if (this.stallTicks > STALL_THRESHOLD_TICKS) {
+				this.stop();
+				return;
+			}
+
 			double colCenterX = this.activeColumnBase.getX() + 0.5D;
 			double colCenterZ = this.activeColumnBase.getZ() + 0.5D;
 			double alignX = colCenterX - this.minion.getX();
@@ -274,6 +343,9 @@ public class MinionSapperGoal extends Goal {
 				this.minion.setJumping(false);
 				this.minion.setClimbingScaffolding(false);
 				this.state = SapperState.IDLE;
+				if (this.minion.getWorld() instanceof ServerWorld serverWorld) {
+					TraversalScaffoldingManager.getInstance().releaseClimbingColumn(serverWorld, this.activeColumnBase, this.minion.getUuid());
+				}
 				this.minion.getNavigation().recalculatePath();
 			}
 		}
@@ -281,6 +353,10 @@ public class MinionSapperGoal extends Goal {
 
 	@Override
 	public void stop() {
+		if (this.activeColumnBase != null && this.minion.getWorld() instanceof ServerWorld serverWorld) {
+			TraversalScaffoldingManager.getInstance().releaseClimbingColumn(serverWorld, this.activeColumnBase, this.minion.getUuid());
+		}
+
 		this.minion.setClimbingScaffolding(false);
 		this.minion.setJumping(false);
 		this.state = SapperState.IDLE;
@@ -289,6 +365,8 @@ public class MinionSapperGoal extends Goal {
 		this.activeColumnBase = null;
 		this.targetClimbTopY = -1;
 		this.executionTicks = 0;
+		this.stallTicks = 0;
+		this.lastClimbY = Double.NEGATIVE_INFINITY;
 		this.checkCooldown = 5;
 
 		if (this.minion.getRole() == MinionRole.BUILDER) {
@@ -299,20 +377,31 @@ public class MinionSapperGoal extends Goal {
 	/**
 	 * Deploys the computed scaffolding blocks into the world, plays placement audio,
 	 * swings the minion's hand, registers blocks with {@link TraversalScaffoldingManager},
-	 * and consumes scaffolding items if applicable.
+	 * and consumes scaffolding items if applicable. Prioritizes {@link ModBlocks#CONSTRUCTION_BLOCK}.
 	 */
 	public void deployScaffoldingBlocks(ServerWorld world) {
 		boolean placedAny = false;
 		for (BlockPos pos : this.plannedBlocks) {
 			BlockState current = world.getBlockState(pos);
 			if (current.isAir() || current.isReplaceable()) {
-				if (!consumeScaffoldingResource()) {
+				ItemStack consumedStack = consumeScaffoldingResourceStack();
+				if (consumedStack == null && !canRoleBuildZeroCost(this.minion.getRole())) {
 					break;
 				}
-				BlockState scaffoldState = Blocks.SCAFFOLDING.getDefaultState()
-					.with(ScaffoldingBlock.DISTANCE, 0)
-					.with(ScaffoldingBlock.BOTTOM, false);
-				world.setBlockState(pos, scaffoldState, Block.NOTIFY_ALL);
+
+				BlockState placedState;
+				if (consumedStack != null && consumedStack.isOf(ModBlocks.CONSTRUCTION_BLOCK.asItem())) {
+					placedState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
+				} else if (consumedStack != null && consumedStack.isOf(Items.SCAFFOLDING)) {
+					placedState = Blocks.SCAFFOLDING.getDefaultState()
+						.with(ScaffoldingBlock.DISTANCE, 0)
+						.with(ScaffoldingBlock.BOTTOM, false);
+				} else {
+					// Zero-cost builder placement defaults to ModBlocks.CONSTRUCTION_BLOCK for superior solidity & non-collapsing properties
+					placedState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
+				}
+
+				world.setBlockState(pos, placedState, Block.NOTIFY_ALL);
 				TraversalScaffoldingManager.getInstance().registerScaffolding(world, pos);
 				placedAny = true;
 			}
@@ -349,19 +438,34 @@ public class MinionSapperGoal extends Goal {
 	 * Consumes a scaffolding item from the minion's inventory unless operating under zero-cost builder archetype.
 	 */
 	public boolean consumeScaffoldingResource() {
+		return consumeScaffoldingResourceStack() != null || canRoleBuildZeroCost(this.minion.getRole());
+	}
+
+	/**
+	 * Consumes and returns a scaffolding or construction block stack from the minion's inventory.
+	 * Returns null if the minion has zero-cost builder archetype or no materials.
+	 */
+	public ItemStack consumeScaffoldingResourceStack() {
 		if (canRoleBuildZeroCost(this.minion.getRole())) {
-			return true;
+			return null;
 		}
 		int slot = findScaffoldingSlot();
 		if (slot != -1) {
-			this.minion.getInventory().removeStack(slot, 1);
-			return true;
+			return this.minion.getInventory().removeStack(slot, 1);
 		}
-		return false;
+		return null;
 	}
 
 	private int findScaffoldingSlot() {
 		SimpleInventory inv = this.minion.getInventory();
+		// Check for ModBlocks.CONSTRUCTION_BLOCK first
+		for (int i = 0; i < inv.size(); i++) {
+			ItemStack stack = inv.getStack(i);
+			if (!stack.isEmpty() && stack.isOf(ModBlocks.CONSTRUCTION_BLOCK.asItem())) {
+				return i;
+			}
+		}
+		// Fallback to vanilla SCAFFOLDING
 		for (int i = 0; i < inv.size(); i++) {
 			ItemStack stack = inv.getStack(i);
 			if (!stack.isEmpty() && stack.isOf(Items.SCAFFOLDING)) {
@@ -444,7 +548,7 @@ public class MinionSapperGoal extends Goal {
 		}
 
 		BlockState forwardState = world.getBlockState(forwardPos);
-		boolean forwardPassable = forwardState.isAir() || forwardState.isReplaceable() || forwardState.isOf(Blocks.SCAFFOLDING);
+		boolean forwardPassable = forwardState.isAir() || forwardState.isReplaceable() || isPassableScaffolding(forwardState);
 
 		if (!forwardPassable) {
 			return Collections.emptyList();
@@ -471,8 +575,18 @@ public class MinionSapperGoal extends Goal {
 				continue;
 			}
 
+			// Check headroom clearance for the minion above the bridge path (bridgePos.up(1) and bridgePos.up(2))
+			BlockPos bridgeHead1 = bridgePos.up(1);
+			BlockPos bridgeHead2 = bridgePos.up(2);
+			BlockState head1State = world.getBlockState(bridgeHead1);
+			BlockState head2State = world.getBlockState(bridgeHead2);
+			if (head1State.isSolidBlock(world, bridgeHead1) || head2State.isSolidBlock(world, bridgeHead2)) {
+				// Overhead ceiling obstructs this bridge path
+				break;
+			}
+
 			BlockState stateAtBridge = world.getBlockState(bridgePos);
-			if (stateAtBridge.isSolidBlock(world, bridgePos) && !stateAtBridge.isOf(Blocks.SCAFFOLDING)) {
+			if (stateAtBridge.isSolidBlock(world, bridgePos) && !isPassableScaffolding(stateAtBridge)) {
 				// Reached solid ground on the far side of the ravine!
 				break;
 			}
@@ -483,12 +597,17 @@ public class MinionSapperGoal extends Goal {
 		return bridgeCoords;
 	}
 
+	public static boolean isPassableScaffolding(BlockState state) {
+		return state.isOf(Blocks.SCAFFOLDING) || state.isOf(ModBlocks.CONSTRUCTION_BLOCK);
+	}
+
 	private static boolean isDropHazard(BlockState state) {
 		return state.isAir() || state.isReplaceable() || state.isOf(Blocks.WATER) || state.isOf(Blocks.LAVA);
 	}
 
 	/**
 	 * Scans 1.0–1.5 blocks ahead for vertical cliff faces rising > 1.0625 blocks above minion foot height.
+	 * Enforces strict overhead ceiling and headroom clearance checks for both the climbing shaft and the landing ledge.
 	 *
 	 * @return List of block positions forming a vertical climbing column, or empty list if no valid ledge.
 	 */
@@ -512,10 +631,26 @@ public class MinionSapperGoal extends Goal {
 			return Collections.emptyList();
 		}
 
+		// Check if the climbing column location at feetPos is unobstructed by any existing non-scaffold solid block
+		BlockPos columnBase = feetPos;
+		BlockState columnFeetState = world.getBlockState(columnBase);
+		if (!columnFeetState.isAir() && !columnFeetState.isReplaceable() && !isPassableScaffolding(columnFeetState)) {
+			return Collections.emptyList();
+		}
+
 		// Scan upward for walkable ledge elevation within MAX_CLIFF_HEIGHT
 		int foundLedgeY = -1;
 		for (int h = 2; h <= MAX_CLIFF_HEIGHT; h++) {
 			int checkY = feetPos.getY() + h;
+
+			// Verify the climbing column at this elevation is passable
+			BlockPos shaftPos = new BlockPos(columnBase.getX(), checkY - 1, columnBase.getZ());
+			BlockState shaftState = world.getBlockState(shaftPos);
+			if (shaftState.isSolidBlock(world, shaftPos) && !isPassableScaffolding(shaftState)) {
+				// Solid overhead ceiling block in the climbing shaft! Cannot climb higher
+				break;
+			}
+
 			BlockPos ledgeGround = new BlockPos(wallPos.getX(), checkY - 1, wallPos.getZ());
 			BlockPos ledgeFeet = new BlockPos(wallPos.getX(), checkY, wallPos.getZ());
 			BlockPos ledgeHead = new BlockPos(wallPos.getX(), checkY + 1, wallPos.getZ());
@@ -525,21 +660,25 @@ public class MinionSapperGoal extends Goal {
 			BlockState headState = world.getBlockState(ledgeHead);
 
 			if (groundState.isSolidBlock(world, ledgeGround)
-				&& (feetState.isAir() || feetState.isReplaceable() || feetState.isOf(Blocks.SCAFFOLDING))
-				&& (headState.isAir() || headState.isReplaceable() || headState.isOf(Blocks.SCAFFOLDING))) {
-				foundLedgeY = checkY;
-				break;
+				&& (feetState.isAir() || feetState.isReplaceable() || isPassableScaffolding(feetState))
+				&& (headState.isAir() || headState.isReplaceable() || isPassableScaffolding(headState))) {
+				
+				// Verify overhead headroom clearance above the top of the shaft (checkY and checkY + 1 above columnBase)
+				BlockPos shaftHead1 = new BlockPos(columnBase.getX(), checkY, columnBase.getZ());
+				BlockPos shaftHead2 = new BlockPos(columnBase.getX(), checkY + 1, columnBase.getZ());
+				BlockState sh1 = world.getBlockState(shaftHead1);
+				BlockState sh2 = world.getBlockState(shaftHead2);
+
+				// Must have at least 2 blocks headroom above the top scaffold to emerge onto the ledge
+				if ((sh1.isAir() || sh1.isReplaceable() || isPassableScaffolding(sh1))
+					&& (sh2.isAir() || sh2.isReplaceable() || isPassableScaffolding(sh2))) {
+					foundLedgeY = checkY;
+					break;
+				}
 			}
 		}
 
 		if (foundLedgeY == -1) {
-			return Collections.emptyList();
-		}
-
-		// Place column immediately adjacent to the cliff wall in the passable air space
-		BlockPos columnBase = feetPos;
-		BlockState columnFeetState = world.getBlockState(columnBase);
-		if (!columnFeetState.isAir() && !columnFeetState.isReplaceable() && !columnFeetState.isOf(Blocks.SCAFFOLDING)) {
 			return Collections.emptyList();
 		}
 
@@ -590,6 +729,18 @@ public class MinionSapperGoal extends Goal {
 			coordinates.add(new BlockPos(columnBase.getX(), y, columnBase.getZ()));
 		}
 		return Collections.unmodifiableList(coordinates);
+	}
+
+	public int getExecutionTicks() {
+		return this.executionTicks;
+	}
+
+	public int getStallTicks() {
+		return this.stallTicks;
+	}
+
+	public double getLastClimbY() {
+		return this.lastClimbY;
 	}
 
 	// State accessors for testing and inspection

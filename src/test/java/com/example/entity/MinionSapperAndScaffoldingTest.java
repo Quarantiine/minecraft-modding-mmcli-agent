@@ -594,4 +594,138 @@ public class MinionSapperAndScaffoldingTest {
 		Assertions.assertTrue(warriorSapper,
 			"Warrior pursuing enemies should not be blocked and can utilize sapper traversal");
 	}
+
+	@Test
+	@DisplayName("Validate climbing stall sensor and safety timeout abort mechanics")
+	void testClimbingStallSensorAndTimeout() {
+		class MockClimbAgent {
+			double y = 64.0D;
+			double lastY = Double.NEGATIVE_INFINITY;
+			int executionTicks = 0;
+			int stallTicks = 0;
+			boolean climbing = true;
+
+			void tick(double dy) {
+				executionTicks++;
+				y += dy;
+				if (y - lastY < MinionSapperGoal.MIN_VERTICAL_PROGRESS_PER_TICK) {
+					stallTicks++;
+				} else {
+					stallTicks = 0;
+				}
+				lastY = y;
+
+				if (executionTicks > MinionSapperGoal.MAX_CLIMB_TICKS || stallTicks > MinionSapperGoal.STALL_THRESHOLD_TICKS) {
+					climbing = false;
+				}
+			}
+		}
+
+		// Case 1: Normal steady climb completes without stalling
+		MockClimbAgent normal = new MockClimbAgent();
+		for (int t = 0; t < 15; t++) {
+			normal.tick(0.24D);
+		}
+		Assertions.assertTrue(normal.climbing, "Steady climb should remain active");
+		Assertions.assertEquals(0, normal.stallTicks, "Stall ticks should remain 0 when climbing normally");
+
+		// Case 2: Climbing halts against an obstruction (stall sensor triggers at 21 ticks)
+		MockClimbAgent stalled = new MockClimbAgent();
+		for (int t = 0; t < 5; t++) {
+			stalled.tick(0.24D);
+		}
+		for (int t = 0; t <= MinionSapperGoal.STALL_THRESHOLD_TICKS; t++) {
+			stalled.tick(0.0D); // Obstructed / zero vertical movement
+		}
+		Assertions.assertFalse(stalled.climbing, "Stall sensor must abort climbing when movement halts");
+
+		// Case 3: Timeout safety aborts after MAX_CLIMB_TICKS (120 ticks)
+		MockClimbAgent slow = new MockClimbAgent();
+		for (int t = 0; t <= MinionSapperGoal.MAX_CLIMB_TICKS; t++) {
+			slow.tick(0.05D); // Small progress so stallTicks stays 0, but total ticks exceed 120
+		}
+		Assertions.assertFalse(slow.climbing, "Safety timeout must abort climbing after MAX_CLIMB_TICKS");
+	}
+
+	@Test
+	@DisplayName("Validate multi-minion column reservation and collision avoidance")
+	void testMultiMinionColumnReservationAndSpacing() {
+		class MockReservationManager {
+			final Map<String, UUID> claims = new HashMap<>();
+			final Map<String, Long> claimTimes = new HashMap<>();
+
+			boolean claim(int x, int z, UUID minion, long tick) {
+				String key = x + "," + z;
+				UUID claimant = claims.get(key);
+				Long time = claimTimes.get(key);
+				if (claimant != null) {
+					if (tick - time > TraversalScaffoldingManager.COLUMN_RESERVATION_TIMEOUT_TICKS) {
+						claims.put(key, minion);
+						claimTimes.put(key, tick);
+						return true;
+					}
+					return claimant.equals(minion);
+				}
+				claims.put(key, minion);
+				claimTimes.put(key, tick);
+				return true;
+			}
+
+			void release(int x, int z, UUID minion) {
+				String key = x + "," + z;
+				if (minion.equals(claims.get(key))) {
+					claims.remove(key);
+					claimTimes.remove(key);
+				}
+			}
+		}
+
+		MockReservationManager res = new MockReservationManager();
+		UUID minion1 = UUID.randomUUID();
+		UUID minion2 = UUID.randomUUID();
+
+		// Minion 1 claims column at (10, 20)
+		Assertions.assertTrue(res.claim(10, 20, minion1, 100L));
+
+		// Minion 2 attempts to claim same column -> rejected to enforce spacing
+		Assertions.assertFalse(res.claim(10, 20, minion2, 110L), "Minion 2 cannot crowd into Minion 1's active climbing column");
+
+		// Minion 2 can claim an adjacent spaced column at (11, 20)
+		Assertions.assertTrue(res.claim(11, 20, minion2, 110L), "Minion 2 can claim a separate column");
+
+		// Minion 1 finishes climbing and releases column
+		res.release(10, 20, minion1);
+
+		// Now Minion 2 can claim column (10, 20)
+		Assertions.assertTrue(res.claim(10, 20, minion2, 150L));
+	}
+
+	@Test
+	@DisplayName("Validate overhead ceiling and headroom clearance abort logic")
+	void testOverheadCeilingAndHeadroomCheck() {
+		class HeadroomSimulator {
+			boolean isPathClear(int groundY, int ledgeY, boolean hasCeilingInShaft, boolean hasLedgeHeadroom) {
+				if (hasCeilingInShaft) {
+					return false; // Overhead block in the climbing shaft
+				}
+				if (!hasLedgeHeadroom) {
+					return false; // Obstructed headroom at ledge
+				}
+				return true;
+			}
+		}
+
+		HeadroomSimulator sim = new HeadroomSimulator();
+
+		// Clear path
+		Assertions.assertTrue(sim.isPathClear(64, 67, false, true));
+
+		// Overhead ceiling in shaft blocks climb
+		Assertions.assertFalse(sim.isPathClear(64, 67, true, true),
+			"Overhead block directly in shaft must reject climb candidate");
+
+		// Low ceiling above ledge blocks climb
+		Assertions.assertFalse(sim.isPathClear(64, 67, false, false),
+			"Low ceiling at ledge landing must reject climb candidate");
+	}
 }

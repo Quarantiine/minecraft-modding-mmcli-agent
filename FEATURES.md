@@ -34,6 +34,7 @@ This document provides a comprehensive breakdown of all features, items, entitie
 26. [Architectural Scaffolding Navigation, Platform Kinematics & Multi-Minion Coordination](#26-architectural-scaffolding-navigation-platform-kinematics--multi-minion-coordination)
 27. [Shift-to-Close GUI Architecture, Open-State Guard & Fast Dismissals (`CommandScepterScreen`)](#27-shift-to-close-gui-architecture-open-state-guard--fast-dismissals-commandscepterscreen)
 28. [The 5 Architectural Refinements: Rotation Mathematics, Door Beacons, Ownership Persistence, Descent Kinematics & Smart Shift-Close](#28-the-5-architectural-refinements-rotation-mathematics-door-beacons-ownership-persistence-descent-kinematics--smart-shift-close)
+29. [Construction Block Architecture, Bedrock Immunity Safeguards & Ceiling Clearance Avoidance](#29-construction-block-architecture-bedrock-immunity-safeguards--ceiling-clearance-avoidance)
 
 ---
 
@@ -109,7 +110,7 @@ The **Loki Command Scepter** is a high-tier tactical relic that allows players t
 | **Right-Click Ground**                    | `BUILD` Mode             | Anchors a new multiblock `ConstructionSession` (`SessionMode.BUILD`) at the clicked block face using the active blueprint. Emits beacon sound and enchantment particle blast.                                                                                                                                                                                                                                                                               |
 | **Shift + Right-Click Ground**            | `BUILD` Mode             | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block face, commanding builders and miners to dismantle the active blueprint top-down.                                                                                                                                                                                                                                                                                 |
 | **Right-Click Ground / Box**              | `MINE` Mode              | Anchors a **Structure Dismantling Session** (`SessionMode.DISMANTLE`) at the clicked block or existing active structure bounding box. If an active session is clicked, targets its blueprint; otherwise targets the held blueprint.                                                                                                                                                                                                                         |
-| **Shift + Left-Click**                    | `BUILD` Mode             | **Cycle Blueprint Rotation (`cycleRotation`)**: Cycles rotation through 0° → 90° → 180° → 270° → 0°, plays chime audio, updates scepter component, dispatches `UpdateScepterPayload` to server, and renders updated actionbar readout with door sparkle guide. Supported in main or offhand against air or blocks without breaking blocks. |
+| **Shift + Left-Click**                    | `BUILD` Mode             | **Cycle Blueprint Rotation (`cycleRotation`)**: Cycles rotation through 0° → 90° → 180° → 270° → 0°, plays chime audio, updates scepter component, dispatches `UpdateScepterPayload` to server, and renders updated actionbar readout with door sparkle guide. Supported in main or offhand against air or blocks without breaking blocks.                                                                                                                  |
 | **Right-Click Air**                       | `BUILD` Mode             | Alternate blueprint cycling trigger without targeting a block.                                                                                                                                                                                                                                                                                                                                                                                              |
 | **Right-Click Mob**                       | `RECRUIT` Mode           | Enthralls target living mob into an obedient `MinionEntity` thrall primed in standby (supports up to 32-block crosshair alignment).                                                                                                                                                                                                                                                                                                                         |
 | **Right-Click Ground / Air**              | `FOLLOW` Mode            | Orders all owned minions within 32 blocks to stand up, selects them, and follows the player (`speed: 1.25`). Quick-taps evaluate 32-block crosshair hits.                                                                                                                                                                                                                                                                                                   |
@@ -804,6 +805,17 @@ private static Item registerBlockItem(String name, Block block) {
 }
 ```
 
+#### Registered Custom Blocks
+
+- **`CONSTRUCTION_BLOCK` (`modid-mmcli-agent-modding:construction_block`)**:
+  - Class: `com.example.block.custom.ConstructionBlock`
+  - Creative Tab: `ItemGroups.BUILDING_BLOCKS`
+  - Hardness / Resistance: `0.2F / 0.2F` (rapid instant demolition)
+  - Drops: `.dropsNothing()` (leaves 0 loose entity items upon destruction in both Survival and Creative modes)
+  - Sound Group: `BlockSoundGroup.SCAFFOLDING`
+  - Opacity: `.nonOpaque()` with client Cutout render layer (`RenderLayer.getCutout()`)
+  - Architectural Function: Provides stable solid-top collision face at $y + 1.0\text{D}$ and supports bridging ravines/chasms of arbitrary horizontal span without vanilla `ScaffoldingBlock.DISTANCE` horizontal collapse limits. Recognized by `MinionBuildGoal.isScaffoldBlock` and `MinionSapperGoal.isPassableScaffolding`.
+
 ---
 
 ## 16. Bytecode Injections & Mixins: ExampleMixin
@@ -1287,7 +1299,10 @@ When ascending a climbing column:
    $$\vec{v} = (\Delta x_{\text{align}} \cdot 0.25, +0.24\text{D}, \Delta z_{\text{align}} \cdot 0.25)$$
    centering the minion inside the column while ascending at a controlled rate.
 4. `BLOCK_SCAFFOLDING_STEP` audio plays every 6 ticks.
-5. Upon reaching the target ledge elevation $y \ge y_{\text{top}}$, the minion dismounts onto the ledge surface, resets climbing and jumping flags, and calls `navigation.recalculatePath()`.
+5. **Overhead Ceiling Sensor & Stall Recovery**:
+   - Every tick during `CLIMBING`, scans the block directly overhead at `headPos = minion.getBlockPos().up(2)`. If solid terrain is detected, the climb aborts immediately to avoid hammering the minion's head against ceilings.
+   - Monitors vertical displacement `currentY - lastClimbY`. If progress is $< 0.02\text{D}$ for $> 20$ ticks (`STALL_THRESHOLD_TICKS`), or total climb duration exceeds $120$ ticks (`MAX_CLIMB_TICKS`), climbing terminates safely and releases column reservations.
+6. Upon reaching the target ledge elevation $y \ge y_{\text{top}}$, the minion dismounts onto the ledge surface, resets climbing and jumping flags, and calls `navigation.recalculatePath()`.
 
 ---
 
@@ -1348,6 +1363,23 @@ The deconstruction engine guarantees deterministic top-down demolition:
 ### 2. Dual-Role Participation: Builders & Miners
 
 To give the `MINER` archetype high utility alongside `BUILDER` units, the task distribution filter dynamically adapts based on session mode:
+
+### 3. Bedrock & Indestructible Block Safeguards
+
+To prevent catastrophic terrain and world corruption during deconstruction (such as minions mining through flat-world bedrock layers into the void), strict multi-tiered immunity invariants are enforced:
+
+1. **Hardness & Bedrock Evaluation (`isIndestructibleBlock`)**:
+   - Evaluates `currentState.isOf(Blocks.BEDROCK) || currentState.getHardness(world, pos) < 0.0F`.
+   - Protects Bedrock, End Portal Frames, Command Blocks, and Barrier blocks.
+2. **Session Task Filtering**:
+   - When building task lists for `SessionMode.DISMANTLE`, `ConstructionSession` strips out all indestructible blocks.
+   - `ConstructionSession.isTaskReady` unconditionally rejects any task targeting indestructible blocks.
+3. **Execution Guard (`MinionBuildGoal.executeDismantleWork`)**:
+   - If a target block in the world is indestructible, `breakBlock` is completely bypassed.
+   - Plays an anvil impact SFX (`SoundEvents.BLOCK_ANVIL_HIT`), emits smoke particles, and marks the task complete without modifying world state.
+4. **Scaffolding Cleanup Immunity (`removeScaffoldBlockWithFeedback`)**:
+   - Before deleting temporary scaffolding on descent, verifies `isScaffoldBlock(currentState)`.
+   - Never deletes underlying ground bedrock or natural terrain.
 
 | Role Archetype | `SessionMode.BUILD` Eligibility | `SessionMode.DISMANTLE` Eligibility  |
 | :------------- | :------------------------------ | :----------------------------------- |
@@ -1961,7 +1993,9 @@ This section provides comprehensive engineering documentation for the five pivot
 ### Refinement 1: Singleplayer Host Ownership Persistence & Auto-Adoption (Server-Safe)
 
 #### Problem & Root Cause Breakdown
+
 In Minecraft singleplayer environments—particularly within development instances launched via Gradle Loom—the player's profile UUID can change between sessions (e.g. offline dev profile `--username Developer` vs authenticated Mojang account UUIDs). Previously, when a world was reloaded:
+
 1. `MinionEntity` restored its owner UUID from NBT (`Owner`).
 2. If the current player's UUID did not strictly equal the stored NBT UUID, `super.isOwner(player)` returned `false`.
 3. Consequently, the minion treated its creator as an unauthorized stranger:
@@ -1970,6 +2004,7 @@ In Minecraft singleplayer environments—particularly within development instanc
 4. **Dedicated Server Crash Hazard**: Attempting to resolve this naively by querying client singleplayer status (`MinecraftClient.getInstance().isInSingleplayer()`) inside common entity code (`MinionEntity.java`) causes immediate `NoClassDefFoundError: net/minecraft/client/MinecraftClient` crashes on dedicated servers.
 
 #### Architectural Solution: Server-Authoritative Host Auto-Adoption
+
 `MinionEntity` overrides `isOwner(LivingEntity entity)` with server-safe host resolution:
 
 ```java
@@ -2011,13 +2046,16 @@ public boolean isOwner(LivingEntity entity) {
 ### Refinement 2: Scaffolding Descent Phase-Through Fix & Landing Kinematics
 
 #### Problem & Root Cause Breakdown
+
 During multiblock construction and deconstruction, when a minion completed elevated tasks and attempted to descend down a scaffolding column:
+
 1. `MinionBuildGoal.initiateDescent()` historically set `minion.setClimbingScaffolding(true)`.
 2. Vanilla Minecraft scaffolding physics treats entities with `isClimbing() == true` as climbing upwards whenever horizontal motion collides with a ladder block.
 3. Because the minion was standing on the platform directly above the top scaffolding block, any downward gravity or horizontal centering collided with the top face, immediately triggering upward climbing velocity (`+0.20D`).
 4. This trapped the minion in an infinite jitter loop at the top platform: hopping up and down, unable to penetrate the scaffolding column surface to descend.
 
 #### Architectural Solution: Descent Phase-Through & Kinematic Snapping
+
 `MinionBuildGoal` re-engineers both descent and ascent transitions:
 
 1. **Climbing Flag Suppression During Descent**:
@@ -2053,31 +2091,38 @@ During multiblock construction and deconstruction, when a minion completed eleva
 ### Refinement 3: Synchronous 3D Holographic Wireframe & Particle Preview Rotation
 
 #### Problem & Root Cause Breakdown
+
 When rotating a blueprint (e.g. from 0° to 90°), the particle perimeter and server-authoritative construction sessions were correctly rotated, but the client-side `BlueprintHologramRenderer` rendered the unrotated base blueprint wireframe. As a result:
+
 - The neon-cyan 3D wireframe box and ghost blocks faced North/South while the particles and spawned building faced East/West.
 - Commanders experienced severe visual disorientation when placing rotated structures.
 
 #### Architectural Solution: Rotation Matrix & Synchronous Hologram Rendering
+
 1. **Blueprint Coordinate Transformation Engine (`StructureBlueprint.rotate`)**:
    `StructureBlueprint` implements exact origin-centered $(0, 0)$ rotation matrices:
-   $$\begin{aligned}
+   $$
+   \begin{aligned}
    R_0(x, y, z) &= (x, y, z) \\
    R_{90}(x, y, z) &= (-z, y, x) \\
    R_{180}(x, y, z) &= (-x, y, -z) \\
    R_{270}(x, y, z) &= (z, y, -x)
-   \end{aligned}$$
+   \end{aligned}
+   $$
    - Rotates all block states using `state.rotate(rotation)` to properly re-orient stairs, doors, logs, and directional blocks.
    - Transposes dimensions: $(S_x, S_y, S_z) \mapsto (S_z, S_y, S_x)$ on 90° and 270° rotations.
    - Recomputes exact `BlockBox` bounding geometry.
    - Topologically re-sorts blocks in bottom-up construction order (`Collections.sort(rotatedBlocks)`).
 2. **Synchronous Hologram Pipeline (`BlueprintHologramRenderer.java`)**:
    In `render(WorldRenderContext context)`:
+
    ```java
    String blueprintId = CommandScepterItem.getBlueprintId(scepterStack);
    StructureBlueprint baseBlueprint = BlueprintRegistry.getOrDefault(blueprintId);
    BlockRotation rotation = CommandScepterItem.getRotation(scepterStack);
    StructureBlueprint blueprint = baseBlueprint.rotate(rotation);
    ```
+
    - Dynamically resolves the rotated blueprint before deriving the render bounding box and block schematic offsets.
    - The neon-cyan wireframe, yellow anchor box, and translucent cyan ghost blocks rotate synchronously in 3D world space, matching particle boundaries and server placement with zero visual drift.
 
@@ -2086,11 +2131,14 @@ When rotating a blueprint (e.g. from 0° to 90°), the particle perimeter and se
 ### Refinement 4: Smart Shift-to-Close in `MinionScreen` with Shift-Click Transfer Latching
 
 #### Problem & Root Cause Breakdown
+
 Commanders frequently use `Shift-Click` (`quickMove`) to rapidly transfer armor, weapons, and construction materials into a minion's 9-slot inventory and 6 equipment slots. If Shift-to-close were implemented naively on key release:
+
 - The moment a player released `Shift` after transferring a sword or chestplate, the modal would instantly close, disrupting inventory management.
 - If a player opened the screen while sneaking, releasing `Shift` would close the modal before they could inspect anything.
 
 #### Architectural Solution: `SmartCloseHandler` & Transfer Latching
+
 `MinionScreen` incorporates `SmartCloseHandler` to manage the smart close lifecycle:
 
 ```
@@ -2133,49 +2181,184 @@ Commanders frequently use `Shift-Click` (`quickMove`) to rapidly transfer armor,
 
 ---
 
-### Refinement 5: Sneak + Left-Click Blueprint Rotation Cycling & Tactical Door Sparkle Readouts
+## 29. Construction Block Architecture, Bedrock Immunity Safeguards & Ceiling Clearance Avoidance
 
-#### Problem & Root Cause Breakdown
-Prior to this refinement, rotating a blueprint required repeatedly opening the Command Hub GUI or cycling through unrelated modes. Furthermore, players could not easily tell which side had the doorway or entrance, frequently placing watchtowers facing the wrong direction.
+This section provides comprehensive technical documentation for the three major stability and environmental safety subsystems: dedicated non-collapsing construction blocks, bedrock/indestructible block deconstruction immunity, and sapper ceiling clearance avoidance.
 
-#### Architectural Solution: Real-Time Scepter Controls & Door Guidance
-1. **Mode-Aware Left-Click Dispatch Invariant**:
-   - **`BUILD` Mode**: Sneak + Left-Click cycles the blueprint's rotation angle:
-     $$0^\circ \longrightarrow 90^\circ \longrightarrow 180^\circ \longrightarrow 270^\circ \longrightarrow 0^\circ$$
-     - Intercepted on the client (`ExampleModClient`) and server (`AttackBlockCallback` & `AttackEntityCallback`).
-     - Dispatches `ModClientNetworking.sendUpdateScepter(...)` with the updated rotation index.
-     - Plays item pickup chime (`SoundEvents.ENTITY_ITEM_PICKUP`) and emits an instant actionbar update.
-   - **Non-`BUILD` Modes**: Sneak + Left-Click deselects all active minions within 64 blocks and sets their standing guard anchors.
-2. **Door Offset Discovery (`StructureBlueprint.getDoorOffsets`)**:
-   - During blueprint construction, `StructureBlueprint` inspects all blocks for `DoorBlock` instances:
-     ```java
-     if (state.getBlock() instanceof DoorBlock) {
-         if (!state.contains(DoorBlock.HALF) || state.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
-             doors.add(block.offset());
-         }
-     }
-     ```
-   - Extracts relative offsets for lower door blocks, automatically rotating them via `rotate(rotation)`.
-3. **Tactical Door Sparkle Beams & Front Guide (`inventoryTick`)**:
-   - When holding the Command Scepter in `BUILD` mode, `inventoryTick` performs a 32-block crosshair raycast.
-   - Every 4 ticks:
-     - Spawns rotating perimeter particles outlining the structure footprint.
-     - For blueprints with doors (e.g. Overlord Watchtower), spawns vibrant vertical sparkle beams (`ParticleTypes.HAPPY_VILLAGER` + `ParticleTypes.END_ROD`) at each discovered door entrance.
-     - For doorless structures (e.g. Arcane Obelisk, Defensive Barricade), spawns an emerald front guide line along the forward perimeter.
-4. **Actionbar Real-Time HUD Readout**:
-   - Displays live structural telemetry in the actionbar:
-     `"§6🏗 Overlord Watchtower §8| §bRotation: 90° §8| §a🚪 Door: West"`
-   - Direction dynamically reflects rotated door facing (`South` → `West` → `North` → `East`), giving commanders total confidence prior to right-click placement.
+```
+                         [Environmental Safety & Traversal Pipeline]
+                                              │
+         ┌────────────────────────────────────┼────────────────────────────────────┐
+         ▼                                    ▼                                    ▼
+[Construction Block Subsystem]     [Bedrock Immunity Safeguards]       [Ceiling Clearance & Stalls]
+ • ModBlocks.CONSTRUCTION_BLOCK     • Indestructible: hardness < 0.0F   • Shaft scan checks overhead ceiling
+ • Solid-top collision face (Y+1)     or Blocks.BEDROCK                 • Ledge requires 2 blocks headroom
+ • Infinite horizontal bridge span  • Dismantle task list exclusion     • Ravine bridge headroom checks
+ • Zero drop items (.dropsNothing)  • executeDismantleWork bypass       • Collision sensor @ head (Y+2)
+ • Dual goal passability support    • Scaffold cleanup type guard       • Stall sensor: >20t abort
+                                                                        • Hard timeout: >120t abort
+```
+
+### 1. Dedicated Construction Block Subsystem (`ModBlocks.CONSTRUCTION_BLOCK`)
+
+#### Architectural Problem & Motivation
+
+Vanilla Minecraft `Blocks.SCAFFOLDING` operates under strict horizontal distance mechanics (`ScaffoldingBlock.DISTANCE`). Any scaffolding block placed farther than 6 horizontal blocks from an underlying ground-supported vertical pillar instantly collapses and drops as loose floating items. When minion sappers attempted to bridge ravines, chasms, or wide moats ($> 6$ blocks across), vanilla scaffolding collapsed under them, dumping minions into lava or deep drops. Furthermore, vanilla scaffolding has non-solid top collision when entered, causing mobs to sink or exhibit erratic vertical jitter.
+
+#### Implementation & Invariants
+
+1. **Block Class & Codec (`ConstructionBlock.java`)**:
+   - Extends `net.minecraft.block.Block` and declares a public static `MapCodec<ConstructionBlock> CODEC`.
+   - Overrides `getCodec()` to satisfy Fabric 1.21 block serialization standards.
+2. **Registration & Physical Properties (`ModBlocks.java`)**:
+   - Registered under namespace identifier `modid-mmcli-agent-modding:construction_block` with automatic `BlockItem` pairing in `ItemGroups.BUILDING_BLOCKS`.
+   - Configured via `AbstractBlock.Settings.create()`:
+     - `.strength(0.2F, 0.2F)`: Fragile and easily breakable by minions or players with single-strike speed.
+     - `.dropsNothing()`: Destroys cleanly without dropping entity items or creating inventory clutter.
+     - `.sounds(BlockSoundGroup.SCAFFOLDING)`: Emits scaffolding step, hit, and break sounds.
+     - `.nonOpaque()`: Translucent cutout rendering registered on the client via `BlockRenderLayerMap.INSTANCE.putBlock(ModBlocks.CONSTRUCTION_BLOCK, RenderLayer.getCutout())`.
+3. **Solid-Top Collision & Traversal Support**:
+   - Because it inherits standard `Block` collision rather than `ScaffoldingBlock` fluid logic, its upper face is a solid plane at $y + 1.0\text{D}$.
+   - Minions stand firmly on the surface without sinking or triggering vanilla climbing velocity conflicts.
+4. **Infinite Non-Collapsing Span**:
+   - Free from `DISTANCE` properties; builders can span chasms, rivers, and canyons of any span without structural collapse.
+5. **Dual Goal Integration**:
+   - `MinionBuildGoal.isScaffoldBlock` recognizes both `Blocks.SCAFFOLDING` and `ModBlocks.CONSTRUCTION_BLOCK`.
+   - `MinionSapperGoal.isPassableScaffolding` allows smooth horizontal and vertical movement through both block types.
+   - Sapper builders place `ModBlocks.CONSTRUCTION_BLOCK` by default for zero-cost temporary bridges and columns.
 
 ---
 
-### Verification Matrix: The 5 Refinements
+### 2. Bedrock & Indestructible Block Deconstruction Immunity
 
-| Refinement | Primary Class / Component | Verification Test Suite | Verified Invariants & Assertions |
-| :--- | :--- | :--- | :--- |
-| **Refinement 1** (Singleplayer Ownership) | `MinionEntity`<br>`MinionScreen` | `MinionScreenCloseTest`<br>`MinionSquadAndRoleTest` | Singleplayer host auto-adoption; zero server `MinecraftClient` imports; GUI button active state parity across restarts. |
-| **Refinement 2** (Scaffolding Descent) | `MinionBuildGoal`<br>`TraversalScaffoldingManager` | `ScaffoldingTest` | Centering penetration at $y \le \text{topY} + 0.75\text{D}$; climbing flag suppression during descent; relaxed landing detection; ground bypass. |
-| **Refinement 3** (Synchronous Hologram) | `BlueprintHologramRenderer`<br>`StructureBlueprint` | `BlueprintRotationTest`<br>`CommandScepterRotationTest` | Bounding box dimension swaps ($S_x \leftrightarrow S_z$ on 90°/270°); topological sorting stability; ghost block schematic alignment. |
-| **Refinement 4** (Smart Shift-Close) | `MinionScreen`<br>`SmartCloseHandler` | `MinionScreenCloseTest` | Shift-click item transfer latching (`slotClickedWithShift`); repeat suppression; 'E' and Esc dismissal; clean Shift tap close. |
-| **Refinement 5** (Rotation & Door Beacons) | `CommandScepterItem`<br>`ModDataComponents` | `CommandScepterRotationTest`<br>`NetworkingPayloadTest` | 4-quadrant rotation index mapping; door offset extraction; sneak left-click BUILD dispatch vs minion deselection. |
+#### Architectural Problem & Motivation
 
+In flat worlds or deep underground structures touching $y = -64$ or world bottom, previous deconstruction implementations invoked `serverWorld.breakBlock(targetPos, true)` directly on coordinates matching blueprint layers. Because `breakBlock` on the server forces block destruction regardless of hardness, minions systematically deleted bedrock, opening catastrophic holes into the void where players and minions plummeted to their death. Additionally, scaffolding cleanup on descent indiscriminately cleared blocks, risking deleting ground bedrock.
+
+#### Multi-Tiered Immunity Architecture
+
+Immunity is enforced across four distinct defense layers:
+
+```
+[Blueprint / Dismantle Task Request]
+                 │
+                 ▼
+ ┌───────────────────────────────┐
+ │ Layer 1: Session Generation   │ ──► Exclude all blocks where hardness < 0.0F
+ └───────────────────────────────┘     or state.isOf(Blocks.BEDROCK)
+                 │
+                 ▼
+ ┌───────────────────────────────┐
+ │ Layer 2: Task Readiness Check │ ──► isDismantleTaskReady: Indestructible blocks
+ └───────────────────────────────┘     can NEVER become ready or be claimed
+                 │
+                 ▼
+ ┌───────────────────────────────┐
+ │ Layer 3: Execution Guard      │ ──► executeDismantleWork: If world block is
+ └───────────────────────────────┘     indestructible, bypass breakBlock, play anvil
+                 │                     clank SFX, emit smoke, mark complete safely
+                 ▼
+ ┌───────────────────────────────┐
+ │ Layer 4: Scaffold Teardown    │ ──► removeScaffoldBlockWithFeedback: Verifies
+ └───────────────────────────────┘     isScaffoldBlock(currentState) before deleting;
+                                       leaves ground bedrock 100% untouched!
+```
+
+1. **Identification Helper (`isIndestructibleBlock` / `isIndestructible`)**:
+   ```java
+   public static boolean isIndestructibleBlock(ServerWorld world, BlockPos pos, BlockState state) {
+       if (state == null) return false;
+       if (state.isOf(Blocks.BEDROCK)) return true;
+       if (world != null && pos != null) {
+           return state.getHardness(world, pos) < 0.0F;
+       }
+       return false;
+   }
+   ```
+   Provides unified validation across `MinionBuildGoal`, `ConstructionSession`, and `ConstructionManager`.
+2. **Session Task List Pruning**:
+   - In `ConstructionSession`:
+     ```java
+     if (this.mode == SessionMode.DISMANTLE) {
+         Collections.reverse(this.tasks);
+         this.tasks.removeIf(task -> isIndestructible(world, task.getWorldPos(), task.getBlueprintBlock().state()));
+     }
+     ```
+   - Blueprints with bedrock foundations have those blocks omitted from dismantle queues immediately upon session start.
+3. **Execution Guard & Anvil Audio**:
+   - In `MinionBuildGoal.executeDismantleWork()`:
+     ```java
+     if (isIndestructibleBlock(serverWorld, targetPos, currentState)) {
+         serverWorld.playSound(null, targetPos.getX() + 0.5D, targetPos.getY() + 0.5D, targetPos.getZ() + 0.5D,
+             SoundEvents.BLOCK_ANVIL_HIT, SoundCategory.BLOCKS, 0.8F, 1.2F);
+         serverWorld.spawnParticles(ParticleTypes.SMOKE, targetPos.getX() + 0.5D, targetPos.getY() + 0.5D, targetPos.getZ() + 0.5D,
+             5, 0.2D, 0.2D, 0.2D, 0.02D);
+         this.currentTask.setCompleted(true);
+         this.currentSession.completeTask(this.currentTask);
+         this.taskTicks = 0;
+         this.currentTask = null;
+         return;
+     }
+     ```
+4. **Scaffolding Cleanup Type Guard**:
+   - In `MinionBuildGoal.removeScaffoldBlockWithFeedback()`:
+     ```java
+     BlockState currentState = world.getBlockState(pos);
+     if (!isScaffoldBlock(currentState)) {
+         return; // Strict immunity for bedrock and natural terrain
+     }
+     ```
+
+---
+
+### 3. Ceiling Clearance Avoidance & Vertical Stall Recovery in Sapper AI
+
+#### Architectural Problem & Motivation
+
+When navigating cliffs or mountainous terrain under overhangs, cavern roofs, or building ceilings, sapper minions previously evaluated only the ledge footing. If an overhead ceiling obstructed the vertical climbing column or capped the ledge landing, minions erected climbing columns into solid ceilings, endlessly hammering their heads against overhead blocks in infinite jump loops.
+
+#### Architectural Solutions in `MinionSapperGoal`
+
+1. **Shaft Clearance Verification (`detectCliffAscent`)**:
+   - While scanning vertical elevations $h \in [2, \text{MAX\_CLIFF\_HEIGHT}]$, the climbing shaft position at `(columnBase.x, checkY - 1, columnBase.z)` is evaluated:
+     ```java
+     BlockPos shaftPos = new BlockPos(columnBase.getX(), checkY - 1, columnBase.getZ());
+     BlockState shaftState = world.getBlockState(shaftPos);
+     if (shaftState.isSolidBlock(world, shaftPos) && !isPassableScaffolding(shaftState)) {
+         break; // Solid overhead ceiling blocks ascent shaft; abort higher scan
+     }
+     ```
+   - Ascent columns will never be planned through solid ceilings.
+2. **Two-Block Ledge Headroom Clearance**:
+   - At the candidate landing ledge, both foot height (`ledgeFeet = wallPos.up(h)`) and head clearance (`ledgeHead = wallPos.up(h + 1)`) must be non-solid:
+     ```java
+     boolean isLedgeClear = (!feetState.isSolidBlock(world, ledgeFeet) || isPassableScaffolding(feetState))
+         && (!headState.isSolidBlock(world, ledgeHead) || isPassableScaffolding(headState));
+     ```
+3. **Ravine Bridge Headroom Verification (`detectRavineBridge`)**:
+   - Every horizontal bridge node verifies `bridgePos.up(1)` and `bridgePos.up(2)` for solid blocks:
+     ```java
+     if (head1State.isSolidBlock(world, bridgeHead1) || head2State.isSolidBlock(world, bridgeHead2)) {
+         break; // Low ceiling obstructs passage; terminate bridge
+     }
+     ```
+4. **Direct Ceiling Collision Sensor**:
+   - Every tick during the active `CLIMBING` state:
+     ```java
+     BlockPos headPos = this.minion.getBlockPos().up(2);
+     BlockState headState = serverWorld.getBlockState(headPos);
+     if (headState.isSolidBlock(serverWorld, headPos) && !isPassableScaffolding(headState)) {
+         this.stop(); // Immediate abort upon overhead ceiling contact
+         return;
+     }
+     ```
+5. **Vertical Stall Detector & Hard Timeout**:
+   - Evaluates progress: `deltaY = currentY - lastClimbY`.
+   - If `deltaY < 0.02D` (`MIN_VERTICAL_PROGRESS_PER_TICK`), increments `stallTicks`.
+   - If `stallTicks > 20` (`STALL_THRESHOLD_TICKS`, 1 second without progress), the climb immediately aborts.
+   - If total climbing duration exceeds $120$ ticks (`MAX_CLIMB_TICKS`, 6 seconds), a hard safety timeout aborts the goal.
+6. **Multi-Minion Column Reservation & Spacing**:
+   - Minions claim column coordinates via `TraversalScaffoldingManager.getInstance().claimClimbingColumn(world, columnBase, uuid)`.
+   - Other minions approaching the obstacle detect the active reservation and either select an adjacent column or wait, preventing crowding collisions.
+
+---

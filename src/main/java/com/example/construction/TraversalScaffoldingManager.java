@@ -1,5 +1,6 @@
 package com.example.construction;
 
+import com.example.block.ModBlocks;
 import com.example.entity.custom.MinionEntity;
 import java.util.Collections;
 import java.util.Iterator;
@@ -7,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
@@ -27,11 +29,15 @@ import net.minecraft.world.World;
  *
  * <p>Minion sappers dynamically erect scaffolding columns and bridges across cliffs, ravines, and chasms
  * during tactical movement. This manager tracks ephemeral scaffolding blocks and enforces an automatic decay
- * lifecycle (defaulting to 400 ticks / 20 seconds).
+ * lifecycle (defaulting to 400 ticks / 20 seconds). Supports vanilla {@link Blocks#SCAFFOLDING} and
+ * dedicated {@link ModBlocks#CONSTRUCTION_BLOCK}.
  *
  * <p>To prevent thralls and commanding players from plunging into chasms or lava, an entity safety detector
  * checks if any {@link MinionEntity} or {@link PlayerEntity} is currently standing on or inside the scaffold.
  * If occupied, block decay is postponed by an additional 40 ticks until all units have safely crossed.
+ *
+ * <p>Additionally manages multi-minion climbing column reservations to ensure minions maintain proper spacing
+ * and do not crowd into the same vertical column simultaneously.
  */
 public class TraversalScaffoldingManager {
 
@@ -39,8 +45,10 @@ public class TraversalScaffoldingManager {
 
 	public static final int DEFAULT_DECAY_TICKS = 400; // 20 seconds
 	public static final int SAFETY_DELAY_TICKS = 40;   // 2 seconds delay extension when occupied
+	public static final long COLUMN_RESERVATION_TIMEOUT_TICKS = 200L; // 10 seconds
 
 	private final Map<RegistryKey<World>, Map<BlockPos, TraversalEntry>> scaffoldingByDimension = new ConcurrentHashMap<>();
+	private final Map<RegistryKey<World>, Map<ColumnKey, ColumnReservation>> columnReservationsByDimension = new ConcurrentHashMap<>();
 
 	private TraversalScaffoldingManager() {}
 
@@ -180,8 +188,9 @@ public class TraversalScaffoldingManager {
 			BlockPos pos = mapEntry.getKey();
 			TraversalEntry entry = mapEntry.getValue();
 
-			// If the block is no longer scaffolding (e.g. broken manually or replaced), untrack it
-			if (!world.getBlockState(pos).isOf(Blocks.SCAFFOLDING)) {
+			// If the block is no longer scaffolding or construction block (e.g. broken manually or replaced), untrack it
+			net.minecraft.block.BlockState currentState = world.getBlockState(pos);
+			if (!currentState.isOf(Blocks.SCAFFOLDING) && !currentState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
 				iterator.remove();
 				continue;
 			}
@@ -197,18 +206,177 @@ public class TraversalScaffoldingManager {
 				iterator.remove();
 				world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
 				world.spawnParticles(
-					new BlockStateParticleEffect(ParticleTypes.BLOCK, Blocks.SCAFFOLDING.getDefaultState()),
+					new BlockStateParticleEffect(ParticleTypes.BLOCK, currentState),
 					pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
 					8, 0.25D, 0.25D, 0.25D, 0.05D
 				);
 				world.playSound(
 					null, pos,
-					SoundEvents.BLOCK_SCAFFOLDING_BREAK,
+					currentState.isOf(ModBlocks.CONSTRUCTION_BLOCK) ? SoundEvents.BLOCK_SCAFFOLDING_BREAK : SoundEvents.BLOCK_SCAFFOLDING_BREAK,
 					SoundCategory.BLOCKS,
 					0.8F, 1.0F
 				);
 			}
 		}
+
+		// Clean up stale column reservations
+		pruneStaleReservations(world);
+	}
+
+	/**
+	 * Claims or reserves a vertical climbing column at (pos.getX(), pos.getZ()) for a minion thrall.
+	 *
+	 * @param world      The server world.
+	 * @param pos        The column position (matched by X and Z).
+	 * @param minionUuid The requesting minion thrall's UUID.
+	 * @return True if claimed successfully, or if already owned by this minion; false if held by another minion.
+	 */
+	public synchronized boolean claimClimbingColumn(ServerWorld world, BlockPos pos, UUID minionUuid) {
+		if (world == null || pos == null || minionUuid == null) {
+			return false;
+		}
+
+		Map<ColumnKey, ColumnReservation> resMap = this.columnReservationsByDimension.computeIfAbsent(
+			world.getRegistryKey(),
+			k -> new ConcurrentHashMap<>()
+		);
+
+		long currentTick = world.getTime();
+		ColumnKey key = new ColumnKey(pos.getX(), pos.getZ());
+		ColumnReservation current = resMap.get(key);
+
+		if (current != null) {
+			if (currentTick - current.reservationTick() > COLUMN_RESERVATION_TIMEOUT_TICKS) {
+				// Expired reservation
+				resMap.put(key, new ColumnReservation(minionUuid, currentTick));
+				return true;
+			}
+			if (current.minionUuid().equals(minionUuid)) {
+				// Refresh timestamp for existing owner
+				resMap.put(key, new ColumnReservation(minionUuid, currentTick));
+				return true;
+			}
+			return false; // Reserved by another minion
+		}
+
+		resMap.put(key, new ColumnReservation(minionUuid, currentTick));
+		return true;
+	}
+
+	/**
+	 * Releases a climbing column reservation held by a minion thrall.
+	 *
+	 * @param world      The server world.
+	 * @param pos        The column position.
+	 * @param minionUuid The requesting minion's UUID.
+	 */
+	public synchronized void releaseClimbingColumn(ServerWorld world, BlockPos pos, UUID minionUuid) {
+		if (world == null || pos == null || minionUuid == null) {
+			return;
+		}
+
+		Map<ColumnKey, ColumnReservation> resMap = this.columnReservationsByDimension.get(world.getRegistryKey());
+		if (resMap == null) {
+			return;
+		}
+
+		ColumnKey key = new ColumnKey(pos.getX(), pos.getZ());
+		ColumnReservation res = resMap.get(key);
+		if (res != null && res.minionUuid().equals(minionUuid)) {
+			resMap.remove(key);
+		}
+	}
+
+	/**
+	 * Releases all climbing column reservations currently held by the specified minion.
+	 *
+	 * @param world      The server world.
+	 * @param minionUuid The minion UUID.
+	 */
+	public synchronized void releaseAllColumnsForMinion(ServerWorld world, UUID minionUuid) {
+		if (world == null || minionUuid == null) {
+			return;
+		}
+
+		Map<ColumnKey, ColumnReservation> resMap = this.columnReservationsByDimension.get(world.getRegistryKey());
+		if (resMap == null || resMap.isEmpty()) {
+			return;
+		}
+
+		resMap.values().removeIf(res -> res.minionUuid().equals(minionUuid));
+	}
+
+	/**
+	 * Checks whether a climbing column at (X, Z) is available for reservation by a specific minion.
+	 *
+	 * @param world      The server world.
+	 * @param pos        The column position.
+	 * @param minionUuid The requesting minion's UUID.
+	 * @return True if unreserved, expired, or already held by this minion.
+	 */
+	public boolean isColumnAvailable(ServerWorld world, BlockPos pos, UUID minionUuid) {
+		if (world == null || pos == null) {
+			return false;
+		}
+
+		Map<ColumnKey, ColumnReservation> resMap = this.columnReservationsByDimension.get(world.getRegistryKey());
+		if (resMap == null) {
+			return true;
+		}
+
+		ColumnKey key = new ColumnKey(pos.getX(), pos.getZ());
+		ColumnReservation res = resMap.get(key);
+		if (res == null) {
+			return true;
+		}
+
+		long currentTick = world.getTime();
+		if (currentTick - res.reservationTick() > COLUMN_RESERVATION_TIMEOUT_TICKS) {
+			return true;
+		}
+
+		return minionUuid != null && res.minionUuid().equals(minionUuid);
+	}
+
+	/**
+	 * Retrieves the minion holding the reservation for a climbing column at (X, Z).
+	 *
+	 * @param world The server world.
+	 * @param pos   The column position.
+	 * @return The minion UUID, or null if unreserved or expired.
+	 */
+	public UUID getColumnClaimant(ServerWorld world, BlockPos pos) {
+		if (world == null || pos == null) {
+			return null;
+		}
+
+		Map<ColumnKey, ColumnReservation> resMap = this.columnReservationsByDimension.get(world.getRegistryKey());
+		if (resMap == null) {
+			return null;
+		}
+
+		ColumnKey key = new ColumnKey(pos.getX(), pos.getZ());
+		ColumnReservation res = resMap.get(key);
+		if (res == null) {
+			return null;
+		}
+
+		long currentTick = world.getTime();
+		if (currentTick - res.reservationTick() > COLUMN_RESERVATION_TIMEOUT_TICKS) {
+			return null;
+		}
+
+		return res.minionUuid();
+	}
+
+	private void pruneStaleReservations(ServerWorld world) {
+		Map<ColumnKey, ColumnReservation> resMap = this.columnReservationsByDimension.get(world.getRegistryKey());
+		if (resMap == null || resMap.isEmpty()) {
+			return;
+		}
+
+		long currentTick = world.getTime();
+		resMap.values().removeIf(res -> currentTick - res.reservationTick() > COLUMN_RESERVATION_TIMEOUT_TICKS);
 	}
 
 	/**
@@ -270,10 +438,11 @@ public class TraversalScaffoldingManager {
 		}
 
 		for (BlockPos pos : map.keySet()) {
-			if (world.getBlockState(pos).isOf(Blocks.SCAFFOLDING)) {
+			net.minecraft.block.BlockState st = world.getBlockState(pos);
+			if (st.isOf(Blocks.SCAFFOLDING) || st.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
 				world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
 				world.spawnParticles(
-					new BlockStateParticleEffect(ParticleTypes.BLOCK, Blocks.SCAFFOLDING.getDefaultState()),
+					new BlockStateParticleEffect(ParticleTypes.BLOCK, st),
 					pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
 					6, 0.2D, 0.2D, 0.2D, 0.05D
 				);
@@ -311,4 +480,14 @@ public class TraversalScaffoldingManager {
 			this.expiryTick = expiryTick;
 		}
 	}
+
+	/**
+	 * Unique 2D column key based on X and Z coordinates.
+	 */
+	public record ColumnKey(int x, int z) {}
+
+	/**
+	 * Column reservation metadata holding the claimant minion UUID and timestamp.
+	 */
+	public record ColumnReservation(UUID minionUuid, long reservationTick) {}
 }

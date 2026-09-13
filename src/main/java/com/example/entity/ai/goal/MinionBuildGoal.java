@@ -1,5 +1,6 @@
 package com.example.entity.ai.goal;
 
+import com.example.block.ModBlocks;
 import com.example.construction.ConstructionManager;
 import com.example.construction.ConstructionSession;
 import com.example.construction.ConstructionTask;
@@ -39,6 +40,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.world.World;
 
 /**
  * Autonomous construction AI goal for {@link MinionEntity}.
@@ -247,13 +249,13 @@ public class MinionBuildGoal extends Goal {
 				int minionY = this.minion.getBlockY();
 				for (int y = this.targetScaffoldTopY; y > minionY + 1; y--) {
 					BlockPos scaffoldPos = new BlockPos(this.activeScaffoldColumn.getX(), y, this.activeScaffoldColumn.getZ());
-					if (this.currentSession.isTemporaryScaffolding(scaffoldPos) && serverWorld.getBlockState(scaffoldPos).isOf(Blocks.SCAFFOLDING)) {
+					if (this.currentSession.isTemporaryScaffolding(scaffoldPos) && isScaffoldBlock(serverWorld.getBlockState(scaffoldPos))) {
 						removeScaffoldBlockWithFeedback(serverWorld, scaffoldPos);
 					}
 				}
 			}
 
-			boolean onSolidGround = this.minion.isOnGround() && !serverWorld.getBlockState(this.minion.getBlockPos().down()).isOf(Blocks.SCAFFOLDING);
+			boolean onSolidGround = this.minion.isOnGround() && !isScaffoldBlock(serverWorld.getBlockState(this.minion.getBlockPos().down()));
 			if (this.minion.getY() <= this.targetScaffoldBottomY + 0.35D || onSolidGround || this.descentTicks > 50) {
 				// Reached safe ground
 				// Clean up remaining scaffold column blocks that were descended
@@ -261,7 +263,7 @@ public class MinionBuildGoal extends Goal {
 					int groundY = Math.max(serverWorld.getBottomY() + 1, (int) Math.floor(this.targetScaffoldBottomY));
 					for (int y = groundY; y <= this.targetScaffoldTopY; y++) {
 						BlockPos scaffoldPos = new BlockPos(this.activeScaffoldColumn.getX(), y, this.activeScaffoldColumn.getZ());
-						if (this.currentSession.isTemporaryScaffolding(scaffoldPos) && serverWorld.getBlockState(scaffoldPos).isOf(Blocks.SCAFFOLDING)) {
+						if (this.currentSession.isTemporaryScaffolding(scaffoldPos) && isScaffoldBlock(serverWorld.getBlockState(scaffoldPos))) {
 							removeScaffoldBlockWithFeedback(serverWorld, scaffoldPos);
 						}
 					}
@@ -349,7 +351,7 @@ public class MinionBuildGoal extends Goal {
 			// Ceiling collision sensor: 2 blocks above feet (head clearance)
 			BlockPos headBlockPos = BlockPos.ofFloored(this.minion.getX(), this.minion.getY() + 2.0D, this.minion.getZ());
 			BlockState headState = serverWorld.getBlockState(headBlockPos);
-			boolean ceilingBlocked = !headState.isAir() && !headState.isOf(Blocks.SCAFFOLDING) && !headState.canPathfindThrough(NavigationType.LAND);
+			boolean ceilingBlocked = !headState.isAir() && !isScaffoldBlock(headState) && !headState.canPathfindThrough(NavigationType.LAND);
 
 			// Stall sensor: detect if vertical displacement is stalled for >10 ticks
 			if (this.minion.getY() <= this.lastClimbY + 0.05D) {
@@ -529,7 +531,7 @@ public class MinionBuildGoal extends Goal {
 		BlockPos feetPos = this.minion.getBlockPos();
 		BlockState feetState = serverWorld.getBlockState(feetPos);
 		BlockState belowFeetState = serverWorld.getBlockState(feetPos.down());
-		if (feetState.isOf(Blocks.SCAFFOLDING) || belowFeetState.isOf(Blocks.SCAFFOLDING)) {
+		if (isScaffoldBlock(feetState) || isScaffoldBlock(belowFeetState)) {
 			this.minion.setVelocity(0.0D, 0.0D, 0.0D);
 			this.minion.velocityModified = true;
 		}
@@ -969,9 +971,7 @@ public class MinionBuildGoal extends Goal {
 			BlockPos p = new BlockPos(scaffoldColumnBase.getX(), y, scaffoldColumnBase.getZ());
 			BlockState current = world.getBlockState(p);
 			if (current.isAir() || current.isReplaceable()) {
-				BlockState scaffoldState = Blocks.SCAFFOLDING.getDefaultState()
-					.with(ScaffoldingBlock.DISTANCE, 0)
-					.with(ScaffoldingBlock.BOTTOM, false);
+				BlockState scaffoldState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
 				world.setBlockState(p, scaffoldState, Block.NOTIFY_ALL);
 				this.currentSession.addTemporaryScaffolding(p);
 				placedAny = true;
@@ -1025,7 +1025,7 @@ public class MinionBuildGoal extends Goal {
 				}
 
 				int baseY = scaffoldPos.getY();
-				while (baseY > world.getBottomY() && world.getBlockState(new BlockPos(x, baseY - 1, z)).isOf(Blocks.SCAFFOLDING)) {
+				while (baseY > world.getBottomY() && isScaffoldBlock(world.getBlockState(new BlockPos(x, baseY - 1, z)))) {
 					baseY--;
 				}
 				BlockPos base = new BlockPos(x, baseY, z);
@@ -1047,15 +1047,19 @@ public class MinionBuildGoal extends Goal {
 		int x = columnBase.getX();
 		int z = columnBase.getZ();
 		int startY = columnBase.getY();
+
+		// Verify headroom clearance before extending scaffolding column
+		if (!isHeadroomClear(world, x, z, targetTopY)) {
+			return;
+		}
+
 		boolean placed = false;
 
 		for (int y = startY; y <= targetTopY; y++) {
 			BlockPos p = new BlockPos(x, y, z);
 			BlockState current = world.getBlockState(p);
 			if (current.isAir() || current.isReplaceable()) {
-				BlockState scaffoldState = Blocks.SCAFFOLDING.getDefaultState()
-					.with(ScaffoldingBlock.DISTANCE, 0)
-					.with(ScaffoldingBlock.BOTTOM, false);
+				BlockState scaffoldState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
 				world.setBlockState(p, scaffoldState, Block.NOTIFY_ALL);
 				this.currentSession.addTemporaryScaffolding(p);
 				placed = true;
@@ -1252,7 +1256,7 @@ public class MinionBuildGoal extends Goal {
 		for (int y = topY; y >= minY; y--) {
 			BlockPos p = new BlockPos(x, y, z);
 			BlockState state = world.getBlockState(p);
-			if (!state.isAir() && !state.isReplaceable() && !state.isOf(Blocks.SCAFFOLDING)) {
+			if (!state.isAir() && !state.isReplaceable() && !isScaffoldBlock(state)) {
 				groundY = y + 1;
 				break;
 			}
@@ -1266,7 +1270,7 @@ public class MinionBuildGoal extends Goal {
 		for (int y = groundY; y <= topY; y++) {
 			BlockPos checkPos = new BlockPos(x, y, z);
 			BlockState st = world.getBlockState(checkPos);
-			if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SCAFFOLDING)) {
+			if (!st.isAir() && !st.isReplaceable() && !isScaffoldBlock(st)) {
 				return null;
 			}
 		}
@@ -1292,7 +1296,7 @@ public class MinionBuildGoal extends Goal {
 		for (int y = startY; y >= bottomY; y--) {
 			BlockPos p = new BlockPos(pos.getX(), y, pos.getZ());
 			BlockState st = world.getBlockState(p);
-			if (!st.isAir() && !st.isOf(Blocks.SCAFFOLDING) && !st.isReplaceable()) {
+			if (!st.isAir() && !isScaffoldBlock(st) && !st.isReplaceable()) {
 				return y + 1;
 			}
 		}
@@ -1304,7 +1308,7 @@ public class MinionBuildGoal extends Goal {
 	 */
 	private boolean isStandingOnScaffolding(ServerWorld world) {
 		BlockPos feet = this.minion.getBlockPos();
-		return world.getBlockState(feet).isOf(Blocks.SCAFFOLDING) || world.getBlockState(feet.down()).isOf(Blocks.SCAFFOLDING);
+		return isScaffoldBlock(world.getBlockState(feet)) || isScaffoldBlock(world.getBlockState(feet.down()));
 	}
 
 	/**
@@ -1345,7 +1349,7 @@ public class MinionBuildGoal extends Goal {
 		BlockState belowState = world.getBlockState(below);
 
 		// Floor must be solid or scaffolding
-		if (!belowState.isSolidBlock(world, below) && !belowState.isOf(Blocks.SCAFFOLDING)) {
+		if (!belowState.isSolidBlock(world, below) && !isScaffoldBlock(belowState)) {
 			return false;
 		}
 
@@ -1353,8 +1357,8 @@ public class MinionBuildGoal extends Goal {
 		BlockState feet = world.getBlockState(pos);
 		BlockState head = world.getBlockState(pos.up());
 
-		boolean feetPassable = feet.isAir() || feet.isOf(Blocks.SCAFFOLDING) || feet.canPathfindThrough(NavigationType.LAND);
-		boolean headPassable = head.isAir() || head.isOf(Blocks.SCAFFOLDING) || head.canPathfindThrough(NavigationType.LAND);
+		boolean feetPassable = feet.isAir() || isScaffoldBlock(feet) || feet.canPathfindThrough(NavigationType.LAND);
+		boolean headPassable = head.isAir() || isScaffoldBlock(head) || head.canPathfindThrough(NavigationType.LAND);
 
 		return feetPassable && headPassable && !feet.isOf(Blocks.LAVA) && !feet.isOf(Blocks.FIRE);
 	}
@@ -1439,6 +1443,52 @@ public class MinionBuildGoal extends Goal {
 	 * @param topY  The Y level of the top scaffolding block.
 	 * @return true if 2 blocks of vertical headroom above topY are completely unobstructed.
 	 */
+
+	/**
+	 * Checks whether the given block state represents a valid scaffolding or construction block.
+	 * Supports both vanilla scaffolding and ModBlocks.CONSTRUCTION_BLOCK.
+	 *
+	 * @param state The BlockState to inspect.
+	 * @return True if state is Blocks.SCAFFOLDING or ModBlocks.CONSTRUCTION_BLOCK.
+	 */
+	public static boolean isScaffoldBlock(BlockState state) {
+		if (state == null) {
+			return false;
+		}
+		return state.isOf(Blocks.SCAFFOLDING) || state.isOf(ModBlocks.CONSTRUCTION_BLOCK);
+	}
+
+	/**
+	 * Strictly checks whether a block is indestructible or bedrock.
+	 * Enforces both explicit Blocks.BEDROCK check and hardness < 0.0F check.
+	 *
+	 * @param state BlockState to check.
+	 * @param world World context.
+	 * @param pos   Position context.
+	 * @return True if the block is indestructible, unbreakable, or bedrock.
+	 */
+	public static boolean isIndestructibleBlock(BlockState state, World world, BlockPos pos) {
+		if (state == null) {
+			return false;
+		}
+		if (state.isOf(Blocks.BEDROCK)) {
+			return true;
+		}
+		try {
+			if (world != null && pos != null) {
+				if (state.getHardness(world, pos) < 0.0F) {
+					return true;
+				}
+			}
+			if (state.getBlock().getHardness() < 0.0F) {
+				return true;
+			}
+		} catch (Exception ignored) {
+			return state.isOf(Blocks.BEDROCK);
+		}
+		return ConstructionSession.isIndestructible(state, world, pos);
+	}
+
 	public boolean isHeadroomClear(ServerWorld world, int x, int z, int topY) {
 		// Verify world blocks at topY + 1 and topY + 2
 		for (int yOffset = 1; yOffset <= 2; yOffset++) {
@@ -1448,7 +1498,7 @@ public class MinionBuildGoal extends Goal {
 			}
 			BlockPos p = new BlockPos(x, y, z);
 			BlockState st = world.getBlockState(p);
-			if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SCAFFOLDING)) {
+			if (!st.isAir() && !st.isReplaceable() && !isScaffoldBlock(st)) {
 				return false;
 			}
 		}
@@ -1460,7 +1510,7 @@ public class MinionBuildGoal extends Goal {
 					BlockPos pos = task.getWorldPos();
 					if (pos.getX() == x && pos.getZ() == z && (pos.getY() == topY + 1 || pos.getY() == topY + 2)) {
 						BlockState plannedState = task.getBlueprintBlock().state();
-						if (!plannedState.isAir() && !plannedState.isReplaceable() && !plannedState.isOf(Blocks.SCAFFOLDING)) {
+						if (!plannedState.isAir() && !plannedState.isReplaceable() && !isScaffoldBlock(plannedState)) {
 							return false;
 						}
 					}
@@ -1483,7 +1533,7 @@ public class MinionBuildGoal extends Goal {
 		BlockPos feetPos = this.minion.getBlockPos();
 		BlockState feetState = serverWorld.getBlockState(feetPos);
 		BlockState belowFeetState = serverWorld.getBlockState(feetPos.down());
-		if (feetState.isOf(Blocks.SCAFFOLDING) || belowFeetState.isOf(Blocks.SCAFFOLDING)) {
+		if (isScaffoldBlock(feetState) || isScaffoldBlock(belowFeetState)) {
 			this.minion.setVelocity(0.0D, 0.0D, 0.0D);
 			this.minion.velocityModified = true;
 		}
@@ -1499,16 +1549,25 @@ public class MinionBuildGoal extends Goal {
 		boolean alreadyAir = currentState.isAir();
 
 		if (!alreadyAir) {
+			// Strict safeguard: Indestructible blocks (hardness < 0.0F or Blocks.BEDROCK) must NEVER be broken!
+			if (isIndestructibleBlock(currentState, serverWorld, targetPos)) {
+				this.currentSession.completeTask(this.currentTask, serverWorld);
+				this.workTicks = 0;
+				return;
+			}
+
 			// Handle double doors cleanly
 			if (currentState.getBlock() instanceof DoorBlock) {
 				if (currentState.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
 					BlockPos upper = targetPos.up();
-					if (serverWorld.getBlockState(upper).isOf(currentState.getBlock())) {
+					BlockState upperState = serverWorld.getBlockState(upper);
+					if (upperState.isOf(currentState.getBlock()) && !isIndestructibleBlock(upperState, serverWorld, upper)) {
 						serverWorld.breakBlock(upper, !this.currentSession.isCreative(), this.minion);
 					}
 				} else {
 					BlockPos lower = targetPos.down();
-					if (serverWorld.getBlockState(lower).isOf(currentState.getBlock())) {
+					BlockState lowerState = serverWorld.getBlockState(lower);
+					if (lowerState.isOf(currentState.getBlock()) && !isIndestructibleBlock(lowerState, serverWorld, lower)) {
 						serverWorld.breakBlock(lower, !this.currentSession.isCreative(), this.minion);
 					}
 				}
@@ -1614,9 +1673,14 @@ public class MinionBuildGoal extends Goal {
 		if (this.currentSession != null) {
 			this.currentSession.removeTemporaryScaffolding(pos);
 		}
+		BlockState currentState = world.getBlockState(pos);
+		// Never clear bedrock, indestructible blocks (hardness < 0.0F), or non-scaffolding blocks
+		if (isIndestructibleBlock(currentState, world, pos) || !isScaffoldBlock(currentState)) {
+			return;
+		}
 		world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
 		world.spawnParticles(
-			new BlockStateParticleEffect(ParticleTypes.BLOCK, Blocks.SCAFFOLDING.getDefaultState()),
+			new BlockStateParticleEffect(ParticleTypes.BLOCK, currentState),
 			pos.getX() + 0.5D,
 			pos.getY() + 0.5D,
 			pos.getZ() + 0.5D,

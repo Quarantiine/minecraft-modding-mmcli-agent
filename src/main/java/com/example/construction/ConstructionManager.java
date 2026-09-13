@@ -1,5 +1,6 @@
 package com.example.construction;
 
+import com.example.blueprint.BlueprintBlock;
 import com.example.blueprint.StructureBlueprint;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
@@ -12,6 +13,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -21,6 +24,7 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.World;
 
 /**
  * Server-side singleton orchestrator managing all active {@link ConstructionSession}s.
@@ -39,6 +43,73 @@ public class ConstructionManager {
 
 	public static ConstructionManager getInstance() {
 		return INSTANCE;
+	}
+
+	/**
+	 * Validates whether a block state is indestructible (hardness < 0.0F or Blocks.BEDROCK).
+	 * Indestructible blocks can never be dismantled or broken by minions.
+	 *
+	 * @param state The block state to evaluate.
+	 * @param world The world instance (may be null).
+	 * @param pos   The world block position (may be null).
+	 * @return True if indestructible or bedrock.
+	 */
+	public static boolean isIndestructible(BlockState state, World world, BlockPos pos) {
+		return ConstructionSession.isIndestructible(state, world, pos);
+	}
+
+	/**
+	 * Determines whether the block at the specified position in the world is indestructible or bedrock.
+	 *
+	 * @param world The world instance.
+	 * @param pos   Position to check.
+	 * @return True if indestructible or bedrock.
+	 */
+	public static boolean isIndestructibleAt(World world, BlockPos pos) {
+		return ConstructionSession.isIndestructible(world, pos);
+	}
+
+	/**
+	 * Validates whether a block at the given position can be safely dismantled by minions.
+	 * Returns false if the block is air, bedrock, or has negative hardness.
+	 *
+	 * @param world The server world.
+	 * @param pos   Position to dismantle.
+	 * @return True if safe and valid to dismantle.
+	 */
+	public static boolean canDismantleBlock(World world, BlockPos pos) {
+		if (world == null || pos == null) {
+			return false;
+		}
+		BlockState state = world.getBlockState(pos);
+		return !state.isAir() && !isIndestructible(state, world, pos);
+	}
+
+	/**
+	 * Counts how many blocks in the specified blueprint at the anchor position are safe to dismantle
+	 * (strictly excluding bedrock and indestructible blocks).
+	 *
+	 * @param world     The world instance.
+	 * @param anchorPos Origin anchor position.
+	 * @param blueprint Structure blueprint.
+	 * @return Count of dismantleable blocks.
+	 */
+	public static int countDismantleableBlocks(World world, BlockPos anchorPos, StructureBlueprint blueprint) {
+		if (blueprint == null || anchorPos == null) {
+			return 0;
+		}
+		int count = 0;
+		for (BlueprintBlock bpBlock : blueprint.getBlocks()) {
+			BlockPos targetPos = anchorPos.add(bpBlock.offset().getX(), bpBlock.offset().getY(), bpBlock.offset().getZ());
+			if (isIndestructible(bpBlock.state(), world, targetPos)) {
+				continue;
+			}
+			if (world != null && isIndestructible(world.getBlockState(targetPos), world, targetPos)) {
+				continue;
+			}
+			count++;
+		}
+		return count;
 	}
 
 	/**
@@ -118,7 +189,8 @@ public class ConstructionManager {
 			blueprint,
 			creative,
 			world.getTime(),
-			mode
+			mode,
+			world
 		);
 
 		this.activeSessions.put(session.getId(), session);
@@ -126,6 +198,16 @@ public class ConstructionManager {
 		this.sessionsByOwner.computeIfAbsent(owner.getUuid(), k -> new ArrayList<>()).add(session);
 
 		if (session.isDismantle()) {
+			if (session.getTotalBlocks() == 0) {
+				owner.sendMessage(
+					Text.literal("§e⚠ No dismantleable blocks found for §f" + blueprint.getName() +
+						" §e(all blocks are indestructible bedrock or already cleared).§r"),
+					false
+				);
+				completeSession(session, world);
+				return session;
+			}
+
 			// Deconstruction initiation feedback
 			world.playSound(
 				null,
@@ -153,7 +235,7 @@ public class ConstructionManager {
 			owner.sendMessage(
 				Text.literal("§c✦ Initiated deconstruction: §f" + blueprint.getName() + " §cat §e[" +
 					immutableAnchor.getX() + ", " + immutableAnchor.getY() + ", " + immutableAnchor.getZ() + "] " +
-					"§c(§e" + blueprint.getBlockCount() + " blocks to dismantle§c)§r"),
+					"§c(§e" + session.getTotalBlocks() + " blocks to dismantle§c)§r"),
 				false
 			);
 		} else {

@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.ParticleTypes;
@@ -105,6 +106,33 @@ public class ConstructionSession {
 		long currentTick,
 		SessionMode mode
 	) {
+		this(ownerUuid, dimension, anchorPos, blueprint, creative, currentTick, mode, null);
+	}
+
+	/**
+	 * Creates a new ConstructionSession anchored at the specified world coordinate with an explicit session mode
+	 * and world reference for terrain inspection. Indestructible blocks (hardness < 0.0F or Blocks.BEDROCK)
+	 * are strictly filtered out during DISMANTLE mode so minions never dismantle or break them.
+	 *
+	 * @param ownerUuid   UUID of the player who initiated construction.
+	 * @param dimension   World dimension key where construction is located.
+	 * @param anchorPos   The world origin block position for this structure.
+	 * @param blueprint   The structure blueprint to construct or dismantle.
+	 * @param creative    True if free instant placement/breaking, false for survival inventory constraints.
+	 * @param currentTick Current server tick count at session creation.
+	 * @param mode        The operational mode: BUILD (bottom-up) or DISMANTLE (top-down reverse topological).
+	 * @param world       Optional server world context for block hardness inspection.
+	 */
+	public ConstructionSession(
+		UUID ownerUuid,
+		RegistryKey<World> dimension,
+		BlockPos anchorPos,
+		StructureBlueprint blueprint,
+		boolean creative,
+		long currentTick,
+		SessionMode mode,
+		World world
+	) {
 		this.id = UUID.randomUUID();
 		this.ownerUuid = Objects.requireNonNull(ownerUuid, "ownerUuid cannot be null");
 		this.dimension = Objects.requireNonNull(dimension, "dimension cannot be null");
@@ -119,6 +147,20 @@ public class ConstructionSession {
 		List<BlueprintBlock> blueprintBlocks = new ArrayList<>(blueprint.getBlocks());
 		if (this.mode == SessionMode.DISMANTLE) {
 			Collections.reverse(blueprintBlocks);
+			// Strict safeguard: Indestructible blocks (hardness < 0.0F or Blocks.BEDROCK) are never marked for dismantling
+			blueprintBlocks.removeIf(bpBlock -> {
+				BlockPos targetPos = this.anchorPos.add(bpBlock.offset().getX(), bpBlock.offset().getY(), bpBlock.offset().getZ());
+				if (isIndestructible(bpBlock.state(), world, targetPos)) {
+					return true;
+				}
+				if (world != null) {
+					BlockState worldState = world.getBlockState(targetPos);
+					if (isIndestructible(worldState, world, targetPos)) {
+						return true;
+					}
+				}
+				return false;
+			});
 		}
 
 		List<ConstructionTask> taskList = new ArrayList<>(blueprintBlocks.size());
@@ -126,6 +168,10 @@ public class ConstructionSession {
 			taskList.add(new ConstructionTask(i, blueprintBlocks.get(i), this.anchorPos));
 		}
 		this.tasks = Collections.unmodifiableList(taskList);
+
+		if (this.tasks.isEmpty() && this.mode == SessionMode.DISMANTLE) {
+			this.status = SessionStatus.COMPLETED;
+		}
 
 		// Calculate world-space bounding box
 		BlockBox localBox = blueprint.getBoundingBox();
@@ -244,10 +290,32 @@ public class ConstructionSession {
 
 		// Find the next ready pending task in topological sequence
 		for (ConstructionTask task : this.tasks) {
-			if (task.isPending() && isTaskReady(task, world)) {
-				if (task.claim(minionUuid, currentTick)) {
-					this.lastActivityTick = currentTick;
-					return task;
+			if (task.isPending()) {
+				// Strict safeguard: if the target block is indestructible/bedrock in DISMANTLE mode,
+				// auto-complete/bypass it so minions never break bedrock and the session doesn't deadlock.
+				if (this.mode == SessionMode.DISMANTLE) {
+					BlueprintBlock bpBlock = task.getBlueprintBlock();
+					BlockPos targetPos = task.getWorldPos();
+					if (isIndestructible(bpBlock.state(), world, targetPos)
+							|| (world != null && isIndestructible(world.getBlockState(targetPos), world, targetPos))) {
+						task.complete();
+						this.completedCount++;
+						if (this.completedCount >= this.tasks.size()) {
+							this.status = SessionStatus.COMPLETED;
+							if (world instanceof ServerWorld serverWorld) {
+								ConstructionManager.getInstance().completeSession(this, serverWorld);
+							}
+							return null;
+						}
+						continue;
+					}
+				}
+
+				if (isTaskReady(task, world)) {
+					if (task.claim(minionUuid, currentTick)) {
+						this.lastActivityTick = currentTick;
+						return task;
+					}
 				}
 			}
 		}
@@ -310,6 +378,46 @@ public class ConstructionSession {
 	}
 
 	/**
+	 * Determines whether a block state is indestructible / unbreakable (e.g. Bedrock, barrier, end portal,
+	 * or any block with negative hardness < 0.0F) and must never be broken or dismantled.
+	 *
+	 * @param state The block state to evaluate.
+	 * @param world The world instance (may be null).
+	 * @param pos   The block position (may be null).
+	 * @return True if the block is indestructible or bedrock.
+	 */
+	public static boolean isIndestructible(BlockState state, World world, BlockPos pos) {
+		if (state == null) {
+			return false;
+		}
+		if (state.isOf(Blocks.BEDROCK)) {
+			return true;
+		}
+		try {
+			if (world != null && pos != null) {
+				return state.getHardness(world, pos) < 0.0F;
+			}
+			return state.getBlock().getHardness() < 0.0F;
+		} catch (Exception e) {
+			return state.isOf(Blocks.BEDROCK);
+		}
+	}
+
+	/**
+	 * Determines whether a block at the given position in the world is indestructible or bedrock.
+	 *
+	 * @param world The server world.
+	 * @param pos   The world position to check.
+	 * @return True if the block at pos is indestructible or bedrock.
+	 */
+	public static boolean isIndestructible(World world, BlockPos pos) {
+		if (world == null || pos == null) {
+			return false;
+		}
+		return isIndestructible(world.getBlockState(pos), world, pos);
+	}
+
+	/**
 	 * Determines whether a deconstruction task's prerequisites are met.
 	 * Executes in top-down reverse topological order, verifying that all upper
 	 * blocks and hanging decorations are cleared before supporting structures are removed.
@@ -319,8 +427,23 @@ public class ConstructionSession {
 	 * @return True if the block is physically safe to dismantle now.
 	 */
 	public boolean isDismantleTaskReady(ConstructionTask task, World world) {
+		if (task == null) {
+			return false;
+		}
+
 		BlueprintBlock bpBlock = task.getBlueprintBlock();
 		BlockPos targetPos = task.getWorldPos();
+
+		// Safeguard: Indestructible blocks (hardness < 0.0F or Blocks.BEDROCK) must never be marked ready for dismantling
+		if (isIndestructible(bpBlock.state(), world, targetPos)) {
+			return false;
+		}
+		if (world != null) {
+			BlockState worldState = world.getBlockState(targetPos);
+			if (isIndestructible(worldState, world, targetPos)) {
+				return false;
+			}
+		}
 
 		// 1. If any non-hanging block resting directly above this block in the blueprint is not yet completed (dismantled),
 		// we cannot dismantle this supporting block.
@@ -523,7 +646,11 @@ public class ConstructionSession {
 		}
 
 		for (BlockPos pos : this.temporaryScaffolding) {
-			if (world.getBlockState(pos).isOf(Blocks.SCAFFOLDING)) {
+			BlockState state = world.getBlockState(pos);
+			if (isIndestructible(state, world, pos)) {
+				continue;
+			}
+			if (state.isOf(Blocks.SCAFFOLDING)) {
 				world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
 				world.spawnParticles(
 					new BlockStateParticleEffect(ParticleTypes.BLOCK, Blocks.SCAFFOLDING.getDefaultState()),

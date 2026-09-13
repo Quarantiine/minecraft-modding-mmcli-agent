@@ -18,9 +18,17 @@ import java.util.*;
  */
 public class StructureDismantlingTest {
 
-	public record MockBlock(int x, int y, int z, boolean isHanging, String name) {
+	public record MockBlock(int x, int y, int z, boolean isHanging, String name, float hardness, boolean isBedrock) {
+		public MockBlock(int x, int y, int z, boolean isHanging, String name) {
+			this(x, y, z, isHanging, name, 1.5F, false);
+		}
+
 		public int getEffectiveY() {
 			return isHanging ? y + 1 : y;
+		}
+
+		public boolean isIndestructible() {
+			return isBedrock || hardness < 0.0F;
 		}
 	}
 
@@ -52,6 +60,8 @@ public class StructureDismantlingTest {
 			List<MockBlock> blocks = new ArrayList<>(sortedBlueprintBlocks);
 			if (mode == ConstructionSession.SessionMode.DISMANTLE) {
 				Collections.reverse(blocks);
+				// Strict safeguard: Indestructible blocks (hardness < 0.0F or bedrock) are never marked for dismantling
+				blocks.removeIf(MockBlock::isIndestructible);
 			}
 			List<MockTask> list = new ArrayList<>();
 			for (int i = 0; i < blocks.size(); i++) {
@@ -99,6 +109,11 @@ public class StructureDismantlingTest {
 
 		private boolean isDismantleTaskReady(MockTask task) {
 			MockBlock block = task.getBlock();
+
+			// Safeguard: Indestructible blocks (hardness < 0.0F or bedrock) can never be marked ready for dismantling
+			if (block.isIndestructible()) {
+				return false;
+			}
 
 			// 1. If this is not hanging, any non-hanging block resting directly on top must be dismantled first
 			if (!block.isHanging()) {
@@ -312,5 +327,67 @@ public class StructureDismantlingTest {
 
 		Assertions.assertEquals(List.of(1, 2, 3, 4), removedOnGroundArrival);
 		Assertions.assertTrue(scaffoldColumnY.isEmpty(), "All scaffolding in column must be cleared on ground arrival");
+	}
+
+	@Test
+	@DisplayName("Validate bedrock and indestructible blocks are strictly excluded from dismantle tasks")
+	void testBedrockAndIndestructibleBlocksExcludedFromDismantle() {
+		List<MockBlock> blueprintBlocks = List.of(
+			new MockBlock(0, 0, 0, false, "Bedrock Foundation", -1.0F, true),
+			new MockBlock(1, 0, 0, false, "Barrier Block", -1.0F, false),
+			new MockBlock(0, 1, 0, false, "Oak Wall", 2.0F, false),
+			new MockBlock(0, 2, 0, false, "Roof Slab", 1.5F, false)
+		);
+
+		MockDismantleSession session = new MockDismantleSession(blueprintBlocks, ConstructionSession.SessionMode.DISMANTLE);
+		List<MockTask> tasks = session.getTasks();
+
+		// Bedrock and Barrier must be completely excluded from dismantle tasks
+		Assertions.assertEquals(2, tasks.size(), "Only destructible blocks should be marked for dismantling");
+		Assertions.assertEquals("Roof Slab", tasks.get(0).getBlock().name());
+		Assertions.assertEquals("Oak Wall", tasks.get(1).getBlock().name());
+
+		for (MockTask task : tasks) {
+			Assertions.assertFalse(task.getBlock().isIndestructible(), "No dismantle task may target indestructible blocks");
+			Assertions.assertFalse(task.getBlock().isBedrock(), "No dismantle task may target bedrock");
+			Assertions.assertTrue(task.getBlock().hardness() >= 0.0F, "Hardness must be non-negative for dismantle tasks");
+		}
+	}
+
+	@Test
+	@DisplayName("Validate blueprint consisting entirely of bedrock creates zero dismantle tasks")
+	void testAllBedrockBlueprintProducesZeroDismantleTasks() {
+		List<MockBlock> bedrockBlocks = List.of(
+			new MockBlock(0, 0, 0, false, "Bedrock 1", -1.0F, true),
+			new MockBlock(1, 0, 0, false, "Bedrock 2", -1.0F, true),
+			new MockBlock(2, 0, 0, false, "End Portal Frame", -1.0F, false)
+		);
+
+		MockDismantleSession session = new MockDismantleSession(bedrockBlocks, ConstructionSession.SessionMode.DISMANTLE);
+		Assertions.assertTrue(session.getTasks().isEmpty(), "Session should contain 0 tasks when all blocks are indestructible");
+	}
+
+	@Test
+	@DisplayName("Validate indestructible block task readiness rejection")
+	void testIndestructibleTaskReadinessRejection() {
+		MockBlock bedrock = new MockBlock(0, 0, 0, false, "Bedrock", -1.0F, true);
+		MockTask bedrockTask = new MockTask(0, bedrock);
+
+		MockDismantleSession session = new MockDismantleSession(List.of(), ConstructionSession.SessionMode.DISMANTLE);
+		Assertions.assertFalse(session.isTaskReady(bedrockTask), "Indestructible tasks must never be marked ready for dismantling");
+	}
+
+	@Test
+	@DisplayName("Validate ConstructionSession and ConstructionManager indestructible validation helper")
+	void testIndestructibleValidationHelpers() {
+		// Null safety
+		Assertions.assertFalse(ConstructionSession.isIndestructible(null, null, null));
+		Assertions.assertFalse(ConstructionSession.isIndestructible(null, null));
+		Assertions.assertFalse(ConstructionManager.isIndestructible(null, null, null));
+		Assertions.assertFalse(ConstructionManager.isIndestructibleAt(null, null));
+		Assertions.assertFalse(ConstructionManager.canDismantleBlock(null, null));
+		Assertions.assertEquals(0, ConstructionManager.countDismantleableBlocks(null, null, null));
+		Assertions.assertFalse(com.example.entity.ai.goal.MinionBuildGoal.isIndestructibleBlock(null, null, null));
+		Assertions.assertFalse(com.example.entity.ai.goal.MinionBuildGoal.isScaffoldBlock(null));
 	}
 }
