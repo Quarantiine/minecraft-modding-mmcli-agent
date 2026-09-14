@@ -62,8 +62,7 @@ public class ConstructionSession {
 	private int completedCount = 0;
 	private final long createdTick;
 	private long lastActivityTick;
-	private final Set<BlockPos> temporaryScaffolding = ConcurrentHashMap.newKeySet();
-	private final Map<BlockPos, UUID> claimedScaffoldColumns = new ConcurrentHashMap<>();
+
 
 	/**
 	 * Creates a new ConstructionSession anchored at the specified world coordinate in default BUILD mode.
@@ -143,36 +142,6 @@ public class ConstructionSession {
 		this.lastActivityTick = currentTick;
 		this.mode = mode != null ? mode : SessionMode.BUILD;
 
-		// Initialize construction tasks. In DISMANTLE mode, tasks execute in reverse topological order (top-down, roof-to-foundation).
-		List<BlueprintBlock> blueprintBlocks = new ArrayList<>(blueprint.getBlocks());
-		if (this.mode == SessionMode.DISMANTLE) {
-			Collections.reverse(blueprintBlocks);
-			// Strict safeguard: Indestructible blocks (hardness < 0.0F or Blocks.BEDROCK) are never marked for dismantling
-			blueprintBlocks.removeIf(bpBlock -> {
-				BlockPos targetPos = this.anchorPos.add(bpBlock.offset().getX(), bpBlock.offset().getY(), bpBlock.offset().getZ());
-				if (isIndestructible(bpBlock.state(), world, targetPos)) {
-					return true;
-				}
-				if (world != null) {
-					BlockState worldState = world.getBlockState(targetPos);
-					if (isIndestructible(worldState, world, targetPos)) {
-						return true;
-					}
-				}
-				return false;
-			});
-		}
-
-		List<ConstructionTask> taskList = new ArrayList<>(blueprintBlocks.size());
-		for (int i = 0; i < blueprintBlocks.size(); i++) {
-			taskList.add(new ConstructionTask(i, blueprintBlocks.get(i), this.anchorPos));
-		}
-		this.tasks = Collections.unmodifiableList(taskList);
-
-		if (this.tasks.isEmpty() && this.mode == SessionMode.DISMANTLE) {
-			this.status = SessionStatus.COMPLETED;
-		}
-
 		// Calculate world-space bounding box
 		BlockBox localBox = blueprint.getBoundingBox();
 		this.worldBoundingBox = new BlockBox(
@@ -183,6 +152,74 @@ public class ConstructionSession {
 			this.anchorPos.getY() + localBox.getMaxY(),
 			this.anchorPos.getZ() + localBox.getMaxZ()
 		);
+
+		List<ConstructionTask> taskList = new ArrayList<>();
+		if (this.mode == SessionMode.DISMANTLE && world != null) {
+			// In DISMANTLE mode with active world:
+			// Scan the entire selected/highlighted 3D area for real non-air blocks.
+			// Miners must mine EVERYTHING in the selected area, but NEVER mine air!
+			Map<BlockPos, BlockState> blocksToMine = new java.util.LinkedHashMap<>();
+
+			// 1. Scan the full worldBoundingBox from top to bottom (highest Y to lowest Y)
+			for (int y = this.worldBoundingBox.getMaxY(); y >= this.worldBoundingBox.getMinY(); y--) {
+				for (int x = this.worldBoundingBox.getMinX(); x <= this.worldBoundingBox.getMaxX(); x++) {
+					for (int z = this.worldBoundingBox.getMinZ(); z <= this.worldBoundingBox.getMaxZ(); z++) {
+						BlockPos pos = new BlockPos(x, y, z);
+						BlockState state = world.getBlockState(pos);
+						if (!state.isAir() && !isIndestructible(state, world, pos)) {
+							blocksToMine.put(pos, state);
+						}
+					}
+				}
+			}
+
+			// 2. Also ensure any non-air blocks specified in blueprint are included if outside box
+			for (BlueprintBlock bpBlock : blueprint.getBlocks()) {
+				BlockPos pos = this.anchorPos.add(bpBlock.offset().getX(), bpBlock.offset().getY(), bpBlock.offset().getZ());
+				BlockState state = world.getBlockState(pos);
+				if (!state.isAir() && !isIndestructible(state, world, pos)) {
+					blocksToMine.putIfAbsent(pos, state);
+				}
+			}
+
+			// Sort strictly top-down (highest Y first, then X and Z)
+			List<Map.Entry<BlockPos, BlockState>> sortedEntries = new ArrayList<>(blocksToMine.entrySet());
+			sortedEntries.sort((a, b) -> {
+				int cmpY = Integer.compare(b.getKey().getY(), a.getKey().getY());
+				if (cmpY != 0) return cmpY;
+				int cmpX = Integer.compare(a.getKey().getX(), b.getKey().getX());
+				if (cmpX != 0) return cmpX;
+				return Integer.compare(a.getKey().getZ(), b.getKey().getZ());
+			});
+
+			for (int i = 0; i < sortedEntries.size(); i++) {
+				Map.Entry<BlockPos, BlockState> entry = sortedEntries.get(i);
+				BlockPos pos = entry.getKey();
+				BlockState state = entry.getValue();
+				BlockPos localOffset = pos.subtract(this.anchorPos);
+				BlueprintBlock bpBlock = new BlueprintBlock(localOffset, state);
+				taskList.add(new ConstructionTask(i, bpBlock, this.anchorPos));
+			}
+		} else {
+			// BUILD mode or offline/mock tests where world is null
+			List<BlueprintBlock> blueprintBlocks = new ArrayList<>(blueprint.getBlocks());
+			if (this.mode == SessionMode.DISMANTLE) {
+				Collections.reverse(blueprintBlocks);
+				blueprintBlocks.removeIf(bpBlock -> {
+					BlockPos targetPos = this.anchorPos.add(bpBlock.offset().getX(), bpBlock.offset().getY(), bpBlock.offset().getZ());
+					return isIndestructible(bpBlock.state(), world, targetPos);
+				});
+			}
+			for (int i = 0; i < blueprintBlocks.size(); i++) {
+				taskList.add(new ConstructionTask(i, blueprintBlocks.get(i), this.anchorPos));
+			}
+		}
+
+		this.tasks = Collections.unmodifiableList(taskList);
+
+		if (this.tasks.isEmpty() && this.mode == SessionMode.DISMANTLE) {
+			this.status = SessionStatus.COMPLETED;
+		}
 	}
 
 	public UUID getId() {
@@ -260,6 +297,31 @@ public class ConstructionSession {
 		return this.worldBoundingBox;
 	}
 
+	/**
+	 * Checks whether any non-air, destructible blocks still remain within this session's
+	 * 3D bounding box in the world. Used by DISMANTLE mode to verify complete area clearance.
+	 *
+	 * @param world The world to inspect.
+	 * @return True if at least one non-air, non-indestructible block remains; false if completely cleared.
+	 */
+	public boolean hasRemainingBlocksInWorld(World world) {
+		if (world == null) {
+			return this.completedCount < this.tasks.size();
+		}
+		for (int y = this.worldBoundingBox.getMinY(); y <= this.worldBoundingBox.getMaxY(); y++) {
+			for (int x = this.worldBoundingBox.getMinX(); x <= this.worldBoundingBox.getMaxX(); x++) {
+				for (int z = this.worldBoundingBox.getMinZ(); z <= this.worldBoundingBox.getMaxZ(); z++) {
+					BlockPos pos = new BlockPos(x, y, z);
+					BlockState state = world.getBlockState(pos);
+					if (!state.isAir() && !isIndestructible(state, world, pos)) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
 	public long getCreatedTick() {
 		return this.createdTick;
 	}
@@ -291,20 +353,30 @@ public class ConstructionSession {
 		// Find the next ready pending task in topological sequence
 		for (ConstructionTask task : this.tasks) {
 			if (task.isPending()) {
-				// Strict safeguard: if the target block is indestructible/bedrock in DISMANTLE mode,
-				// auto-complete/bypass it so minions never break bedrock and the session doesn't deadlock.
+				// Strict safeguard: if the target block is already air or indestructible/bedrock in DISMANTLE mode,
+				// auto-complete it immediately so minions never mine empty air and the session completes cleanly!
 				if (this.mode == SessionMode.DISMANTLE) {
 					BlueprintBlock bpBlock = task.getBlueprintBlock();
 					BlockPos targetPos = task.getWorldPos();
-					if (isIndestructible(bpBlock.state(), world, targetPos)
-							|| (world != null && isIndestructible(world.getBlockState(targetPos), world, targetPos))) {
+					if (world != null) {
+						BlockState worldState = world.getBlockState(targetPos);
+						if (worldState.isAir() || isIndestructible(worldState, world, targetPos)) {
+							task.complete();
+							this.completedCount++;
+							if (this.completedCount >= this.tasks.size() || !hasRemainingBlocksInWorld(world)) {
+								this.status = SessionStatus.COMPLETED;
+								if (world instanceof ServerWorld serverWorld) {
+									ConstructionManager.getInstance().completeSession(this, serverWorld);
+								}
+								return null;
+							}
+							continue;
+						}
+					} else if (isIndestructible(bpBlock.state(), null, targetPos)) {
 						task.complete();
 						this.completedCount++;
 						if (this.completedCount >= this.tasks.size()) {
 							this.status = SessionStatus.COMPLETED;
-							if (world instanceof ServerWorld serverWorld) {
-								ConstructionManager.getInstance().completeSession(this, serverWorld);
-							}
 							return null;
 						}
 						continue;
@@ -352,24 +424,28 @@ public class ConstructionSession {
 		// 1. Hanging blocks MUST have overhead solid support already in the world
 		if (bpBlock.isHanging()) {
 			BlockPos overhead = targetPos.up();
-			return !world.getBlockState(overhead).isAir();
+			if (world.getBlockState(overhead).isAir()) {
+				return false;
+			}
 		}
 
-		// 2. Base layer (Y offset <= 0) can always be placed
-		if (bpBlock.offset().getY() <= 0) {
+		// 2. Base layer (effective Y <= 0) can always be placed
+		if (bpBlock.getEffectiveY() <= 0) {
 			return true;
 		}
 
-		// 3. Elevated blocks: either the block below is not air, or all tasks on lower layers are completed
-		BlockPos underneath = targetPos.down();
-		if (!world.getBlockState(underneath).isAir()) {
-			return true;
+		// 3. Elevated non-hanging blocks: either the block below is not air, or all tasks on lower effective layers are completed
+		if (!bpBlock.isHanging()) {
+			BlockPos underneath = targetPos.down();
+			if (!world.getBlockState(underneath).isAir()) {
+				return true;
+			}
 		}
 
-		// Check if any unfinished tasks exist at strictly lower Y offsets
-		int targetOffsetY = bpBlock.offset().getY();
+		// Check if any unfinished tasks exist at strictly lower effective Y offsets
+		int targetEffectiveY = bpBlock.getEffectiveY();
 		for (ConstructionTask other : this.tasks) {
-			if (other.getBlueprintBlock().offset().getY() < targetOffsetY && !other.isCompleted()) {
+			if (other.getBlueprintBlock().getEffectiveY() < targetEffectiveY && !other.isCompleted()) {
 				return false;
 			}
 		}
@@ -451,6 +527,11 @@ public class ConstructionSession {
 			BlockPos abovePos = targetPos.up();
 			for (ConstructionTask other : this.tasks) {
 				if (!other.isCompleted() && !other.getBlueprintBlock().isHanging() && other.getWorldPos().equals(abovePos)) {
+					if (world != null && (world.getBlockState(abovePos).isAir() || isIndestructible(world, abovePos))) {
+						other.complete();
+						this.completedCount++;
+						continue;
+					}
 					return false;
 				}
 			}
@@ -461,6 +542,11 @@ public class ConstructionSession {
 		BlockPos belowPos = targetPos.down();
 		for (ConstructionTask other : this.tasks) {
 			if (!other.isCompleted() && other.getBlueprintBlock().isHanging() && other.getWorldPos().equals(belowPos)) {
+				if (world != null && (world.getBlockState(belowPos).isAir() || isIndestructible(world, belowPos))) {
+					other.complete();
+					this.completedCount++;
+					continue;
+				}
 				return false;
 			}
 		}
@@ -470,6 +556,11 @@ public class ConstructionSession {
 		int targetEffectiveY = bpBlock.getEffectiveY();
 		for (ConstructionTask other : this.tasks) {
 			if (!other.isCompleted() && other.getBlueprintBlock().getEffectiveY() > targetEffectiveY) {
+				if (world != null && (world.getBlockState(other.getWorldPos()).isAir() || isIndestructible(world, other.getWorldPos()))) {
+					other.complete();
+					this.completedCount++;
+					continue;
+				}
 				return false;
 			}
 		}
@@ -480,6 +571,11 @@ public class ConstructionSession {
 				if (!other.isCompleted() && other.getBlueprintBlock().isHanging()
 						&& other.getBlueprintBlock().getEffectiveY() == targetEffectiveY) {
 					if (other.getWorldPos().getX() == targetPos.getX() && other.getWorldPos().getZ() == targetPos.getZ()) {
+						if (world != null && (world.getBlockState(other.getWorldPos()).isAir() || isIndestructible(world, other.getWorldPos()))) {
+							other.complete();
+							this.completedCount++;
+							continue;
+						}
 						return false;
 					}
 				}
@@ -512,7 +608,12 @@ public class ConstructionSession {
 			this.completedCount++;
 			this.lastActivityTick = world.getTime();
 
-			if (this.completedCount >= this.tasks.size()) {
+			boolean allDone = this.completedCount >= this.tasks.size();
+			if (!allDone && this.mode == SessionMode.DISMANTLE) {
+				allDone = !hasRemainingBlocksInWorld(world);
+			}
+
+			if (allDone) {
 				this.status = SessionStatus.COMPLETED;
 				ConstructionManager.getInstance().completeSession(this, world);
 			}
@@ -536,15 +637,6 @@ public class ConstructionSession {
 				task.release();
 			}
 		}
-
-		// Prune orphaned column reservations for minions with no remaining claimed tasks
-		java.util.Set<UUID> activeClaimants = new java.util.HashSet<>();
-		for (ConstructionTask task : this.tasks) {
-			if (task.isClaimed() && task.getClaimedBy() != null) {
-				activeClaimants.add(task.getClaimedBy());
-			}
-		}
-		this.claimedScaffoldColumns.values().removeIf(claimant -> !activeClaimants.contains(claimant));
 	}
 
 	/**
@@ -557,7 +649,6 @@ public class ConstructionSession {
 				task.release();
 			}
 		}
-		this.claimedScaffoldColumns.clear();
 	}
 
 	/**
@@ -578,252 +669,7 @@ public class ConstructionSession {
 		}
 	}
 
-	/**
-	 * Registers a temporary zero-cost scaffolding block placed to assist construction.
-	 *
-	 * @param pos The world block position of the scaffolding.
-	 */
-	public void addTemporaryScaffolding(BlockPos pos) {
-		this.temporaryScaffolding.add(pos.toImmutable());
-	}
 
-	/**
-	 * Returns an unmodifiable set of all active temporary scaffolding positions for this session.
-	 *
-	 * @return Set of BlockPos.
-	 */
-	public Set<BlockPos> getTemporaryScaffolding() {
-		return Collections.unmodifiableSet(this.temporaryScaffolding);
-	}
-
-	/**
-	 * Checks if a specific position contains temporary scaffolding placed by this session.
-	 *
-	 * @param pos The block position to test.
-	 * @return True if tracked as temporary scaffolding.
-	 */
-	public boolean isTemporaryScaffolding(BlockPos pos) {
-		return this.temporaryScaffolding.contains(pos);
-	}
-
-	/**
-	 * Removes a specific temporary scaffolding position from tracking.
-	 *
-	 * @param pos The world block position of the scaffolding.
-	 */
-	public void removeTemporaryScaffolding(BlockPos pos) {
-		this.temporaryScaffolding.remove(pos);
-	}
-
-	/**
-	 * Removes all temporary scaffolding blocks erected during this construction session,
-	 * restoring the positions to air and spawning breaking particle effects.
-	 *
-	 * @param world The server world where construction occurred.
-	 */
-	public synchronized void clearScaffolding(ServerWorld world) {
-		if (this.temporaryScaffolding.isEmpty()) {
-			return;
-		}
-
-		// Ground any minions currently on or near temporary scaffolding to prevent falling
-		for (BlockPos pos : this.temporaryScaffolding) {
-			Box checkArea = new Box(pos).expand(0.5D, 1.2D, 0.5D);
-			List<MinionEntity> nearbyMinions = world.getEntitiesByClass(MinionEntity.class, checkArea, m -> true);
-			for (MinionEntity m : nearbyMinions) {
-				m.fallDistance = 0.0F;
-				BlockPos ground = pos.down();
-				while (ground.getY() > world.getBottomY() && (this.temporaryScaffolding.contains(ground) || world.getBlockState(ground).isOf(Blocks.SCAFFOLDING) || world.getBlockState(ground).isAir())) {
-					ground = ground.down();
-				}
-				if (world.getBlockState(ground).isSolidBlock(world, ground)) {
-					m.refreshPositionAndAngles(ground.getX() + 0.5D, ground.getY() + 1.0D, ground.getZ() + 0.5D, m.getYaw(), m.getPitch());
-					m.setVelocity(0.0D, 0.0D, 0.0D);
-					m.velocityModified = true;
-					m.fallDistance = 0.0F;
-				}
-			}
-		}
-
-		for (BlockPos pos : this.temporaryScaffolding) {
-			BlockState state = world.getBlockState(pos);
-			if (isIndestructible(state, world, pos)) {
-				continue;
-			}
-			if (state.isOf(Blocks.SCAFFOLDING)) {
-				world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
-				world.spawnParticles(
-					new BlockStateParticleEffect(ParticleTypes.BLOCK, Blocks.SCAFFOLDING.getDefaultState()),
-					pos.getX() + 0.5,
-					pos.getY() + 0.5,
-					pos.getZ() + 0.5,
-					6,
-					0.2,
-					0.2,
-					0.2,
-					0.05
-				);
-			}
-		}
-		this.temporaryScaffolding.clear();
-		this.claimedScaffoldColumns.clear();
-	}
-
-	/**
-	 * Checks whether a vertical scaffolding column at the specified coordinate is available
-	 * for reservation by a minion thrall (unclaimed, or already claimed by this exact minion).
-	 *
-	 * @param pos        World position identifying the column (matched by X and Z).
-	 * @param minionUuid Requesting minion thrall UUID.
-	 * @return True if available for reservation or already held by this minion.
-	 */
-	public synchronized boolean isScaffoldColumnAvailable(BlockPos pos, UUID minionUuid) {
-		if (pos == null) {
-			return false;
-		}
-		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
-			BlockPos claimed = entry.getKey();
-			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
-				return minionUuid != null && minionUuid.equals(entry.getValue());
-			}
-		}
-		return true;
-	}
-
-	/**
-	 * Checks whether a scaffolding column coordinate is currently claimed by any minion.
-	 *
-	 * @param pos World position identifying the column (matched by X and Z).
-	 * @return True if claimed by any minion.
-	 */
-	public synchronized boolean isScaffoldColumnClaimed(BlockPos pos) {
-		if (pos == null) {
-			return false;
-		}
-		for (BlockPos claimed : this.claimedScaffoldColumns.keySet()) {
-			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/**
-	 * Retrieves the UUID of the minion worker holding a reservation for the column at (X, Z).
-	 *
-	 * @param pos World position identifying the column.
-	 * @return The holding minion's UUID, or null if unreserved.
-	 */
-	public synchronized UUID getScaffoldColumnClaimant(BlockPos pos) {
-		if (pos == null) {
-			return null;
-		}
-		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
-			BlockPos claimed = entry.getKey();
-			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
-				return entry.getValue();
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Attempts to reserve a vertical scaffolding column at the given position for a minion.
-	 * Multiple builders working on the same structure reserve separate column bases on
-	 * different perimeter faces to prevent stacking, kinematic collisions, and ladder blocking.
-	 *
-	 * @param pos        World position of the column base.
-	 * @param minionUuid UUID of the minion claiming this column.
-	 * @return True if the claim succeeded or was already held by this minion; false if claimed by another.
-	 */
-	public synchronized boolean claimScaffoldColumn(BlockPos pos, UUID minionUuid) {
-		if (pos == null || minionUuid == null) {
-			return false;
-		}
-		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
-			BlockPos claimed = entry.getKey();
-			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
-				if (minionUuid.equals(entry.getValue())) {
-					return true;
-				}
-				return false;
-			}
-		}
-		this.claimedScaffoldColumns.put(pos.toImmutable(), minionUuid);
-		return true;
-	}
-
-	/**
-	 * Releases a previously claimed scaffolding column reservation.
-	 *
-	 * @param pos        World position of the column base.
-	 * @param minionUuid UUID of the minion releasing the column, or null to force-release.
-	 * @return True if a reservation was removed.
-	 */
-	public synchronized boolean releaseScaffoldColumn(BlockPos pos, UUID minionUuid) {
-		if (pos == null) {
-			return false;
-		}
-		BlockPos toRemove = null;
-		for (Map.Entry<BlockPos, UUID> entry : this.claimedScaffoldColumns.entrySet()) {
-			BlockPos claimed = entry.getKey();
-			if (claimed.getX() == pos.getX() && claimed.getZ() == pos.getZ()) {
-				if (minionUuid == null || minionUuid.equals(entry.getValue())) {
-					toRemove = claimed;
-					break;
-				}
-			}
-		}
-		if (toRemove != null) {
-			this.claimedScaffoldColumns.remove(toRemove);
-			return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Releases a previously claimed scaffolding column reservation regardless of holder.
-	 *
-	 * @param pos World position of the column base.
-	 * @return True if a reservation was removed.
-	 */
-	public synchronized boolean releaseScaffoldColumn(BlockPos pos) {
-		return releaseScaffoldColumn(pos, null);
-	}
-
-	/**
-	 * Releases all scaffolding column reservations held by the specified minion.
-	 *
-	 * @param minionUuid UUID of the minion whose column claims should be released.
-	 */
-	public synchronized void releaseScaffoldColumnsForMinion(UUID minionUuid) {
-		if (minionUuid == null) {
-			return;
-}
-		this.claimedScaffoldColumns.values().removeIf(uuid -> uuid.equals(minionUuid));
-	}
-
-	/**
-	 * Checks if the specified minion currently holds any active scaffold column reservation.
-	 *
-	 * @param minionUuid UUID of the minion thrall.
-	 * @return True if the minion has reserved at least one column.
-	 */
-	public synchronized boolean isScaffoldColumnClaimedBy(UUID minionUuid) {
-		if (minionUuid == null) {
-			return false;
-		}
-		return this.claimedScaffoldColumns.containsValue(minionUuid);
-	}
-
-	/**
-	 * Returns an unmodifiable map view of all claimed scaffolding columns and their worker UUIDs.
-	 *
-	 * @return Map of BlockPos to minion UUID.
-	 */
-	public Map<BlockPos, UUID> getClaimedScaffoldColumns() {
-		return Collections.unmodifiableMap(this.claimedScaffoldColumns);
-	}
 
 	/**
 	 * Checks if a minion thrall is actively engaged in this session, either holding a claimed
@@ -841,6 +687,6 @@ public class ConstructionSession {
 				return true;
 			}
 		}
-		return this.claimedScaffoldColumns.containsValue(minionUuid);
+		return false;
 	}
 }

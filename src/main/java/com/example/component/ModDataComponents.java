@@ -1,6 +1,7 @@
 package com.example.component;
 
 import com.example.ExampleMod;
+import com.example.entity.custom.MinionRole;
 import com.mojang.serialization.Codec;
 import net.minecraft.component.ComponentType;
 import net.minecraft.network.codec.PacketCodecs;
@@ -60,6 +61,19 @@ public class ModDataComponents {
 		ComponentType.<Integer>builder()
 			.codec(Codec.INT)
 			.packetCodec(PacketCodecs.INTEGER)
+			.build()
+	);
+
+	/**
+	 * Data component storing the optional target {@link MinionRole} archetype on an item (e.g. Command Scepter)
+	 * for mass role transformation during channeled rally selection.
+	 */
+	public static final ComponentType<MinionRole> TARGET_ROLE = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "target_role"),
+		ComponentType.<MinionRole>builder()
+			.codec(MinionRole.CODEC)
+			.packetCodec(MinionRole.PACKET_CODEC)
 			.build()
 	);
 

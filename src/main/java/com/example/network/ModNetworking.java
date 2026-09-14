@@ -14,6 +14,7 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
@@ -28,16 +29,22 @@ import net.minecraft.util.math.Box;
 public class ModNetworking {
 
 	/**
-	 * Registers custom payload types for client-to-server networking.
+	 * Registers custom payload types for client-to-server and server-to-client networking.
 	 * Must be invoked during common mod initialization.
 	 */
 	public static void registerC2SPayloads() {
-		ExampleMod.LOGGER.info("Registering C2S networking payloads for {}", ExampleMod.MOD_ID);
+		ExampleMod.LOGGER.info("Registering networking payloads for {}", ExampleMod.MOD_ID);
 		PayloadTypeRegistry.playC2S().register(UpdateScepterPayload.ID, UpdateScepterPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(UpdateMinionConfigPayload.ID, UpdateMinionConfigPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(DismissMinionPayload.ID, DismissMinionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(TeleportMinionPayload.ID, TeleportMinionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(DeselectMinionsPayload.ID, DeselectMinionsPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(MassRolePayload.ID, MassRolePayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(RetreatPayload.ID, RetreatPayload.PACKET_CODEC);
+
+		// S2C Payloads for active blueprint wireframe synchronization
+		PayloadTypeRegistry.playS2C().register(SyncConstructionSessionPayload.ID, SyncConstructionSessionPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playS2C().register(EndConstructionSessionPayload.ID, EndConstructionSessionPayload.PACKET_CODEC);
 	}
 
 	/**
@@ -64,6 +71,14 @@ public class ModNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(DeselectMinionsPayload.ID, (payload, context) -> {
 			ServerPlayerEntity player = context.player();
 			context.server().execute(() -> handleDeselectMinions(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(MassRolePayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleMassRole(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(RetreatPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleRetreat(player, payload));
 		});
 	}
 
@@ -117,6 +132,11 @@ public class ModNetworking {
 		}
 		CommandScepterItem.setRotationIndex(scepterStack, rotation);
 
+		// Apply target role archetype if provided in payload
+		if (payload.targetRole() != null) {
+			CommandScepterItem.setTargetRole(scepterStack, payload.targetRole().orElse(null));
+		}
+
 		// 3. Audio & actionbar feedback
 		CommandMode currentMode = CommandScepterItem.getMode(scepterStack);
 		player.getServerWorld().playSound(
@@ -133,8 +153,10 @@ public class ModNetworking {
 		String bpName = BlueprintRegistry.getOrDefault(CommandScepterItem.getBlueprintId(scepterStack)).getName();
 		SquadGroup currentSquad = CommandScepterItem.getTargetSquad(scepterStack);
 		int currentRotDeg = CommandScepterItem.getRotationIndex(scepterStack) * 90;
+		MinionRole targetRole = CommandScepterItem.getTargetRole(scepterStack);
+		String roleSuffix = targetRole != null ? " §7| " + targetRole.getFormattedName() : "";
 		player.sendMessage(
-			Text.literal("§6✦ Scepter Updated: " + currentMode.getFormattedName() + " §7| §b" + bpName + " §7(" + currentRotDeg + "°) §7| " + currentSquad.getFormattedName()),
+			Text.literal("§6✦ Scepter Updated: " + currentMode.getFormattedName() + " §7| §b" + bpName + " §7(" + currentRotDeg + "°) §7| " + currentSquad.getFormattedName() + roleSuffix),
 			true
 		);
 
@@ -327,5 +349,70 @@ public class ModNetworking {
 				CommandScepterItem.toggleMinionSelection(player, minion);
 			}
 		}
+	}
+
+	/**
+	 * Handles mass role archetype assignments dispatched from the Command Hub GUI.
+	 * Updates the archetype role for all selected minions or all minions in the specified squad.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The mass role payload containing the target role and squad channel.
+	 */
+	private static void handleMassRole(ServerPlayerEntity player, MassRolePayload payload) {
+		if (player == null || payload == null || payload.role() == null) {
+			return;
+		}
+
+		ServerWorld world = player.getServerWorld();
+		SquadGroup targetSquad = payload.squad() != null ? payload.squad() : SquadGroup.ALL;
+		Box searchBox = player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS);
+
+		// 1. Look for actively selected minions matching the squad filter
+		List<MinionEntity> targets = world.getEntitiesByClass(
+			MinionEntity.class,
+			searchBox,
+			m -> m.isAlive() && m.isOwner(player) && m.isSelected() && targetSquad.matches(m.getSquad())
+		);
+
+		// 2. If none selected, fallback to all owned minions matching the squad filter
+		if (targets.isEmpty()) {
+			targets = world.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && targetSquad.matches(m.getSquad())
+			);
+		}
+
+		if (targets.isEmpty()) {
+			world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_DISPENSER_FAIL, SoundCategory.PLAYERS, 0.8F, 1.2F);
+			player.sendMessage(Text.literal("§e✦ No minions found matching squad " + targetSquad.getFormattedName() + "!§r"), true);
+			return;
+		}
+
+		MinionRole newRole = payload.role();
+		for (MinionEntity minion : targets) {
+			minion.setRole(newRole);
+			minion.autoEquipFromInventory();
+			world.spawnParticles(ParticleTypes.HAPPY_VILLAGER, minion.getX(), minion.getY() + 1.0D, minion.getZ(), 4, 0.2, 0.2, 0.2, 0.05);
+		}
+
+		world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 0.8F, 1.3F);
+		player.sendMessage(
+			Text.literal("§6✦ Mass Assignment: Assigned §l" + newRole.getColorCode() + newRole.getDisplayName() + " §6to " + targets.size() + " minion(s)!§r"),
+			true
+		);
+	}
+
+	/**
+	 * Handles tactical retreat/regroup dispatched when player presses Keybind 'R'.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The retreat payload containing target squad channel.
+	 */
+	private static void handleRetreat(ServerPlayerEntity player, RetreatPayload payload) {
+		if (player == null || payload == null) {
+			return;
+		}
+		CommandScepterItem.executeRetreat(player, player.getServerWorld(), payload.targetSquad());
 	}
 }

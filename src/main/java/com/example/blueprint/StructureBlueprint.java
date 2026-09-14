@@ -31,6 +31,7 @@ public class StructureBlueprint {
 	private final List<BlockPos> doorOffsets;
 	private final Map<Item, Integer> requiredItems;
 	private final BlockBox boundingBox;
+	private final BlockRotation rotation;
 
 	private StructureBlueprint(
 		String id,
@@ -43,6 +44,21 @@ public class StructureBlueprint {
 		Map<Item, Integer> requiredItems,
 		BlockBox boundingBox
 	) {
+		this(id, name, description, sizeX, sizeY, sizeZ, blocks, requiredItems, boundingBox, BlockRotation.NONE);
+	}
+
+	private StructureBlueprint(
+		String id,
+		String name,
+		String description,
+		int sizeX,
+		int sizeY,
+		int sizeZ,
+		List<BlueprintBlock> blocks,
+		Map<Item, Integer> requiredItems,
+		BlockBox boundingBox,
+		BlockRotation rotation
+	) {
 		this.id = id;
 		this.name = name;
 		this.description = description;
@@ -52,6 +68,7 @@ public class StructureBlueprint {
 		this.blocks = Collections.unmodifiableList(blocks);
 		this.requiredItems = Collections.unmodifiableMap(requiredItems);
 		this.boundingBox = boundingBox;
+		this.rotation = rotation != null ? rotation : BlockRotation.NONE;
 
 		List<BlockPos> doors = new ArrayList<>();
 		for (BlueprintBlock block : blocks) {
@@ -134,6 +151,30 @@ public class StructureBlueprint {
 	 */
 	public List<BlockPos> getDoorOffsets() {
 		return this.doorOffsets;
+	}
+
+	/**
+	 * Returns the applied block rotation of this blueprint.
+	 *
+	 * @return The BlockRotation applied to this blueprint, or NONE if unrotated.
+	 */
+	public BlockRotation getRotation() {
+		return this.rotation != null ? this.rotation : BlockRotation.NONE;
+	}
+
+	/**
+	 * Returns the integer quadrant index of this blueprint's rotation (0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°).
+	 *
+	 * @return Rotation index modulo 4.
+	 */
+	public int getRotationIndex() {
+		if (this.rotation == null) return 0;
+		return switch (this.rotation) {
+			case CLOCKWISE_90 -> 1;
+			case CLOCKWISE_180 -> 2;
+			case COUNTERCLOCKWISE_90 -> 3;
+			default -> 0;
+		};
 	}
 
 	/**
@@ -227,7 +268,8 @@ public class StructureBlueprint {
 			sizeZ,
 			rotatedBlocks,
 			this.requiredItems,
-			box
+			box,
+			rotation
 		);
 	}
 

@@ -13,6 +13,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import com.example.network.SyncConstructionSessionPayload;
+import com.example.network.EndConstructionSessionPayload;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.entity.player.PlayerEntity;
@@ -104,8 +107,11 @@ public class ConstructionManager {
 			if (isIndestructible(bpBlock.state(), world, targetPos)) {
 				continue;
 			}
-			if (world != null && isIndestructible(world.getBlockState(targetPos), world, targetPos)) {
-				continue;
+			if (world != null) {
+				BlockState worldState = world.getBlockState(targetPos);
+				if (worldState.isAir() || isIndestructible(worldState, world, targetPos)) {
+					continue;
+				}
 			}
 			count++;
 		}
@@ -176,7 +182,6 @@ public class ConstructionManager {
 		// Check if an active session already exists at this exact anchor
 		ConstructionSession existing = this.sessionsByAnchor.get(immutableAnchor);
 		if (existing != null && existing.isActive()) {
-			existing.clearScaffolding(world);
 			existing.cancel();
 			removeSession(existing);
 		}
@@ -196,6 +201,18 @@ public class ConstructionManager {
 		this.activeSessions.put(session.getId(), session);
 		this.sessionsByAnchor.put(immutableAnchor, session);
 		this.sessionsByOwner.computeIfAbsent(owner.getUuid(), k -> new ArrayList<>()).add(session);
+
+		// Synchronize persistent active blueprint wireframe with tracking clients
+		SyncConstructionSessionPayload syncPayload = new SyncConstructionSessionPayload(
+			session.getId(),
+			immutableAnchor,
+			blueprint.getId(),
+			blueprint.getRotationIndex(),
+			session.isDismantle()
+		);
+		for (ServerPlayerEntity p : world.getPlayers()) {
+			ServerPlayNetworking.send(p, syncPayload);
+		}
 
 		if (session.isDismantle()) {
 			if (session.getTotalBlocks() == 0) {
@@ -285,10 +302,13 @@ public class ConstructionManager {
 		Objects.requireNonNull(session, "session cannot be null");
 		Objects.requireNonNull(world, "world cannot be null");
 
-		// Automatically despawn all temporary scaffolding erected during construction
-		session.clearScaffolding(world);
-
 		removeSession(session);
+
+		// Inform tracking clients that the session has completed so persistent wireframe outline is removed
+		EndConstructionSessionPayload endPayload = new EndConstructionSessionPayload(session.getId());
+		for (ServerPlayerEntity p : world.getPlayers()) {
+			ServerPlayNetworking.send(p, endPayload);
+		}
 
 		BlockPos anchor = session.getAnchorPos();
 		BlockBox box = session.getWorldBoundingBox();
@@ -364,9 +384,13 @@ public class ConstructionManager {
 	public void cancelSession(UUID sessionId, ServerWorld world) {
 		ConstructionSession session = this.activeSessions.get(sessionId);
 		if (session != null) {
-			session.clearScaffolding(world);
 			session.cancel();
 			removeSession(session);
+
+			EndConstructionSessionPayload endPayload = new EndConstructionSessionPayload(sessionId);
+			for (ServerPlayerEntity p : world.getPlayers()) {
+				ServerPlayNetworking.send(p, endPayload);
+			}
 
 			BlockPos anchor = session.getAnchorPos();
 			world.playSound(
@@ -609,8 +633,19 @@ public class ConstructionManager {
 			}
 		}
 
-		// 2. Every 20 ticks (1 second): render holographic blueprint boundary particles
+		// 2. Every 20 ticks (1 second): check active dismantle sessions for full clearance and render particles
 		if (currentTick % 20L == 0L) {
+			List<ConstructionSession> finishedDismantle = new ArrayList<>();
+			for (ConstructionSession session : this.activeSessions.values()) {
+				if (session.isActive() && session.isDismantle() && session.getDimension().equals(world.getRegistryKey())) {
+					if (!session.hasRemainingBlocksInWorld(world)) {
+						finishedDismantle.add(session);
+					}
+				}
+			}
+			for (ConstructionSession session : finishedDismantle) {
+				completeSession(session, world);
+			}
 			renderHologramParticles(world);
 		}
 
@@ -697,9 +732,6 @@ public class ConstructionManager {
 			Map.Entry<UUID, ConstructionSession> entry = iter.next();
 			ConstructionSession session = entry.getValue();
 			if (!session.isActive()) {
-				if (session.getDimension().equals(world.getRegistryKey())) {
-					session.clearScaffolding(world);
-				}
 				this.sessionsByAnchor.remove(session.getAnchorPos());
 				List<ConstructionSession> list = this.sessionsByOwner.get(session.getOwnerUuid());
 				if (list != null) {

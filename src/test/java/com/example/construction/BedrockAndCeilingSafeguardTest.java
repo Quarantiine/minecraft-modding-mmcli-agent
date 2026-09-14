@@ -116,7 +116,7 @@ public class BedrockAndCeilingSafeguardTest {
 	}
 
 	@Test
-	@DisplayName("Bedrock immunity: Source code audit guarantees dismantle execution and scaffolding cleanup have bedrock guards")
+	@DisplayName("Bedrock immunity: Source code audit guarantees dismantle execution has bedrock guards and scaffolding is retired")
 	public void testBedrockImmunitySourceCodeAudit() throws IOException {
 		Path buildGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionBuildGoal.java");
 		Assertions.assertTrue(Files.exists(buildGoalPath), "MinionBuildGoal.java must exist");
@@ -126,9 +126,9 @@ public class BedrockAndCeilingSafeguardTest {
 		Assertions.assertTrue(code.contains("isIndestructibleBlock("),
 			"executeDismantleWork must invoke isIndestructibleBlock check before breakBlock");
 
-		// Must verify isScaffoldBlock in removeScaffoldBlockWithFeedback
-		Assertions.assertTrue(code.contains("isScaffoldBlock(currentState)"),
-			"removeScaffoldBlockWithFeedback must verify isScaffoldBlock before deleting block from world");
+		// Scaffolding logic retired in favor of Arcane Levitation
+		Assertions.assertTrue(code.contains("setArcaneLevitating"),
+			"MinionBuildGoal must use Arcane Levitation instead of scaffolding");
 
 		// ConstructionSession must also contain indestructible filtering
 		Path sessionPath = Path.of("src/main/java/com/example/construction/ConstructionSession.java");
@@ -339,7 +339,6 @@ public class BedrockAndCeilingSafeguardTest {
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.WARRIOR));
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.SENTINEL));
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.MINER));
-		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.RANGER));
 	}
 
 	@Test
@@ -377,4 +376,18 @@ public class BedrockAndCeilingSafeguardTest {
 		// Minion 2 can claim separate column B
 		Assertions.assertTrue(harness.claim(colB, minion2));
 	}
+
+	@Test
+	@DisplayName("Construction block: MinionEntity recognizes CONSTRUCTION_BLOCK for climbing physics")
+	public void testMinionEntityClimbingRecognition() throws IOException {
+		Path minionEntityPath = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
+		String code = Files.readString(minionEntityPath);
+		Assertions.assertTrue(code.contains("!currentFootState.isOf(Blocks.SCAFFOLDING) && !currentFootState.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
+			"MinionEntity.tick must not prematurely cancel climbing in construction blocks");
+		Assertions.assertTrue(code.contains("!footState.isOf(Blocks.SCAFFOLDING) && !footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
+			"MinionEntity.isNavigatingUpwardInScaffolding must accept construction blocks");
+		Assertions.assertTrue(code.contains("footState.isOf(Blocks.SCAFFOLDING) || footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
+			"MinionEntity.isClimbing must accept construction blocks");
+	}
 }
+

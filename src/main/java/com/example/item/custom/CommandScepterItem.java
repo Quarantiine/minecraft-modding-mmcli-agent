@@ -12,10 +12,12 @@ import com.example.entity.ModEntities;
 import com.example.entity.ai.goal.MinionFormationFollowGoal;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import net.minecraft.block.BlockState;
 import net.minecraft.block.DoorBlock;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EquipmentSlot;
@@ -59,15 +61,19 @@ import net.minecraft.world.World;
  * - Sneak + Right-Click: Cycles operating {@link CommandMode} with pitch-shifted chime audio feedback.
  * - BUILD Mode:
  *     - Right-Click Ground: Anchors a new multiblock construction session at the clicked block face.
- *     - Right-Click Air / Sneak + Left-Click: Cycles active architectural blueprint.
+ *     - Right-Click Air / Sneak + Left-Click: Cycles active architectural blueprint / rotates structure 90°.
+ * - MINE Mode:
+ *     - Right-Click Ground / Block: Anchors a 3D area deconstruction & mining session, mining all destructible blocks top-to-bottom with zero air-mining.
  * - RECRUIT Mode:
  *     - Right-Click Living Mob: Transfigures target mob into an obedient {@link MinionEntity} thrall,
  *       preserving armor/equipment, binding owner UUID, and triggering arcane conversion VFX.
  * - FOLLOW / STAY Modes:
  *     - Right-Click Air or Ground: Broadcasts follow or hold-position commands to all owned minions within 32 blocks.
- * - ATTACK Mode:
- *     - Right-Click Mob: Focus-fires all owned minions onto the target.
- *     - Right-Click Air/Ground: Directs minions to engage nearby hostiles.
+ * - Contextual Combat:
+ *     - Quick-Tap Hostile: Focus-fires squad minions onto the target with war drums and crit particles.
+ *     - Channeled Banner of Courage (Hold Right-Click): Projects a 90° forward sector; on release rallies/transfigures minions and launches a coordinated Mass Attack on enclosed hostiles.
+ * - Tactical Panic Retreat (Keybind R):
+ *     - Sounds a warning bell, clears combat targets, and recalls all minions back into ranked army lines.
  */
 public class CommandScepterItem extends Item {
 
@@ -182,6 +188,41 @@ public class CommandScepterItem extends Item {
 
 		player.sendMessage(Text.literal("§6✦ Target Squad: §r" + nextSquad.getFormattedName()), true);
 		return nextSquad;
+	}
+
+	/**
+	 * Resolves the active target {@link MinionRole} archetype stored in the item's data component.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The target MinionRole, or null if no archetype is selected.
+	 */
+	public static MinionRole getTargetRole(ItemStack stack) {
+		return stack.get(ModDataComponents.TARGET_ROLE);
+	}
+
+	/**
+	 * Sets or clears the active target {@link MinionRole} archetype on the item stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param role  The MinionRole archetype to assign, or null to clear.
+	 */
+	public static void setTargetRole(ItemStack stack, MinionRole role) {
+		if (role == null) {
+			stack.remove(ModDataComponents.TARGET_ROLE);
+		} else {
+			stack.set(ModDataComponents.TARGET_ROLE, role);
+		}
+	}
+
+	/**
+	 * Resolves the target role archetype from the player's held scepter.
+	 *
+	 * @param player The commanding player.
+	 * @return The active target MinionRole archetype, or null if unassigned.
+	 */
+	public static MinionRole getHeldTargetRole(PlayerEntity player) {
+		ItemStack stack = getHeldScepter(player);
+		return stack.isEmpty() ? null : getTargetRole(stack);
 	}
 
 	/**
@@ -380,6 +421,41 @@ public class CommandScepterItem extends Item {
 		return UseAction.BLOCK;
 	}
 
+	/**
+	 * Evaluates whether the given horizontal target coordinates lie within the user's
+	 * 90-degree forward conical sector (fan) extending up to maxRadius blocks away.
+	 * Uses the horizontal dot product between the look vector and the target displacement vector.
+	 *
+	 * @param center    The player or entity at the center of the sector.
+	 * @param targetX   Target coordinate X.
+	 * @param targetZ   Target coordinate Z.
+	 * @param maxRadius Maximum radial distance of the sector.
+	 * @return true if target is within radial distance and within +-45 degrees of center's horizontal look direction.
+	 */
+	public static boolean isWithinSector(LivingEntity center, double targetX, double targetZ, double maxRadius) {
+		double dx = targetX - center.getX();
+		double dz = targetZ - center.getZ();
+		double distSq = dx * dx + dz * dz;
+		if (distSq > maxRadius * maxRadius) {
+			return false;
+		}
+		double dist = Math.sqrt(distSq);
+		if (dist < 0.001D) {
+			return true;
+		}
+
+		// Horizontal look direction derived from player's yaw
+		float yawRad = center.getYaw() * 0.017453292F;
+		double lookX = -Math.sin(yawRad);
+		double lookZ = Math.cos(yawRad);
+
+		// Horizontal dot product normalized
+		double dot = (dx * lookX + dz * lookZ) / dist;
+
+		// 90° forward cone (+-45°): cos(45°) = ~0.70710678D
+		return dot >= 0.70710678D;
+	}
+
 	@Override
 	public void usageTick(World world, LivingEntity user, ItemStack stack, int remainingUseTicks) {
 		int useTicks = getMaxUseTime(stack, user) - remainingUseTicks;
@@ -387,17 +463,24 @@ public class CommandScepterItem extends Item {
 			return;
 		}
 
-		// Expanding circular particle ring (ParticleTypes.PORTAL / FLAME)
+		// Expanding 90° forward sector (ParticleTypes.PORTAL / FLAME)
 		// Radius expands from 3.0 up to 16.0 blocks over ~36 ticks
 		float chargeProgress = Math.min(1.0F, (float) (useTicks - 4) / 36.0F);
 		double radius = 3.0D + (13.0D * chargeProgress);
 
+		float yawRad = user.getYaw() * 0.017453292F;
+		double lookX = -Math.sin(yawRad);
+		double lookZ = Math.cos(yawRad);
+
 		if (world.isClient()) {
-			int points = (int) Math.max(14, radius * 2.2D);
-			for (int i = 0; i < points; i++) {
-				double angle = (2.0 * Math.PI * i) / points;
-				double px = user.getX() + radius * Math.cos(angle);
-				double pz = user.getZ() + radius * Math.sin(angle);
+			// 1. Curved outer arc (+-45 degrees around look angle)
+			int arcPoints = (int) Math.max(10, radius * 1.4D);
+			for (int i = 0; i < arcPoints; i++) {
+				double offsetAngle = (-Math.PI / 4.0D) + ((double) i / (arcPoints - 1)) * (Math.PI / 2.0D);
+				double rotX = lookX * Math.cos(offsetAngle) - lookZ * Math.sin(offsetAngle);
+				double rotZ = lookX * Math.sin(offsetAngle) + lookZ * Math.cos(offsetAngle);
+				double px = user.getX() + radius * rotX;
+				double pz = user.getZ() + radius * rotZ;
 				double py = user.getY() + 0.15D;
 				if (i % 2 == 0) {
 					world.addParticle(ParticleTypes.PORTAL, px, py, pz, 0.0D, 0.04D, 0.0D);
@@ -405,17 +488,80 @@ public class CommandScepterItem extends Item {
 					world.addParticle(ParticleTypes.FLAME, px, py, pz, 0.0D, 0.02D, 0.0D);
 				}
 			}
-		} else if (world instanceof ServerWorld serverWorld && useTicks % 4 == 0) {
-			int points = (int) Math.max(12, radius * 1.5D);
-			for (int i = 0; i < points; i++) {
-				double angle = (2.0 * Math.PI * i) / points;
-				double px = user.getX() + radius * Math.cos(angle);
-				double pz = user.getZ() + radius * Math.sin(angle);
-				double py = user.getY() + 0.15D;
-				if (i % 2 == 0) {
-					serverWorld.spawnParticles(ParticleTypes.PORTAL, px, py, pz, 1, 0.0D, 0.04D, 0.0D, 0.02D);
-				} else {
-					serverWorld.spawnParticles(ParticleTypes.FLAME, px, py, pz, 1, 0.0D, 0.02D, 0.0D, 0.01D);
+
+			// 2. Boundary rays along the left (-45 deg) and right (+45 deg) edges
+			double[] rayAngles = { -Math.PI / 4.0D, Math.PI / 4.0D };
+			for (double rayAngle : rayAngles) {
+				double rotX = lookX * Math.cos(rayAngle) - lookZ * Math.sin(rayAngle);
+				double rotZ = lookX * Math.sin(rayAngle) + lookZ * Math.cos(rayAngle);
+				for (double r = 1.5D; r < radius; r += 1.2D) {
+					double px = user.getX() + r * rotX;
+					double pz = user.getZ() + r * rotZ;
+					double py = user.getY() + 0.15D;
+					world.addParticle(ParticleTypes.PORTAL, px, py, pz, 0.0D, 0.02D, 0.0D);
+				}
+			}
+		} else if (world instanceof ServerWorld serverWorld) {
+			if (useTicks % 4 == 0) {
+				int arcPoints = (int) Math.max(8, radius * 1.0D);
+				for (int i = 0; i < arcPoints; i++) {
+					double offsetAngle = (-Math.PI / 4.0D) + ((double) i / (arcPoints - 1)) * (Math.PI / 2.0D);
+					double rotX = lookX * Math.cos(offsetAngle) - lookZ * Math.sin(offsetAngle);
+					double rotZ = lookX * Math.sin(offsetAngle) + lookZ * Math.cos(offsetAngle);
+					double px = user.getX() + radius * rotX;
+					double pz = user.getZ() + radius * rotZ;
+					double py = user.getY() + 0.15D;
+					if (i % 2 == 0) {
+						serverWorld.spawnParticles(ParticleTypes.PORTAL, px, py, pz, 1, 0.0D, 0.04D, 0.0D, 0.02D);
+					} else {
+						serverWorld.spawnParticles(ParticleTypes.FLAME, px, py, pz, 1, 0.0D, 0.02D, 0.0D, 0.01D);
+					}
+				}
+				double[] rayAngles = { -Math.PI / 4.0D, Math.PI / 4.0D };
+				for (double rayAngle : rayAngles) {
+					double rotX = lookX * Math.cos(rayAngle) - lookZ * Math.sin(rayAngle);
+					double rotZ = lookX * Math.sin(rayAngle) + lookZ * Math.cos(rayAngle);
+					for (double r = 1.5D; r < radius; r += 2.0D) {
+						double px = user.getX() + r * rotX;
+						double pz = user.getZ() + r * rotZ;
+						double py = user.getY() + 0.15D;
+						serverWorld.spawnParticles(ParticleTypes.PORTAL, px, py, pz, 1, 0.0D, 0.02D, 0.0D, 0.01D);
+					}
+				}
+			}
+
+			// Real-time targeting illumination: highlight candidate minions and hostiles in sector
+			if (user instanceof PlayerEntity player) {
+				Box queryBox = player.getBoundingBox().expand(18.0D);
+				List<MinionEntity> nearbyMinions = serverWorld.getEntitiesByClass(
+					MinionEntity.class,
+					queryBox,
+					m -> m.isAlive() && m.isOwner(player)
+				);
+				for (MinionEntity minion : nearbyMinions) {
+					if (isWithinSector(player, minion.getX(), minion.getZ(), radius)) {
+						minion.setPreviewGlowing(true);
+						if (useTicks % 6 == 0) {
+							serverWorld.spawnParticles(ParticleTypes.ENCHANT, minion.getX(), minion.getY() + 0.8D, minion.getZ(), 2, 0.15D, 0.2D, 0.15D, 0.05D);
+						}
+					} else if (minion.isPreviewGlowing()) {
+						minion.setPreviewGlowing(false);
+					}
+				}
+
+				// Highlight candidate hostiles in sector with angry particles and crits
+				if (useTicks % 6 == 0) {
+					List<LivingEntity> nearbyLiving = serverWorld.getEntitiesByClass(
+						LivingEntity.class,
+						queryBox,
+						e -> isTargetableEntity(player, e)
+					);
+					for (LivingEntity hostile : nearbyLiving) {
+						if (isWithinSector(player, hostile.getX(), hostile.getZ(), radius)) {
+							serverWorld.spawnParticles(ParticleTypes.ANGRY_VILLAGER, hostile.getX(), hostile.getY() + hostile.getHeight() + 0.3D, hostile.getZ(), 1, 0.1D, 0.1D, 0.1D, 0.0D);
+							serverWorld.spawnParticles(ParticleTypes.CRIT, hostile.getX(), hostile.getY() + (hostile.getHeight() * 0.6D), hostile.getZ(), 2, 0.2D, 0.2D, 0.2D, 0.05D);
+						}
+					}
 				}
 			}
 		}
@@ -447,6 +593,16 @@ public class CommandScepterItem extends Item {
 
 		// Quick tap (< 8 ticks): evaluate 32-block crosshair raycasting
 		if (useTicks < 8) {
+			// Clear any lingering preview glow states
+			if (!world.isClient() && world instanceof ServerWorld serverWorld) {
+				Box clearBox = player.getBoundingBox().expand(18.0D);
+				for (MinionEntity m : serverWorld.getEntitiesByClass(MinionEntity.class, clearBox, minion -> minion.isOwner(player))) {
+					if (m.isPreviewGlowing()) {
+						m.setPreviewGlowing(false);
+					}
+				}
+			}
+
 			if (mode == CommandMode.BUILD) {
 				cycleBlueprint(stack, player, world);
 				return;
@@ -481,19 +637,6 @@ public class CommandScepterItem extends Item {
 				BlockPos hitPos = blockHit.getBlockPos();
 				Direction hitSide = blockHit.getSide();
 				BlockPos waypointPos = world.getBlockState(hitPos).isReplaceable() ? hitPos : hitPos.offset(hitSide);
-
-				if (mode == CommandMode.ATTACK) {
-					Vec3d blockVec = new Vec3d(hitPos.getX() + 0.5D, hitPos.getY() + 0.5D, hitPos.getZ() + 0.5D);
-					MobEntity hostile = findBestHostileTargetNear(world, player, blockVec, 12.0D);
-					if (hostile == null) {
-						hostile = findBestHostileTargetNear(world, player, player.getCameraPosVec(1.0F), MINION_COMMAND_RADIUS);
-					}
-					if (hostile != null) {
-						executeHostileEntityPing(player, world, hostile, targetSquad);
-						return;
-					}
-				}
-
 				executeGroundWaypointPing(player, world, waypointPos, targetSquad);
 				return;
 			}
@@ -503,66 +646,182 @@ public class CommandScepterItem extends Item {
 			return;
 		}
 
-		// Channeled Banner of Courage Rally Ring:
-		// Releasing after charging triggers goat horn sound (SoundEvents.ITEM_GOAT_HORN_SOUND_0),
-		// gathers all enclosed minions into the currently selected squad, and sets them to FOLLOW.
+		// Channeled Banner of Courage / Mass Attack 90° Forward Sector:
+		// Releasing after charging evaluates entities in the forward sector:
+		// - If hostiles are present: Signals Mass Assault on all enclosed enemies with smart target distribution.
+		// - If minions are also present: Selects, transfigures, and marshals them to join the assault.
+		// - If only minions are present: Standard Banner of Courage rally into squad/formation.
 		float chargeProgress = Math.min(1.0F, (float) (useTicks - 8) / 36.0F);
 		double rallyRadius = 3.0D + (13.0D * chargeProgress);
 
 		if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-			SoundEvent hornSound = !SoundEvents.GOAT_HORN_SOUNDS.isEmpty()
-				? SoundEvents.GOAT_HORN_SOUNDS.get(0).value()
-				: SoundEvents.ITEM_GOAT_HORN_PLAY;
-
-			world.playSound(
-				null,
-				player.getX(),
-				player.getY(),
-				player.getZ(),
-				hornSound,
-				SoundCategory.PLAYERS,
-				1.6F,
-				1.0F
-			);
-
-			Box rallyBox = player.getBoundingBox().expand(rallyRadius);
-			List<MinionEntity> enclosedMinions = serverWorld.getEntitiesByClass(
+			Box rallyBox = player.getBoundingBox().expand(rallyRadius + 1.0D);
+			List<MinionEntity> candidates = serverWorld.getEntitiesByClass(
 				MinionEntity.class,
 				rallyBox,
-				m -> m.isAlive() && m.isOwner(player) && m.squaredDistanceTo(player) <= (rallyRadius * rallyRadius)
+				m -> m.isAlive() && m.isOwner(player)
 			);
 
+			List<MinionEntity> enclosedMinions = new ArrayList<>();
+			for (MinionEntity minion : candidates) {
+				if (isWithinSector(player, minion.getX(), minion.getZ(), rallyRadius)) {
+					enclosedMinions.add(minion);
+				}
+				minion.setPreviewGlowing(false);
+			}
+
+			// Gather enclosed hostiles in the sector
+			List<LivingEntity> potentialHostiles = serverWorld.getEntitiesByClass(
+				LivingEntity.class,
+				rallyBox,
+				e -> isTargetableEntity(player, e)
+			);
+			List<LivingEntity> enclosedHostiles = new ArrayList<>();
+			for (LivingEntity hostile : potentialHostiles) {
+				if (isWithinSector(player, hostile.getX(), hostile.getZ(), rallyRadius)) {
+					enclosedHostiles.add(hostile);
+				}
+			}
+
+			MinionRole targetRole = getTargetRole(stack);
 			for (MinionEntity minion : enclosedMinions) {
 				if (!targetSquad.isWildcard()) {
 					minion.setSquad(targetSquad);
 				}
+				if (targetRole != null) {
+					minion.setRole(targetRole);
+					minion.autoEquipFromInventory();
+				}
 				minion.setSelected(true);
 				minion.setGuardAnchorPos(null);
 				minion.setSitting(false);
-				minion.getNavigation().startMovingTo(player, 1.35D);
 			}
 
-			MinionFormationFollowGoal.refreshFormationAnchor(player);
-
-			// Arcane release burst: circular perimeter burst of FLAME and PORTAL particles
-			int burstCount = (int) Math.max(24, rallyRadius * 3.0);
+			// Arcane release burst: 90° forward sector perimeter arc and boundary rays burst
+			float yawRad = player.getYaw() * 0.017453292F;
+			double lookX = -Math.sin(yawRad);
+			double lookZ = Math.cos(yawRad);
+			int burstCount = (int) Math.max(16, rallyRadius * 2.5D);
 			for (int i = 0; i < burstCount; i++) {
-				double angle = (2.0 * Math.PI * i) / burstCount;
-				double px = player.getX() + rallyRadius * Math.cos(angle);
-				double pz = player.getZ() + rallyRadius * Math.sin(angle);
+				double offsetAngle = (-Math.PI / 4.0D) + ((double) i / (burstCount - 1)) * (Math.PI / 2.0D);
+				double rotX = lookX * Math.cos(offsetAngle) - lookZ * Math.sin(offsetAngle);
+				double rotZ = lookX * Math.sin(offsetAngle) + lookZ * Math.cos(offsetAngle);
+				double px = player.getX() + rallyRadius * rotX;
+				double pz = player.getZ() + rallyRadius * rotZ;
 				serverWorld.spawnParticles(ParticleTypes.FLAME, px, player.getY() + 0.2D, pz, 2, 0.05, 0.05, 0.05, 0.02);
 				serverWorld.spawnParticles(ParticleTypes.PORTAL, px, player.getY() + 0.2D, pz, 2, 0.05, 0.1, 0.05, 0.05);
 			}
-
-			for (MinionEntity minion : enclosedMinions) {
-				serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, minion.getX(), minion.getY() + 1.0D, minion.getZ(), 6, 0.2, 0.3, 0.2, 0.02);
+			double[] rayAngles = { -Math.PI / 4.0D, Math.PI / 4.0D };
+			for (double rayAngle : rayAngles) {
+				double rotX = lookX * Math.cos(rayAngle) - lookZ * Math.sin(rayAngle);
+				double rotZ = lookX * Math.sin(rayAngle) + lookZ * Math.cos(rayAngle);
+				for (double r = 1.5D; r <= rallyRadius; r += 1.5D) {
+					double px = player.getX() + r * rotX;
+					double pz = player.getZ() + r * rotZ;
+					serverWorld.spawnParticles(ParticleTypes.FLAME, px, player.getY() + 0.2D, pz, 1, 0.02, 0.05, 0.02, 0.02);
+					serverWorld.spawnParticles(ParticleTypes.PORTAL, px, player.getY() + 0.2D, pz, 1, 0.02, 0.05, 0.02, 0.02);
+				}
 			}
 
 			String squadLabel = targetSquad.getFormattedName();
-			player.sendMessage(
-				Text.literal("§6📯 Banner of Courage! Gathered and selected " + enclosedMinions.size() + " minion(s) into " + squadLabel + "§6!§r"),
-				true
-			);
+
+			if (!enclosedHostiles.isEmpty()) {
+				// MASS ASSAULT: Distribute combat tasks across active forces
+				List<MinionEntity> attackMinions = new ArrayList<>(enclosedMinions);
+				if (attackMinions.isEmpty()) {
+					Box searchBox = player.getBoundingBox().expand(MINION_COMMAND_RADIUS);
+					attackMinions = serverWorld.getEntitiesByClass(
+						MinionEntity.class,
+						searchBox,
+						m -> m.isAlive() && m.isOwner(player) && m.isSelected() && targetSquad.matches(m.getSquad())
+					);
+					if (attackMinions.isEmpty()) {
+						attackMinions = serverWorld.getEntitiesByClass(
+							MinionEntity.class,
+							searchBox,
+							m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && targetSquad.matches(m.getSquad())
+						);
+					}
+				}
+
+				// Sort hostiles by proximity to player (frontline to backline)
+				enclosedHostiles.sort(Comparator.comparingDouble(h -> h.squaredDistanceTo(player)));
+
+				for (int i = 0; i < attackMinions.size(); i++) {
+					MinionEntity minion = attackMinions.get(i);
+					minion.setSitting(false);
+					minion.setSelected(true);
+					minion.setGuardAnchorPos(null);
+					minion.setAssaultTargets(enclosedHostiles);
+					boolean isArcher = minion.getRole() == MinionRole.WARRIOR && MinionEntity.isRangedWeapon(minion.getMainHandStack());
+					LivingEntity assignedTarget;
+					if (isArcher && enclosedHostiles.size() > 1) {
+						int backIndex = enclosedHostiles.size() - 1 - (i % Math.max(1, enclosedHostiles.size() / 2));
+						assignedTarget = enclosedHostiles.get(Math.max(0, backIndex));
+					} else {
+						assignedTarget = enclosedHostiles.get(i % enclosedHostiles.size());
+					}
+					minion.setTarget(assignedTarget);
+					minion.setAttacking(true);
+					minion.getNavigation().startMovingTo(assignedTarget, 1.35D);
+				}
+
+				for (LivingEntity hostile : enclosedHostiles) {
+					serverWorld.spawnParticles(ParticleTypes.CRIT, hostile.getX(), hostile.getY() + hostile.getHeight() * 0.6D, hostile.getZ(), 8, 0.2D, 0.2D, 0.2D, 0.1D);
+					serverWorld.spawnParticles(ParticleTypes.SWEEP_ATTACK, hostile.getX(), hostile.getY() + 0.5D, hostile.getZ(), 1, 0.0D, 0.0D, 0.0D, 0.0D);
+					serverWorld.spawnParticles(ParticleTypes.FLAME, hostile.getX(), hostile.getY() + 0.2D, hostile.getZ(), 4, 0.1D, 0.1D, 0.1D, 0.02D);
+				}
+
+				SoundEvent hornSound = !SoundEvents.GOAT_HORN_SOUNDS.isEmpty()
+					? SoundEvents.GOAT_HORN_SOUNDS.get(0).value()
+					: SoundEvents.ITEM_GOAT_HORN_PLAY;
+				world.playSound(null, player.getX(), player.getY(), player.getZ(), hornSound, SoundCategory.PLAYERS, 1.8F, 0.8F);
+				world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENTITY_ENDER_DRAGON_GROWL, SoundCategory.PLAYERS, 0.8F, 1.6F);
+
+				player.sendMessage(
+					Text.literal("§c⚔ Mass Assault! " + attackMinions.size() + " Minion(s) [" + squadLabel + "§c] engaging " + enclosedHostiles.size() + " target(s)!§r"),
+					true
+				);
+			} else {
+				// STANDARD BANNER OF COURAGE RALLY
+				SoundEvent hornSound = !SoundEvents.GOAT_HORN_SOUNDS.isEmpty()
+					? SoundEvents.GOAT_HORN_SOUNDS.get(0).value()
+					: SoundEvents.ITEM_GOAT_HORN_PLAY;
+
+				world.playSound(
+					null,
+					player.getX(),
+					player.getY(),
+					player.getZ(),
+					hornSound,
+					SoundCategory.PLAYERS,
+					1.6F,
+					1.0F
+				);
+
+				for (MinionEntity minion : enclosedMinions) {
+					minion.getNavigation().startMovingTo(player, 1.35D);
+					serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, minion.getX(), minion.getY() + 1.0D, minion.getZ(), 6, 0.2, 0.3, 0.2, 0.02);
+					if (targetRole != null) {
+						serverWorld.spawnParticles(ParticleTypes.ENCHANT, minion.getX(), minion.getY() + 1.2D, minion.getZ(), 10, 0.25, 0.4, 0.25, 0.1);
+					}
+				}
+
+				MinionFormationFollowGoal.refreshFormationAnchor(player);
+
+				if (targetRole != null) {
+					serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 0.9F, 1.4F);
+					player.sendMessage(
+						Text.literal("§6📯 Banner of Courage! Transfigured " + enclosedMinions.size() + " minion(s) to " + targetRole.getFormattedName() + "§6 into " + squadLabel + "§6!§r"),
+						true
+					);
+				} else {
+					player.sendMessage(
+						Text.literal("§6📯 Banner of Courage! Gathered and selected " + enclosedMinions.size() + " minion(s) into " + squadLabel + "§6!§r"),
+						true
+					);
+				}
+			}
 		}
 	}
 
@@ -783,7 +1042,8 @@ public class CommandScepterItem extends Item {
 		// MINE Mode: Anchor deconstruction session at clicked block or structure
 		if (mode == CommandMode.MINE) {
 			if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-				BlockPos anchorPos = world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
+				// Anchor directly at clickedPos (not offset into the sky above) so the clicked ground/block is included
+				BlockPos anchorPos = clickedPos;
 				Optional<ConstructionSession> existing = ConstructionManager.getInstance().getSessionAt(anchorPos);
 				if (existing.isEmpty()) {
 					for (ConstructionSession s : ConstructionManager.getInstance().getSessionsForOwner(player.getUuid())) {
@@ -802,19 +1062,6 @@ public class CommandScepterItem extends Item {
 				ConstructionManager.getInstance().startDismantleSession(serverWorld, targetAnchor, blueprint, player);
 			}
 			return ActionResult.success(world.isClient());
-		}
-
-		// ATTACK Mode: If no direct entity was aligned, acquire hostiles near the clicked block or player
-		if (mode == CommandMode.ATTACK) {
-			Vec3d clickVec = new Vec3d(clickedPos.getX() + 0.5D, clickedPos.getY() + 0.5D, clickedPos.getZ() + 0.5D);
-			MobEntity hostile = findBestHostileTargetNear(world, player, clickVec, 12.0D);
-			if (hostile == null) {
-				hostile = findBestHostileTargetNear(world, player, player.getCameraPosVec(1.0F), MINION_COMMAND_RADIUS);
-			}
-			if (hostile != null) {
-				executeHostileEntityPing(player, world, hostile, squad);
-				return ActionResult.success(world.isClient());
-			}
 		}
 
 		// Point-and-Click Waypoint Ping:
@@ -923,23 +1170,9 @@ public class CommandScepterItem extends Item {
 			minion.setCustomNameVisible(target.isCustomNameVisible());
 		}
 
-		// 3. Preserve equipment across all 6 EquipmentSlots
+		// 3. Clean-slate equipment & inventory: Newly converted minions start completely empty
 		for (EquipmentSlot slot : EquipmentSlot.values()) {
-			ItemStack equip = target.getEquippedStack(slot);
-			if (!equip.isEmpty()) {
-				minion.equipStack(slot, equip.copy());
-			}
-		}
-
-		// 4. Transfer any inventory if target was an InventoryOwner
-		if (target instanceof InventoryOwner invOwner) {
-			Inventory targetInv = invOwner.getInventory();
-			for (int i = 0; i < targetInv.size(); i++) {
-				ItemStack item = targetInv.getStack(i);
-				if (!item.isEmpty()) {
-					minion.getInventory().addStack(item.copy());
-				}
-			}
+			minion.equipStack(slot, ItemStack.EMPTY);
 		}
 
 		// 5. Bind ownership and prime minion state in standby
@@ -1208,10 +1441,13 @@ public class CommandScepterItem extends Item {
 		if (willSelect) {
 			minion.setSitting(false);
 			minion.setGuardAnchorPos(null);
+			minion.clearAssaultTargets();
 			minion.setTarget(null);
 			minion.getNavigation().startMovingTo(player, 1.35D);
 		} else {
 			minion.setGuardAnchorPos(minion.getBlockPos());
+			minion.clearAssaultTargets();
+			minion.setTarget(null);
 			minion.getNavigation().stop();
 		}
 
@@ -1289,6 +1525,8 @@ public class CommandScepterItem extends Item {
 			for (MinionEntity minion : selectedMinions) {
 				minion.setSelected(false);
 				minion.setGuardAnchorPos(minion.getBlockPos());
+				minion.clearAssaultTargets();
+				minion.setTarget(null);
 				minion.getNavigation().stop();
 			}
 
@@ -1348,15 +1586,48 @@ public class CommandScepterItem extends Item {
 				return;
 			}
 
+			// Calculate commander facing angle towards targetPos (or player yaw fallback)
+			double dirX = (targetPos.getX() + 0.5D) - player.getX();
+			double dirZ = (targetPos.getZ() + 0.5D) - player.getZ();
+			float facingYaw = (dirX * dirX + dirZ * dirZ > 1.0D)
+				? (float) Math.toDegrees(Math.atan2(-dirX, dirZ))
+				: player.getYaw();
+
 			for (MinionEntity minion : minions) {
-				minion.setSitting(false);
-				minion.setGuardAnchorPos(targetPos);
-				minion.getNavigation().startMovingTo(
+				int rank = MinionFormationFollowGoal.resolveRank(minions, minion, MinionEntity::getRole, Entity::getId);
+				Vec3d rawStation = MinionFormationFollowGoal.calculateFormationStation(
 					targetPos.getX() + 0.5D,
 					targetPos.getY(),
 					targetPos.getZ() + 0.5D,
+					facingYaw,
+					minion.getRole(),
+					rank
+				);
+
+				BlockPos groundStationPos = findSafeWaypointGround(serverWorld, BlockPos.ofFloored(rawStation.x, targetPos.getY(), rawStation.z), targetPos.getY());
+				double stationX = rawStation.x;
+				double stationY = groundStationPos.getY();
+				double stationZ = rawStation.z;
+
+				minion.setSelected(false);
+				minion.setSitting(false);
+				minion.clearAssaultTargets();
+				minion.setTarget(null);
+				minion.setGuardAnchorPos(groundStationPos);
+				minion.setActiveTraversalDestination(new Vec3d(stationX, stationY, stationZ));
+				double dy = stationY - minion.getY();
+				if (dy > 1.25D || dy < -1.5D) {
+					minion.setArcaneLevitating(true);
+				}
+				minion.getNavigation().startMovingTo(
+					stationX,
+					stationY,
+					stationZ,
 					1.35D
 				);
+
+				// Subtle formation footprint particle marker
+				serverWorld.spawnParticles(ParticleTypes.PORTAL, stationX, stationY + 0.1D, stationZ, 3, 0.05, 0.05, 0.05, 0.02);
 			}
 
 			// Beacon beam particle column (vertical column of END_ROD and GLOW)
@@ -1382,10 +1653,28 @@ public class CommandScepterItem extends Item {
 
 			String squadLabel = filterSquad.getFormattedName();
 			player.sendMessage(
-				Text.literal("§b✦ Waypoint Ping [" + squadLabel + "§b]: " + minions.size() + " selected minion(s) marching to [" + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ() + "] and holding position!§r"),
+				Text.literal("§b✦ Waypoint Formation [" + squadLabel + "§b]: " + minions.size() + " selected minion(s) deployed into formation around [" + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ() + "]!§r"),
 				true
 			);
 		}
+	}
+
+	/**
+	 * Scans vertically within a small window around baseY to locate a solid standing block with 2 blocks of air clearance.
+	 */
+	public static BlockPos findSafeWaypointGround(World world, BlockPos pos, int baseY) {
+		int startY = Math.min(baseY + 3, world.getTopY() - 2);
+		int endY = Math.max(baseY - 4, world.getBottomY() + 1);
+		for (int y = startY; y >= endY; y--) {
+			BlockPos check = new BlockPos(pos.getX(), y, pos.getZ());
+			BlockState groundState = world.getBlockState(check);
+			BlockState feetState = world.getBlockState(check.up());
+			BlockState headState = world.getBlockState(check.up(2));
+			if (!groundState.isAir() && groundState.isSolidBlock(world, check) && feetState.isAir() && headState.isAir()) {
+				return check.up();
+			}
+		}
+		return new BlockPos(pos.getX(), baseY, pos.getZ());
 	}
 
 	/**
@@ -1476,7 +1765,6 @@ public class CommandScepterItem extends Item {
 		switch (mode) {
 			case FOLLOW -> broadcastFollow(player, world, targetSquad);
 			case STAY -> broadcastStay(player, world, targetSquad);
-			case ATTACK -> broadcastAttack(player, world, targetSquad);
 			case MINE -> broadcastMine(player, world, targetSquad);
 			case RECRUIT -> sendRecruitTip(player, world);
 			case BUILD -> {
@@ -1511,6 +1799,8 @@ public class CommandScepterItem extends Item {
 				minion.setSelected(true);
 				minion.setGuardAnchorPos(null);
 				minion.setSitting(false);
+				minion.clearAssaultTargets();
+				minion.setTarget(null);
 				minion.getNavigation().startMovingTo(player, 1.25D);
 			}
 
@@ -1543,6 +1833,7 @@ public class CommandScepterItem extends Item {
 				minion.setSelected(false);
 				minion.setSitting(true);
 				minion.setGuardAnchorPos(minion.getBlockPos());
+				minion.clearAssaultTargets();
 				minion.getNavigation().stop();
 				minion.setTarget(null);
 			}
@@ -1627,6 +1918,52 @@ public class CommandScepterItem extends Item {
 		player.sendMessage(Text.literal("§c✦ Minions [" + squadLabel + "§c] (" + minions.size() + ") commanded to attack: " + target.getName().getString() + "!§r"), true);
 	}
 
+	public static void executeRetreat(PlayerEntity player, World world) {
+		executeRetreat(player, world, getHeldTargetSquad(player));
+	}
+
+	public static void executeRetreat(PlayerEntity player, World world, SquadGroup targetSquad) {
+		if (targetSquad == null) {
+			targetSquad = SquadGroup.ALL;
+		}
+		SquadGroup filterSquad = targetSquad;
+		Box searchBox = player.getBoundingBox().expand(48.0D);
+		List<MinionEntity> minions = world.getEntitiesByClass(
+			MinionEntity.class,
+			searchBox,
+			m -> m.isAlive() && m.isOwner(player) && filterSquad.matches(m.getSquad())
+		);
+
+		for (MinionEntity minion : minions) {
+			minion.setSitting(false);
+			minion.setGuardAnchorPos(null);
+			minion.clearAssaultTargets();
+			minion.setTarget(null);
+			minion.setAttacking(false);
+			minion.setSelected(true);
+			minion.getNavigation().startMovingTo(player, 1.45D);
+			if (world instanceof ServerWorld serverWorld) {
+				serverWorld.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, minion.getX(), minion.getY() + 0.8D, minion.getZ(), 4, 0.2D, 0.2D, 0.2D, 0.02D);
+			}
+		}
+
+		MinionFormationFollowGoal.refreshFormationAnchor(player);
+
+		world.playSound(
+			null,
+			player.getX(),
+			player.getY(),
+			player.getZ(),
+			SoundEvents.BLOCK_BELL_USE,
+			SoundCategory.PLAYERS,
+			1.5F,
+			1.1F
+		);
+
+		String squadLabel = filterSquad.getFormattedName();
+		player.sendMessage(Text.literal("§e🔔 Tactical Retreat! Recalled " + minions.size() + " minion(s) [" + squadLabel + "§e] to formation!§r"), true);
+	}
+
 	public static void broadcastMine(PlayerEntity player, World world) {
 		broadcastMine(player, world, getHeldTargetSquad(player));
 	}
@@ -1673,8 +2010,12 @@ public class CommandScepterItem extends Item {
 	public void appendTooltip(ItemStack stack, Item.TooltipContext context, List<Text> tooltip, TooltipType type) {
 		CommandMode mode = getMode(stack);
 		SquadGroup squad = getTargetSquad(stack);
+		MinionRole targetRole = getTargetRole(stack);
 		tooltip.add(Text.literal("§7Command Mode: §r" + mode.getFormattedName()));
 		tooltip.add(Text.literal("§7Target Squad: §r" + squad.getFormattedName()));
+		if (targetRole != null) {
+			tooltip.add(Text.literal("§7Target Archetype: §r" + targetRole.getFormattedName()));
+		}
 
 		if (mode == CommandMode.BUILD) {
 			String bpId = getBlueprintId(stack);

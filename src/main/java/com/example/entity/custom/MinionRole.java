@@ -15,11 +15,10 @@ import net.minecraft.util.function.ValueLists;
  * Roles partition AI goals, tactical positioning, combat engagement distance,
  * and behavior routines:
  * <ul>
- *   <li><b>WARRIOR</b>: Aggressive frontline shock infantry engaging hostile mobs at close quarters (Red).</li>
- *   <li><b>SENTINEL</b>: Defensive perimeter guard tethered to an anchor position (Green).</li>
- *   <li><b>BUILDER</b>: Architectural construction unit participating in structure erection (Blue).</li>
- *   <li><b>MINER</b>: Resource extraction and excavation specialist (Gold).</li>
- *   <li><b>RANGER</b>: Ranged artillery skirmisher maintaining distance with bows/crossbows (Purple).</li>
+ *   <li><b>WARRIOR</b>: Versatile combatant engaging hostile mobs at close quarters with melee weapons or at range with bows/crossbows (Red).</li>
+ *   <li><b>SENTINEL</b>: Defensive perimeter guard tethered to an anchor position with shield bulwark (Green).</li>
+ *   <li><b>BUILDER</b>: Architectural construction unit participating in structure erection with Arcane Levitation flight (Blue).</li>
+ *   <li><b>MINER</b>: Resource extraction, area excavation, and structure deconstruction specialist (Gold).</li>
  * </ul>
  * <p>
  * Supports serialization across Mojang Codecs (for entity NBT and recipes) and Netty PacketCodecs
@@ -29,8 +28,7 @@ public enum MinionRole implements StringIdentifiable {
 	WARRIOR(0, "warrior", "Warrior", "§c", Formatting.RED),
 	SENTINEL(1, "sentinel", "Sentinel", "§a", Formatting.GREEN),
 	BUILDER(2, "builder", "Builder", "§9", Formatting.BLUE),
-	MINER(3, "miner", "Miner", "§6", Formatting.GOLD),
-	RANGER(4, "ranger", "Ranger", "§5", Formatting.DARK_PURPLE);
+	MINER(3, "miner", "Miner", "§6", Formatting.GOLD);
 
 	public static final Codec<MinionRole> CODEC = StringIdentifiable.createCodec(MinionRole::values);
 
@@ -124,7 +122,6 @@ public enum MinionRole implements StringIdentifiable {
 			case SENTINEL -> "🛡";
 			case BUILDER -> "🔨";
 			case MINER -> "⛏";
-			case RANGER -> "🏹";
 		};
 	}
 

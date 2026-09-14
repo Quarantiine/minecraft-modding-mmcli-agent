@@ -1,5 +1,12 @@
 package com.example.entity.custom;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
+import com.example.block.ModBlocks;
 import com.example.component.SquadGroup;
 import com.example.entity.ai.goal.MinionActiveTargetGoal;
 import com.example.entity.ai.goal.MinionBuildGoal;
@@ -13,6 +20,7 @@ import com.example.screen.MinionScreenHandler;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.world.LocalDifficulty;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.FoodComponent;
 import net.minecraft.entity.Entity;
@@ -40,6 +48,7 @@ import net.minecraft.entity.ai.pathing.PathNodeType;
 import net.minecraft.entity.attribute.DefaultAttributeContainer;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.damage.DamageTypes;
 import net.minecraft.entity.data.DataTracker;
 import net.minecraft.entity.data.TrackedData;
 import net.minecraft.entity.data.TrackedDataHandlerRegistry;
@@ -96,11 +105,20 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	private static final TrackedData<Integer> SQUAD_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
 	private static final TrackedData<Boolean> SELECTED = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 	private static final TrackedData<Boolean> GUARDING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
+	private static final TrackedData<Boolean> PREVIEW_GLOWING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 
 	private LivingEntity lastCombatTarget;
 	private int outOfCombatTicks = 0;
 	private boolean climbingScaffolding = false;
+	private boolean arcaneLevitating = false;
+	private int obstacleStallTicks = 0;
+	private int obstacleVaultTicks = 0;
+	private int previewGlowTicks = 0;
 	private BlockPos guardAnchorPos = null;
+	private final List<LivingEntity> assaultTargets = new ArrayList<>();
+	private Vec3d activeTraversalDestination = null;
+	private boolean activelyBuilding = false;
+	private int traversalStallTicks = 0;
 
 	public MinionEntity(EntityType<? extends TameableEntity> entityType, World world) {
 		super(entityType, world);
@@ -119,12 +137,18 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	}
 
 	@Override
+	protected void initEquipment(net.minecraft.util.math.random.Random random, LocalDifficulty localDifficulty) {
+		// Minions spawn with completely empty equipment; gear is issued intentionally by player.
+	}
+
+	@Override
 	protected void initDataTracker(DataTracker.Builder builder) {
 		super.initDataTracker(builder);
 		builder.add(ROLE_ID, MinionRole.WARRIOR.getId());
 		builder.add(SQUAD_ID, SquadGroup.ALPHA.getId());
 		builder.add(SELECTED, false);
 		builder.add(GUARDING, false);
+		builder.add(PREVIEW_GLOWING, false);
 	}
 
 	/**
@@ -159,7 +183,122 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	@Override
 	public boolean isGlowing() {
-		return this.isSelected() || super.isGlowing();
+		return this.isSelected() || this.isPreviewGlowing() || super.isGlowing();
+	}
+
+	/**
+	 * @return true if this minion is currently preview glowing during channeled command targeting.
+	 */
+	public boolean isPreviewGlowing() {
+		return this.dataTracker.get(PREVIEW_GLOWING);
+	}
+
+	/**
+	 * Sets whether this minion is preview glowing during scepter channeling.
+	 *
+	 * @param previewGlowing true to illuminate outline in real-time.
+	 */
+	public void setPreviewGlowing(boolean previewGlowing) {
+		if (previewGlowing) {
+			this.previewGlowTicks = 6;
+		} else {
+			this.previewGlowTicks = 0;
+		}
+		this.dataTracker.set(PREVIEW_GLOWING, previewGlowing);
+	}
+
+	/**
+	 * @return true if the minion is currently hovering/flying via Arcane Levitation.
+	 */
+	public boolean isArcaneLevitating() {
+		return this.arcaneLevitating;
+	}
+
+	/**
+	 * Sets the arcane levitation state, suppressing gravity and resetting fall distance.
+	 *
+	 * @param levitating true to activate 3D flight/hovering, false to restore gravity.
+	 */
+	public void setArcaneLevitating(boolean levitating) {
+		this.arcaneLevitating = levitating;
+		this.setNoGravity(levitating);
+		this.noClip = levitating;
+		if (levitating) {
+			this.fallDistance = 0.0F;
+		}
+	}
+
+	/**
+	 * @return true if this minion is actively engaged in building/dismantling via MinionBuildGoal.
+	 */
+	public boolean isActivelyBuilding() {
+		return this.activelyBuilding;
+	}
+
+	/**
+	 * Sets whether this minion is actively engaged in building/dismantling.
+	 *
+	 * @param activelyBuilding true if actively constructing or demolishing blocks.
+	 */
+	public void setActivelyBuilding(boolean activelyBuilding) {
+		this.activelyBuilding = activelyBuilding;
+	}
+
+	/**
+	 * @return The explicit active 3D traversal destination, or null if unset.
+	 */
+	public Vec3d getActiveTraversalDestination() {
+		return this.activeTraversalDestination;
+	}
+
+	/**
+	 * Sets the explicit active 3D traversal destination for Arcane Levitation and navigation.
+	 *
+	 * @param destination The target Vec3d in world space, or null to clear.
+	 */
+	public void setActiveTraversalDestination(Vec3d destination) {
+		this.activeTraversalDestination = destination;
+	}
+
+	/**
+	 * Clears the explicit active 3D traversal destination.
+	 */
+	public void clearActiveTraversalDestination() {
+		this.activeTraversalDestination = null;
+	}
+
+	/**
+	 * Resolves the primary active target destination for 3D traversal and navigation.
+	 * Prioritizes explicit goal traversal destinations, active combat targets, guard anchor positions,
+	 * owner commander locations, and ongoing navigation destinations.
+	 *
+	 * @return The resolved target {@link Vec3d}, or null if no destination is active.
+	 */
+	public Vec3d resolveActiveTargetDestination() {
+		if (this.activeTraversalDestination != null) {
+			return this.activeTraversalDestination;
+		}
+
+		LivingEntity combatTarget = this.getTarget();
+		if (combatTarget != null && combatTarget.isAlive()) {
+			return combatTarget.getPos();
+		}
+
+		BlockPos anchor = this.getGuardAnchorPos();
+		if (anchor != null) {
+			return Vec3d.ofBottomCenter(anchor);
+		}
+
+		LivingEntity owner = this.getOwner();
+		if (owner != null && owner.isAlive()) {
+			return owner.getPos();
+		}
+
+		if (this.getNavigation().getTargetPos() != null) {
+			return Vec3d.ofBottomCenter(this.getNavigation().getTargetPos());
+		}
+
+		return null;
 	}
 
 	@Override
@@ -214,6 +353,85 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	public void setGuardAnchorPos(BlockPos guardAnchorPos) {
 		this.guardAnchorPos = guardAnchorPos;
 		this.dataTracker.set(GUARDING, guardAnchorPos != null);
+		if (guardAnchorPos != null) {
+			this.clearAssaultTargets();
+		}
+	}
+
+	/**
+	 * Sets the active assault target queue for this minion thrall during mass assault maneuvers.
+	 * Filters for alive, valid entities and immediately acquires the nearest target if not currently fighting.
+	 *
+	 * @param targets Collection of hostile targets to queue for sequential elimination.
+	 */
+	public void setAssaultTargets(Collection<? extends LivingEntity> targets) {
+		this.assaultTargets.clear();
+		if (targets != null) {
+			for (LivingEntity target : targets) {
+				if (target != null && target.isAlive() && !target.isRemoved() && target.getWorld() == this.getWorld()) {
+					if (!this.assaultTargets.contains(target)) {
+						this.assaultTargets.add(target);
+					}
+				}
+			}
+		}
+		if (this.getTarget() == null || !this.getTarget().isAlive()) {
+			this.acquireNextAssaultTarget();
+		}
+	}
+
+	/**
+	 * Checks whether the minion has active assault targets remaining in its queue.
+	 * Prunes dead, removed, or out-of-world targets.
+	 *
+	 * @return true if at least one alive assault target remains.
+	 */
+	public boolean hasAssaultTargets() {
+		this.assaultTargets.removeIf(e -> e == null || !e.isAlive() || e.isRemoved() || e.getWorld() != this.getWorld());
+		return !this.assaultTargets.isEmpty();
+	}
+
+	/**
+	 * Returns an unmodifiable list of remaining assault targets in the queue.
+	 *
+	 * @return Unmodifiable list of alive assault targets.
+	 */
+	public List<LivingEntity> getAssaultTargets() {
+		this.assaultTargets.removeIf(e -> e == null || !e.isAlive() || e.isRemoved() || e.getWorld() != this.getWorld());
+		return Collections.unmodifiableList(this.assaultTargets);
+	}
+
+	/**
+	 * Clears all pending assault targets, immediately stopping sequential mass assault tracking.
+	 */
+	public void clearAssaultTargets() {
+		this.assaultTargets.clear();
+	}
+
+	/**
+	 * Acquires the next closest alive assault target from the queue, engages pathfinding,
+	 * and sets the entity target.
+	 *
+	 * @return The newly acquired assault target, or null if no valid targets remain.
+	 */
+	public LivingEntity acquireNextAssaultTarget() {
+		this.assaultTargets.removeIf(e -> e == null || !e.isAlive() || e.isRemoved() || e.getWorld() != this.getWorld());
+		if (this.assaultTargets.isEmpty()) {
+			return null;
+		}
+
+		// Prioritize closest living target in the assault queue within 48 blocks
+		LivingEntity nextTarget = this.assaultTargets.stream()
+			.filter(t -> this.squaredDistanceTo(t) <= 2304.0D) // 48 blocks squared
+			.min(Comparator.comparingDouble(this::squaredDistanceTo))
+			.orElse(null);
+
+		if (nextTarget != null) {
+			this.setTarget(nextTarget);
+			this.setAttacking(true);
+			this.getNavigation().startMovingTo(nextTarget, 1.35D);
+		}
+		return nextTarget;
 	}
 
 	@Override
@@ -249,7 +467,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(5, new MeleeAttackGoal(this, 1.35D, true) {
 			@Override
 			public boolean canStart() {
-				if (MinionEntity.this.getRole() == MinionRole.RANGER && (MinionEntity.this.isHolding(Items.BOW) || MinionEntity.this.isHolding(Items.CROSSBOW) || MinionEntity.this.getMainHandStack().getItem() instanceof BowItem)) {
+				if (MinionEntity.isRangedWeapon(MinionEntity.this.getMainHandStack())) {
 					return false;
 				}
 				return super.canStart();
@@ -281,12 +499,19 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		if (!this.getWorld().isClient()) {
 			LivingEntity currentTarget = this.getTarget();
 
+			// If current combat target died, was removed, or is absent, chain to next queued assault target
+			if (currentTarget == null || !currentTarget.isAlive() || currentTarget.isRemoved()) {
+				if (this.hasAssaultTargets()) {
+					currentTarget = this.acquireNextAssaultTarget();
+				}
+			}
+
 			// Track combat state
 			if (currentTarget != null && currentTarget.isAlive()) {
 				this.outOfCombatTicks = 0;
 			} else {
 				this.outOfCombatTicks++;
-				// Post-combat transition: when previous target was cleared or died, return to owner
+				// Post-combat transition: when previous target was cleared or died and no assault targets remain, return to owner
 				if (this.lastCombatTarget != null && (currentTarget == null || !this.lastCombatTarget.isAlive())) {
 					returnToOwnerPostCombat();
 				}
@@ -305,9 +530,76 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				autoEquipFromInventory();
 			}
 
-			// Auto-clear climbing flag if minion is no longer within a scaffolding block
-			if (this.climbingScaffolding && !this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+			// Auto-clear climbing flag if minion is no longer within a scaffolding block or construction block
+			BlockState currentFootState = this.getBlockStateAtPos();
+			if (this.climbingScaffolding && !currentFootState.isOf(Blocks.SCAFFOLDING) && !currentFootState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
 				this.climbingScaffolding = false;
+			}
+
+			// Auto-clear preview glowing outline if not refreshed within 6 ticks
+			if (this.previewGlowTicks > 0) {
+				this.previewGlowTicks--;
+				if (this.previewGlowTicks == 0 && this.isPreviewGlowing()) {
+					this.setPreviewGlowing(false);
+				}
+			}
+
+			// Arcane Builder Levitation particle trail and fall safety
+			if (this.arcaneLevitating) {
+				this.fallDistance = 0.0F;
+				if (this.getWorld() instanceof ServerWorld serverWorld && this.age % 2 == 0) {
+					serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 2, 0.15D, 0.05D, 0.15D, 0.02D);
+					serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.15D, this.getZ(), 1, 0.2D, 0.1D, 0.2D, 0.05D);
+				}
+			}
+
+			// Universal 3D Arcane Levitation Traversal across all minions
+			this.tickUniversalArcaneLevitation();
+
+			// Fallback local obstacle vaulting for unguided/untamed minions without active destinations
+			if (this.resolveActiveTargetDestination() == null) {
+				if (this.obstacleVaultTicks > 0) {
+					this.obstacleVaultTicks--;
+					this.fallDistance = 0.0F;
+					if (this.obstacleVaultTicks == 0) {
+						BlockPos groundPos = this.getBlockPos().down();
+						if (this.getWorld().getBlockState(groundPos).isSolidBlock(this.getWorld(), groundPos) || this.isOnGround()) {
+							this.setArcaneLevitating(false);
+							if (this.getWorld() instanceof ServerWorld serverWorld) {
+								serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 4, 0.15D, 0.05D, 0.15D, 0.02D);
+								serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.2D, this.getZ(), 3, 0.2D, 0.1D, 0.2D, 0.05D);
+							}
+						} else {
+							// Smooth descent glide to ground
+							this.setVelocity(this.getVelocity().x * 0.7D, -0.22D, this.getVelocity().z * 0.7D);
+							this.velocityModified = true;
+							this.obstacleVaultTicks = 4;
+						}
+					}
+				} else if (!this.arcaneLevitating && this.isAlive() && !this.isSitting()) {
+					boolean isMoving = !this.getNavigation().isIdle() || this.getMoveControl().isMoving();
+					if (isMoving && this.horizontalCollision) {
+						this.obstacleStallTicks++;
+						if (this.obstacleStallTicks >= 6) {
+							this.obstacleStallTicks = 0;
+							this.obstacleVaultTicks = 14;
+							this.setArcaneLevitating(true);
+
+							float yawRad = this.getYaw() * 0.017453292F;
+							double fwdX = -Math.sin(yawRad);
+							double fwdZ = Math.cos(yawRad);
+							this.setVelocity(fwdX * 0.30D, 0.44D, fwdZ * 0.30D);
+							this.velocityModified = true;
+
+							if (this.getWorld() instanceof ServerWorld serverWorld) {
+								serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 6, 0.2D, 0.1D, 0.2D, 0.05D);
+								serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.3D, this.getZ(), 4, 0.25D, 0.15D, 0.25D, 0.08D);
+							}
+						}
+					} else {
+						this.obstacleStallTicks = Math.max(0, this.obstacleStallTicks - 1);
+					}
+				}
 			}
 		}
 	}
@@ -315,8 +607,154 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	@Override
 	public boolean onKilledOther(ServerWorld world, LivingEntity other) {
 		boolean result = super.onKilledOther(world, other);
+		if (this.hasAssaultTargets()) {
+			LivingEntity next = this.acquireNextAssaultTarget();
+			if (next != null) {
+				return result;
+			}
+		}
 		returnToOwnerPostCombat();
 		return result;
+	}
+
+	/**
+	 * Updates Universal 3D Arcane Levitation traversal across all minions.
+	 * Allows thralls to smoothly levitate off high cliffs and completed buildings as well as
+	 * levitate up onto elevated blocks and cliffs to reach their target destination.
+	 */
+	public void tickUniversalArcaneLevitation() {
+		if (this.getWorld().isClient() || !(this.getWorld() instanceof ServerWorld serverWorld)) {
+			return;
+		}
+
+		// Active building tasks in MinionBuildGoal handle their own hover station kinematics
+		if (this.activelyBuilding) {
+			return;
+		}
+
+		// Passive sitting thralls or dead entities do not levitate
+		if (!this.isAlive() || this.isSitting()) {
+			if (this.arcaneLevitating) {
+				this.setArcaneLevitating(false);
+			}
+			return;
+		}
+
+		Vec3d targetDest = this.resolveActiveTargetDestination();
+
+		// If minion is levitating but has no active destination, smoothly float down to ground
+		if (targetDest == null) {
+			if (this.arcaneLevitating) {
+				BlockPos feet = this.getBlockPos();
+				BlockPos below = feet.down();
+				BlockState belowState = serverWorld.getBlockState(below);
+				if (!this.isOnGround() && !belowState.isSolidBlock(serverWorld, below) && feet.getY() > serverWorld.getBottomY()) {
+					this.setVelocity(0.0D, -0.22D, 0.0D);
+					this.velocityModified = true;
+				} else {
+					this.setArcaneLevitating(false);
+					this.setVelocity(0.0D, 0.0D, 0.0D);
+					this.velocityModified = true;
+					serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 4, 0.15D, 0.05D, 0.15D, 0.02D);
+					serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.2D, this.getZ(), 3, 0.2D, 0.1D, 0.2D, 0.05D);
+				}
+			}
+			return;
+		}
+
+		double dx = targetDest.x - this.getX();
+		double dy = targetDest.y - this.getY();
+		double dz = targetDest.z - this.getZ();
+		double horizontalDistSq = dx * dx + dz * dz;
+		double totalDistSq = horizontalDistSq + dy * dy;
+
+		// Arrival check within tolerance (horizontal <= 2.0 blocks, vertical <= 1.5 blocks)
+		boolean arrived = horizontalDistSq <= 4.0D && Math.abs(dy) <= 1.5D;
+
+		if (arrived) {
+			this.traversalStallTicks = 0;
+			this.obstacleStallTicks = 0;
+			if (this.arcaneLevitating) {
+				BlockPos feet = this.getBlockPos();
+				BlockPos below = feet.down();
+				BlockState belowState = serverWorld.getBlockState(below);
+				if (!this.isOnGround() && !belowState.isSolidBlock(serverWorld, below) && feet.getY() > serverWorld.getBottomY()) {
+					// Smooth descent glide to ground surface
+					this.setVelocity(0.0D, -0.22D, 0.0D);
+					this.velocityModified = true;
+				} else {
+					this.setArcaneLevitating(false);
+					this.setVelocity(0.0D, 0.0D, 0.0D);
+					this.velocityModified = true;
+					// Landing particle fanfare
+					serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 6, 0.2D, 0.1D, 0.2D, 0.02D);
+					serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.2D, this.getZ(), 4, 0.25D, 0.15D, 0.25D, 0.05D);
+				}
+			}
+			return;
+		}
+
+		// Minion is not within arrival tolerance: evaluate levitation triggers
+		boolean elevationDisparity = dy > 1.25D || dy < -1.5D;
+		boolean movingIntent = !this.getNavigation().isIdle() || this.getMoveControl().isMoving();
+		boolean horizontalStuck = this.horizontalCollision && movingIntent;
+		boolean navigationStalled = this.getNavigation().isIdle() && totalDistSq > 4.0D;
+
+		if (horizontalStuck || navigationStalled) {
+			this.traversalStallTicks++;
+		} else {
+			this.traversalStallTicks = Math.max(0, this.traversalStallTicks - 1);
+		}
+
+		boolean shouldLevitate = elevationDisparity || this.traversalStallTicks >= 4 || this.obstacleVaultTicks > 0;
+
+		if (shouldLevitate) {
+			if (!this.arcaneLevitating) {
+				this.setArcaneLevitating(true);
+				serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 5, 0.2D, 0.1D, 0.2D, 0.02D);
+				serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.2D, this.getZ(), 3, 0.2D, 0.1D, 0.2D, 0.05D);
+			}
+
+			// Arcane 3D gliding kinematics
+			Vec3d delta = new Vec3d(dx, dy, dz);
+			double dist = Math.sqrt(totalDistSq);
+			if (dist > 0.01D) {
+				Vec3d dir = delta.multiply(1.0D / dist);
+				double speed = dist > 10.0D ? 0.45D : 0.35D;
+				double vx = dir.x * speed;
+				double vy = dir.y * speed;
+				double vz = dir.z * speed;
+
+				if (dy > 0.5D || this.horizontalCollision) {
+					// Strong upward lift to scale cliffs and obstacle ledges
+					vy = Math.max(vy, 0.38D);
+				} else if (dy < -0.5D) {
+					// Controlled downward glide off high cliffs and buildings
+					vy = Math.min(vy, -0.22D);
+					vy = Math.max(vy, -0.42D);
+				}
+
+				this.setVelocity(vx, vy, vz);
+				this.velocityModified = true;
+				this.fallDistance = 0.0F;
+				this.getNavigation().stop();
+				this.getLookControl().lookAt(targetDest.x, targetDest.y + 0.5D, targetDest.z);
+			}
+		} else if (this.arcaneLevitating) {
+			// If neither elevation disparity nor stall applies and we are levitating, check for gentle landing
+			BlockPos feet = this.getBlockPos();
+			BlockPos below = feet.down();
+			BlockState belowState = serverWorld.getBlockState(below);
+			if (this.isOnGround() || belowState.isSolidBlock(serverWorld, below)) {
+				this.setArcaneLevitating(false);
+				this.setVelocity(0.0D, 0.0D, 0.0D);
+				this.velocityModified = true;
+				serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 4, 0.15D, 0.05D, 0.15D, 0.02D);
+			} else {
+				this.setVelocity(0.0D, -0.22D, 0.0D);
+				this.velocityModified = true;
+			}
+		}
 	}
 
 	/**
@@ -381,6 +819,19 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		super.setSitting(sitting);
 		this.setInSittingPose(sitting);
 		this.climbingScaffolding = false;
+		this.setArcaneLevitating(false);
+		this.clearActiveTraversalDestination();
+		this.setActivelyBuilding(false);
+		if (sitting) {
+			this.clearAssaultTargets();
+			this.setTarget(null);
+		}
+	}
+
+	@Override
+	public void onDeath(DamageSource damageSource) {
+		super.onDeath(damageSource);
+		this.clearAssaultTargets();
 	}
 
 	/**
@@ -408,7 +859,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 * @return true if inside scaffolding and ascending/navigating to a higher Y coordinate.
 	 */
 	public boolean isNavigatingUpwardInScaffolding() {
-		if (!this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+		BlockState footState = this.getBlockStateAtPos();
+		if (!footState.isOf(Blocks.SCAFFOLDING) && !footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
 			return false;
 		}
 		// Explicit climbing flag from build or sapper AI goals
@@ -447,15 +899,16 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	/**
 	 * Overrides vanilla climbing behavior to give the minion AI explicit control over scaffolding traversal.
-	 * If the minion is currently within a scaffolding block, climbing physics is enabled if
+	 * If the minion is currently within a scaffolding block or custom construction block, climbing physics is enabled if
 	 * {@link #isClimbingScaffolding()} is true or if the minion is actively navigating upward
-	 * through the scaffolding column. For ladders, vines, and other climbables, defaults to vanilla logic.
+	 * through the column. For ladders, vines, and other climbables, defaults to vanilla logic.
 	 *
 	 * @return true if the minion is actively climbing.
 	 */
 	@Override
 	public boolean isClimbing() {
-		if (this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+		BlockState footState = this.getBlockStateAtPos();
+		if (footState.isOf(Blocks.SCAFFOLDING) || footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
 			return this.climbingScaffolding || this.isNavigatingUpwardInScaffolding();
 		}
 		return super.isClimbing();
@@ -464,15 +917,17 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	/**
 	 * Overrides entity travel physics to implement smooth scaffolding climbing mechanics for minions.
 	 * Because mob entities lack client jump input packets, vanilla scaffolding logic fails to propel
-	 * mobs upward when ascending. When inside scaffolding and navigating upward or toward elevated targets,
+	 * mobs upward when ascending. When inside scaffolding or construction blocks and navigating upward or toward elevated targets,
 	 * applies a continuous +0.25D vertical velocity impulse and zeroes fall distance.
 	 *
 	 * @param movementInput Lateral and forward directional movement vector.
 	 */
 	@Override
 	public void travel(Vec3d movementInput) {
+		BlockState footState = this.getBlockStateAtPos();
+		boolean inScaffolding = footState.isOf(Blocks.SCAFFOLDING) || footState.isOf(ModBlocks.CONSTRUCTION_BLOCK);
 		boolean ascendingScaffolding = this.isAlive()
-			&& this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)
+			&& inScaffolding
 			&& this.isNavigatingUpwardInScaffolding();
 
 		if (ascendingScaffolding) {
@@ -484,7 +939,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 		super.travel(movementInput);
 
-		if (this.isAlive() && this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+		if (this.isAlive() && (this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING) || this.getBlockStateAtPos().isOf(ModBlocks.CONSTRUCTION_BLOCK))) {
 			this.fallDistance = 0.0F;
 			if (ascendingScaffolding) {
 				Vec3d currentVelocity = this.getVelocity();
@@ -538,10 +993,24 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	@Override
 	public boolean damage(DamageSource source, float amount) {
+		if (this.arcaneLevitating && source.isOf(DamageTypes.FALL)) {
+			return false;
+		}
+		if (this.arcaneLevitating && source.isOf(DamageTypes.IN_WALL)) {
+			return false;
+		}
 		if (this.isTamed() && source.getAttacker() != null) {
 			Entity attacker = source.getAttacker();
 			LivingEntity owner = this.getOwner();
 			if (owner != null && (attacker.equals(owner) || (attacker instanceof MinionEntity otherMinion && otherMinion.isOwner(owner)))) {
+				return false;
+			}
+		}
+		if (source.isOf(DamageTypes.IN_WALL)) {
+			BlockState state = this.getBlockStateAtPos();
+			BlockState headState = this.getWorld().getBlockState(this.getBlockPos().up());
+			if (state.isOf(ModBlocks.CONSTRUCTION_BLOCK) || state.isOf(Blocks.SCAFFOLDING)
+				|| headState.isOf(ModBlocks.CONSTRUCTION_BLOCK) || headState.isOf(Blocks.SCAFFOLDING)) {
 				return false;
 			}
 		}
@@ -593,8 +1062,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	public static boolean canRoleAutoEquipMainhand(MinionRole role, ItemStack stack) {
 		if (stack == null || stack.isEmpty()) return false;
 		return switch (role) {
-			case RANGER -> isRangedWeapon(stack);
-			case WARRIOR, SENTINEL -> isMeleeWeapon(stack);
+			case WARRIOR -> isMeleeWeapon(stack) || isRangedWeapon(stack);
+			case SENTINEL -> isMeleeWeapon(stack);
 			case MINER -> stack.getItem() instanceof MiningToolItem || stack.getItem() instanceof SwordItem;
 			case BUILDER -> stack.getItem() instanceof MiningToolItem || isMeleeWeapon(stack);
 		};
@@ -609,8 +1078,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		if (current == null || current.isEmpty()) return canRoleAutoEquipMainhand(role, candidate);
 
 		return switch (role) {
-			case RANGER -> isRangedWeapon(candidate) && !isRangedWeapon(current);
-			case WARRIOR, SENTINEL -> isMeleeWeapon(candidate) && !isMeleeWeapon(current);
+			case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
+			case SENTINEL -> isMeleeWeapon(candidate) && !isMeleeWeapon(current);
 			case MINER -> (candidate.getItem() instanceof MiningToolItem) && !(current.getItem() instanceof MiningToolItem);
 			case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 		};
@@ -619,8 +1088,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	/**
 	 * Automatically equips armor, weapons, and defensive offhand items from the minion's
 	 * 9-slot storage inventory into corresponding equipment slots, strictly adhering to role restrictions:
-	 * - Rangers seek bows and crossbows (never melee weapons or mining tools).
-	 * - Warriors seek frontline melee weapons (swords, axes, maces; never ranged weapons).
+	 * - Warriors seek frontline melee weapons (swords, axes, maces) OR ranged weapons (bows, crossbows).
 	 * - Sentinels seek melee weapons in mainhand and prioritize shields in offhand.
 	 * - Miners seek mining tools (pickaxes) and defense weapons.
 	 * - Builders seek construction tools and defense weapons.
@@ -632,6 +1100,17 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 
 		MinionRole role = this.getRole();
+
+		// 0. Active role enforcement: disarm any weapon that violates the minion's active role
+		ItemStack heldMainhand = this.getEquippedStack(EquipmentSlot.MAINHAND);
+		if (!heldMainhand.isEmpty() && !canRoleAutoEquipMainhand(role, heldMainhand)) {
+			ItemStack remainder = this.inventory.addStack(heldMainhand);
+			this.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+			if (!remainder.isEmpty()) {
+				this.dropStack(remainder);
+			}
+			this.inventory.markDirty();
+		}
 
 		for (int i = 0; i < this.inventory.size(); i++) {
 			ItemStack stack = this.inventory.getStack(i);
@@ -973,6 +1452,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void dismiss() {
 		this.climbingScaffolding = false;
+		this.setArcaneLevitating(false);
+		this.clearActiveTraversalDestination();
+		this.setActivelyBuilding(false);
 		if (this.getWorld() instanceof ServerWorld serverWorld) {
 			for (EquipmentSlot slot : EquipmentSlot.values()) {
 				ItemStack stack = this.getEquippedStack(slot);
@@ -1022,6 +1504,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 
 		this.climbingScaffolding = false;
+		this.setArcaneLevitating(false);
+		this.clearActiveTraversalDestination();
+		this.setActivelyBuilding(false);
 
 		double originX = this.getX();
 		double originY = this.getY();
@@ -1075,15 +1560,15 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		BlockPos below = pos.down();
 		BlockState belowState = world.getBlockState(below);
 
-		if (!belowState.isSolidBlock(world, below) && !belowState.isOf(Blocks.SCAFFOLDING)) {
+		if (!belowState.isSolidBlock(world, below) && !belowState.isOf(Blocks.SCAFFOLDING) && !belowState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
 			return false;
 		}
 
 		BlockState feetState = world.getBlockState(pos);
 		BlockState headState = world.getBlockState(pos.up());
 
-		boolean feetClear = feetState.isAir() || feetState.isOf(Blocks.SCAFFOLDING) || feetState.canPathfindThrough(NavigationType.LAND);
-		boolean headClear = headState.isAir() || headState.isOf(Blocks.SCAFFOLDING) || headState.canPathfindThrough(NavigationType.LAND);
+		boolean feetClear = feetState.isAir() || feetState.isOf(Blocks.SCAFFOLDING) || feetState.isOf(ModBlocks.CONSTRUCTION_BLOCK) || feetState.canPathfindThrough(NavigationType.LAND);
+		boolean headClear = headState.isAir() || headState.isOf(Blocks.SCAFFOLDING) || headState.isOf(ModBlocks.CONSTRUCTION_BLOCK) || headState.canPathfindThrough(NavigationType.LAND);
 		boolean hazard = feetState.isOf(Blocks.LAVA) || feetState.isOf(Blocks.FIRE) || feetState.isOf(Blocks.SWEET_BERRY_BUSH);
 
 		return feetClear && headClear && !hazard;

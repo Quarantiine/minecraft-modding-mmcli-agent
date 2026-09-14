@@ -12,7 +12,8 @@ import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 
 /**
- * Tactical ranged skirmishing AI goal for {@link MinionEntity} thralls assigned the {@link MinionRole#RANGER} role.
+ * Tactical ranged skirmishing AI goal for {@link MinionEntity} thralls assigned the {@link MinionRole#WARRIOR} role
+ * equipped with ranged weapons (bows or crossbows).
  * <p>
  * Maintains an optimal engagement pocket between 8 and 16 blocks from the hostile target:
  * <ul>
@@ -70,7 +71,7 @@ public class MinionRangedAttackGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.RANGER) {
+		if (this.minion.getRole() != MinionRole.WARRIOR) {
 			return false;
 		}
 		LivingEntity target = this.minion.getTarget();

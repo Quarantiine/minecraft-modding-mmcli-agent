@@ -1,6 +1,7 @@
 package com.example.client.gui;
 
 import com.example.client.network.ModClientNetworking;
+import com.example.client.renderer.MinionOverheadBadgeFeatureRenderer;
 import com.example.component.SquadGroup;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
@@ -29,7 +30,7 @@ import org.lwjgl.glfw.GLFW;
  * Features:
  * <ul>
  *   <li>Live 3D entity preview with status, role, squad, and combat statistics tooltip</li>
- *   <li>Interactive Role Cycling Button to switch archetype (Warrior, Sentinel, Builder, Miner, Ranger)</li>
+ *   <li>Interactive Role Cycling Button to switch archetype (Warrior, Sentinel, Builder, Miner)</li>
  *   <li>Interactive Squad Cycling Button to assign tactical squad channel (Alpha, Bravo, Charlie, Delta)</li>
  *   <li>Equipment slots (Head, Chest, Legs, Feet, Mainhand, Offhand)</li>
  *   <li>3x3 Minion Inventory and player inventory/hotbar slots</li>
@@ -40,8 +41,8 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 
 	private static final Identifier CONTAINER_TEXTURE = Identifier.ofVanilla("textures/gui/container/inventory.png");
 	public static final int TOP_PANEL_HEIGHT = 36;
-	public static final int BOTTOM_PANEL_HEIGHT = 24;
-	public static final int TOTAL_MODAL_HEIGHT = 166 + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT; // 226px
+	public static final int BOTTOM_PANEL_HEIGHT = 46;
+	public static final int TOTAL_MODAL_HEIGHT = 166 + TOP_PANEL_HEIGHT + BOTTOM_PANEL_HEIGHT; // 248px
 
 	private MinionRole currentRole;
 	private SquadGroup currentSquad;
@@ -49,7 +50,8 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 	private CyclingButtonWidget<MinionRole> roleButton;
 	private CyclingButtonWidget<SquadGroup> squadButton;
 	private ButtonWidget teleportBtn;
-	private ButtonWidget dismissBtn;
+	private ButtonWidget destroyBtn;
+	private ButtonWidget cancelBtn;
 
 	// Smart Shift-to-close & interaction state controller (Refinement 4)
 	private final SmartCloseHandler closeHandler = new SmartCloseHandler();
@@ -111,7 +113,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		// Cycling badge widgets for Role and Squad positioned inside top header frame
 		int badgeY = this.y - 22;
 
-		// 1. Role Cycling Badge Widget (Warrior -> Sentinel -> Builder -> Miner -> Ranger)
+		// 1. Role Cycling Badge Widget (Warrior -> Sentinel -> Builder -> Miner)
 		this.roleButton = CyclingButtonWidget.<MinionRole>builder(role -> Text.literal(role.getColorCode() + getRoleBadgeSymbol(role) + " " + role.getDisplayName()))
 			.values(MinionRole.values())
 			.initially(this.currentRole)
@@ -149,10 +151,11 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			);
 		this.squadButton.active = isOwner;
 
-		// Action buttons framed inside bottom panel
-		int actionRowY = this.y + this.backgroundHeight + 2;
+		// Action buttons framed inside bottom panel (2 rows)
+		int actionRow1Y = this.y + this.backgroundHeight + 3;
+		int actionRow2Y = this.y + this.backgroundHeight + 24;
 
-		// 3. Teleport to Me action button
+		// 3. Teleport to Me action button (Row 1, full width 168px)
 		this.teleportBtn = ButtonWidget.builder(
 			Text.literal("§d✦ ").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.teleport")),
 			button -> {
@@ -165,14 +168,14 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 				this.close();
 			}
 		)
-		.dimensions(this.x + 4, actionRowY, btnWidth, btnHeight)
+		.dimensions(this.x + 4, actionRow1Y, 168, btnHeight)
 		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.minion_screen.teleport_desc")))
 		.build();
 		this.teleportBtn.active = isOwner;
 
-		// 4. Dismiss Minion action button
-		this.dismissBtn = ButtonWidget.builder(
-			Text.literal("§c✖ ").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.dismiss")),
+		// 4. Destroy Minion action button (Row 2, left, 82px)
+		this.destroyBtn = ButtonWidget.builder(
+			Text.literal("§c✖ ").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.destroy")),
 			button -> {
 				int id = this.resolveMinionId();
 				if (id >= 0) {
@@ -183,15 +186,26 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 				this.close();
 			}
 		)
-		.dimensions(this.x + 90, actionRowY, btnWidth, btnHeight)
-		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.minion_screen.dismiss_desc")))
+		.dimensions(this.x + 4, actionRow2Y, btnWidth, btnHeight)
+		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.minion_screen.destroy_desc")))
 		.build();
-		this.dismissBtn.active = isOwner;
+		this.destroyBtn.active = isOwner;
+
+		// 5. Cancel action button (Row 2, right, 82px)
+		this.cancelBtn = ButtonWidget.builder(
+			Text.translatable("gui.modid-mmcli-agent-modding.minion.cancel"),
+			button -> this.close()
+		)
+		.dimensions(this.x + 90, actionRow2Y, btnWidth, btnHeight)
+		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.minion_screen.cancel_desc")))
+		.build();
+		this.cancelBtn.active = true;
 
 		this.addDrawableChild(this.roleButton);
 		this.addDrawableChild(this.squadButton);
 		this.addDrawableChild(this.teleportBtn);
-		this.addDrawableChild(this.dismissBtn);
+		this.addDrawableChild(this.destroyBtn);
+		this.addDrawableChild(this.cancelBtn);
 	}
 
 	private int resolveMinionId() {
@@ -264,7 +278,6 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			case SENTINEL -> "🛡";
 			case BUILDER -> "🔨";
 			case MINER -> "⛏";
-			case RANGER -> "🏹";
 		};
 	}
 
@@ -278,11 +291,10 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 
 	private static Text getRoleTooltip(MinionRole role) {
 		String desc = switch (role) {
-			case WARRIOR -> "§7Frontline shock infantry engaging enemies in melee.\n§8• Target Range: 24 blocks | Melee Sprint: +35%\n§8• Equipment: Swords, Axes, Maces";
+			case WARRIOR -> "§7Versatile combatant engaging in melee or ranged combat.\n§8• Swordsman or Archer based on equipped weapon\n§8• Equipment: Swords, Axes, Maces, Bows & Crossbows";
 			case SENTINEL -> "§7Perimeter guard holding station & intercepting hostiles.\n§8• Perimeter: 8 blocks | Anchor Leash: 12 blocks\n§8• Equipment: Shields (offhand) & Melee weapons";
-			case BUILDER -> "§7Architectural constructor building blueprint structures.\n§8• Scaffolding navigation & structural placement\n§8• Equipment: Scaffolding, Blueprint blocks & Pickaxes";
+			case BUILDER -> "§7Architectural constructor building blueprint structures.\n§8• Arcane Levitation flight & structural placement\n§8• Equipment: Blueprint blocks & Pickaxes";
 			case MINER -> "§7Resource excavator and subsurface mining specialist.\n§8• Vein mining & automated block gathering\n§8• Equipment: Pickaxes & Shovels";
-			case RANGER -> "§7Ranged artillery skirmisher with bows & crossbows.\n§8• Sweet Spot: 8-16 blocks | Dynamic strafing\n§8• Equipment: Bows & Crossbows";
 		};
 		return Text.literal("§6✦ Role Archetype: " + role.getFormattedName() + "\n" + desc + "\n§eClick or scroll to cycle role.");
 	}
@@ -295,7 +307,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			case CHARLIE -> "§aGreen Banner Division - Perimeter Sentinels";
 			case DELTA -> "§6Gold Banner Division - Heavy Artillery";
 		};
-		return Text.literal("§6✦ Squad Channel: " + squad.getFormattedName() + "\n§7" + desc + "\n§8• Commands: Follow, Stay, Attack, Mine, Build\n§eClick or scroll to cycle squad.");
+		return Text.literal("§6✦ Squad Channel: " + squad.getFormattedName() + "\n§7" + desc + "\n§8• Commands: Follow, Stay, Mine, Build, Recruit\n§eClick or scroll to cycle squad.");
 	}
 
 	@Override
@@ -367,9 +379,10 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		context.fill(startX, bottomPanelY, startX + this.backgroundWidth, bottomPanelY + BOTTOM_PANEL_HEIGHT, 0xEE141923);
 		context.drawBorder(startX, bottomPanelY, this.backgroundWidth, BOTTOM_PANEL_HEIGHT, squadColor);
 
-		// Action accent trims
-		context.fill(startX + 4, bottomPanelY, startX + 86, bottomPanelY + 2, 0xFFE040FB);
-		context.fill(startX + 90, bottomPanelY, startX + 172, bottomPanelY + 2, 0xFFFF5252);
+		// Action accent trims for the 2 button rows
+		context.fill(startX + 4, bottomPanelY, startX + 172, bottomPanelY + 2, 0xFFE040FB); // Teleport top trim
+		context.fill(startX + 4, bottomPanelY + 22, startX + 86, bottomPanelY + 24, 0xFFFF5252); // Destroy top trim (left)
+		context.fill(startX + 90, bottomPanelY + 22, startX + 172, bottomPanelY + 24, 0xFF9E9E9E); // Cancel top trim (right)
 
 		MinionEntity minion = this.handler != null ? this.handler.getMinion() : null;
 		if (minion != null) {
@@ -385,6 +398,25 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 				(float) mouseY,
 				minion
 			);
+
+			// Prominently display the hearts health indicator at the bottom of the central 3D preview panel
+			int healthPlateTop = previewBottom - 12;
+			int healthPlateBottom = previewBottom - 1;
+			context.fill(previewLeft + 1, healthPlateTop, previewRight - 1, healthPlateBottom, 0xDD101520);
+			context.fill(previewLeft + 1, healthPlateTop, previewRight - 1, healthPlateTop + 1, squadColor);
+
+			Text healthDisplay = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(minion.getHealth(), minion.getMaxHealth());
+			float healthTextWidth = this.textRenderer.getWidth(healthDisplay);
+			float maxPlateWidth = (float) (previewRight - previewLeft - 4); // 62px
+			float healthScale = healthTextWidth > maxPlateWidth ? (maxPlateWidth / healthTextWidth) : 1.0F;
+
+			context.getMatrices().push();
+			float centerX = (previewLeft + previewRight) / 2.0F;
+			float textY = healthPlateTop + (11 - 8 * healthScale) / 2.0F;
+			context.getMatrices().translate(centerX, textY, 0.0F);
+			context.getMatrices().scale(healthScale, healthScale, 1.0F);
+			context.drawCenteredTextWithShadow(this.textRenderer, healthDisplay, 0, 0, 0xFFFFFF);
+			context.getMatrices().pop();
 		} else {
 			context.drawCenteredTextWithShadow(
 				this.textRenderer,
@@ -398,17 +430,9 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 
 	@Override
 	protected void drawForeground(DrawContext context, int mouseX, int mouseY) {
-		// Category headers
-		context.drawText(this.textRenderer, Text.translatable("gui.modid-mmcli-agent-modding.minion.equipment"), 8, 6, 0x404040, false);
-		context.drawText(this.textRenderer, Text.translatable("gui.modid-mmcli-agent-modding.minion.inventory"), 116, 6, 0x404040, false);
-		context.drawText(this.textRenderer, this.playerInventoryTitle, this.playerInventoryTitleX, this.playerInventoryTitleY, 0x404040, false);
-
-		// Center Minion title
-		MinionEntity minion = this.handler != null ? this.handler.getMinion() : null;
-		Text nameText = (minion != null && minion.hasCustomName()) ? minion.getCustomName() : this.title;
-		int nameWidth = this.textRenderer.getWidth(nameText);
-		int nameX = 47 + (66 - nameWidth) / 2;
-		context.drawText(this.textRenderer, nameText, Math.max(46, nameX), 6, 0x222222, false);
+		// Category headers: bold, high-contrast, and spaced so "Equipment" never collides with anything
+		context.drawText(this.textRenderer, Text.literal("§8§l").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.equipment")), 8, 5, 0x1E293B, false);
+		context.drawText(this.textRenderer, Text.literal("§8§l").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.inventory")), 116, 5, 0x1E293B, false);
 	}
 
 	@Override
@@ -720,5 +744,17 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		public void setInitializedOpenState(boolean initializedOpenState) {
 			this.initializedOpenState = initializedOpenState;
 		}
+	}
+
+	public ButtonWidget getTeleportButton() {
+		return this.teleportBtn;
+	}
+
+	public ButtonWidget getDestroyButton() {
+		return this.destroyBtn;
+	}
+
+	public ButtonWidget getCancelButton() {
+		return this.cancelBtn;
 	}
 }

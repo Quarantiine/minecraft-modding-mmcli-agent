@@ -27,10 +27,9 @@ import net.minecraft.world.World;
  * Replaces vanilla collision-prone following with parametric distributed formation offsets
  * relative to the owner player's yaw:
  * <ul>
- *   <li><b>Vanguard (Warriors):</b> Forward-flanking wedge opening outward to intercept incoming threats.</li>
- *   <li><b>Bulwark (Sentinels):</b> Protective escort wings flanking the master's left and right flanks.</li>
- *   <li><b>Core (Builders & Miners):</b> Non-combatant support column tucked safely behind the master.</li>
- *   <li><b>Skirmishers (Rangers):</b> Rearguard covering the back with optimal ranged firing clearance.</li>
+ *   <li><b>Frontline Ranks (Warriors):</b> Straight battle lines ahead of master to intercept threats (melee swordsmen & ranged archers).</li>
+ *   <li><b>Midline Escort (Sentinels):</b> Protective escort lines shielding the master's immediate perimeter.</li>
+ *   <li><b>Rearguard Support (Builders & Miners):</b> Non-combatant support column tucked safely behind the master.</li>
  * </ul>
  * <p>
  * Features:
@@ -60,6 +59,7 @@ public class MinionFormationFollowGoal extends Goal {
 	public static final double TELEPORT_DISTANCE_THRESHOLD = 24.0D;
 	public static final double TELEPORT_DISTANCE_THRESHOLD_SQ = TELEPORT_DISTANCE_THRESHOLD * TELEPORT_DISTANCE_THRESHOLD; // 576.0D
 	public static final double COMBAT_LEASH_OVERRIDE_SQ = 256.0D; // 16 blocks
+	public static final double ASSAULT_LEASH_OVERRIDE_SQ = 2304.0D; // 48 blocks
 
 	public static final double YAW_ANCHOR_DISPLACEMENT_THRESHOLD_SQ = 0.04D; // 0.2 blocks squared (0.2 * 0.2)
 	private static final Map<UUID, FormationAnchor> FORMATION_ANCHORS = new ConcurrentHashMap<>();
@@ -85,6 +85,12 @@ public class MinionFormationFollowGoal extends Goal {
 
 		// Minions holding a designated waypoint anchor post yield to WaypointHoldGoal / SentinelGuardGoal
 		if (this.minion.getGuardAnchorPos() != null) {
+			return false;
+		}
+
+		// During active mass assault, minions relentlessly pursue targets across the battlefield;
+		// do not disengage or return to formation until all targets are slain or minion is recalled/estranged (>48 blocks)
+		if (this.minion.hasAssaultTargets() && this.minion.squaredDistanceTo(owner) < ASSAULT_LEASH_OVERRIDE_SQ) {
 			return false;
 		}
 
@@ -117,6 +123,12 @@ public class MinionFormationFollowGoal extends Goal {
 			return false;
 		}
 
+		// During active mass assault, minions relentlessly pursue targets across the battlefield;
+		// do not disengage or return to formation until all targets are slain or minion is recalled/estranged (>48 blocks)
+		if (this.minion.hasAssaultTargets() && this.minion.squaredDistanceTo(owner) < ASSAULT_LEASH_OVERRIDE_SQ) {
+			return false;
+		}
+
 		LivingEntity target = this.minion.getTarget();
 		if (target != null && target.isAlive() && this.minion.squaredDistanceTo(owner) < COMBAT_LEASH_OVERRIDE_SQ) {
 			return false;
@@ -133,10 +145,22 @@ public class MinionFormationFollowGoal extends Goal {
 	public void start() {
 		this.navigationTimer = 0;
 		this.rankUpdateCooldown = 0;
+		LivingEntity owner = this.minion.getOwner();
+		if (owner != null) {
+			Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
+			double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
+			Vec3d targetStation = new Vec3d(station.x, walkableY, station.z);
+			this.minion.setActiveTraversalDestination(targetStation);
+			double dy = walkableY - this.minion.getY();
+			if (dy > 1.25D || dy < -1.5D) {
+				this.minion.setArcaneLevitating(true);
+			}
+		}
 	}
 
 	@Override
 	public void stop() {
+		this.minion.clearActiveTraversalDestination();
 		this.minion.getNavigation().stop();
 	}
 
@@ -166,6 +190,9 @@ public class MinionFormationFollowGoal extends Goal {
 
 		Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
 		double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
+		Vec3d targetStation = new Vec3d(station.x, walkableY, station.z);
+		this.minion.setActiveTraversalDestination(targetStation);
+
 		double distToStationSq = this.minion.squaredDistanceTo(station.x, walkableY, station.z);
 
 		// Arrival station check: stop within 2 blocks
@@ -174,14 +201,21 @@ public class MinionFormationFollowGoal extends Goal {
 			return;
 		}
 
+		double dy = walkableY - this.minion.getY();
+		if (dy > 1.25D || dy < -1.5D) {
+			this.minion.setArcaneLevitating(true);
+		}
+
 		// Dynamic pacing: sprint at 1.35D when lagging behind (>8 blocks), else march at 1.15D
 		double speed = (distToOwnerSq > SPRINT_DISTANCE_THRESHOLD_SQ || distToStationSq > SPRINT_DISTANCE_THRESHOLD_SQ)
 			? SPRINT_SPEED
 			: MARCH_SPEED;
 
-		if (--this.navigationTimer <= 0) {
-			this.navigationTimer = NAVIGATION_REPATH_INTERVAL;
-			this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, speed);
+		if (!this.minion.isArcaneLevitating()) {
+			if (--this.navigationTimer <= 0) {
+				this.navigationTimer = NAVIGATION_REPATH_INTERVAL;
+				this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, speed);
+			}
 		}
 	}
 
@@ -389,46 +423,34 @@ public class MinionFormationFollowGoal extends Goal {
 
 	/**
 	 * Calculates local (forward, flank) offset relative to the commander's facing direction.
-	 * Positive forward is in front of the commander, positive flank is to the right.
+	 * Formations are structured in straight, parallel military battle ranks (lines of 4 units):
+	 * <ul>
+	 *   <li><b>Frontline Ranks (Warriors):</b> Straight battle lines ahead of commander (+4.0 forward, -2.0 per subsequent rank).</li>
+	 *   <li><b>Midline Escort Ranks (Sentinels):</b> Flanking battle lines guarding commander (+1.8 forward, -2.0 per subsequent rank).</li>
+	 *   <li><b>Rearguard Support Ranks (Builders & Miners):</b> Support column lines behind commander (-2.5 forward, -2.0 per subsequent rank).</li>
+	 * </ul>
 	 *
 	 * @param role The archetype role of the minion.
 	 * @param rank The deterministic 0-based rank within that role.
 	 * @return A 3D vector where x = forwardOffset (blocks) and z = flankOffset (blocks).
 	 */
 	public static Vec3d calculateFormationOffset(MinionRole role, int rank) {
-		int side = (rank % 2 == 0) ? -1 : 1;
-		int tier = rank / 2;
+		int lineIndex = rank / 4;
+		int posInLine = rank % 4;
+		int side = (posInLine % 2 == 0) ? -1 : 1;
+		double colSpacing = (posInLine < 2) ? 1.35D : 3.60D;
+		double flankOffset = side * colSpacing;
 
-		double forwardOffset;
-		double flankOffset;
-
+		double baseForward;
 		switch (role) {
-			case WARRIOR -> {
-				// Vanguard: forward-flanking wedge opening outward
-				forwardOffset = 3.5D - tier * 1.5D;
-				flankOffset = side * (1.5D + tier * 2.0D);
-			}
-			case SENTINEL -> {
-				// Bulwark: protective escort wings flanking the commander
-				forwardOffset = -tier * 1.5D;
-				flankOffset = side * (3.0D + tier * 1.5D);
-			}
-			case BUILDER, MINER -> {
-				// Core: tucked safely behind the commander and vanguard
-				forwardOffset = -2.5D - tier * 2.0D;
-				flankOffset = side * (1.5D + (tier % 2) * 1.0D);
-			}
-			case RANGER -> {
-				// Skirmishers: rearguard covering the rear with firing clearance
-				forwardOffset = -6.0D - tier * 1.5D;
-				flankOffset = side * (2.0D + tier * 2.0D);
-			}
-			default -> {
-				forwardOffset = -2.0D - tier * 1.5D;
-				flankOffset = side * (2.0D + tier * 1.5D);
-			}
+			case WARRIOR -> baseForward = 4.0D;
+			case SENTINEL -> baseForward = 1.8D;
+			case BUILDER -> baseForward = -2.0D;
+			case MINER -> baseForward = -4.2D;
+			default -> baseForward = -2.0D;
 		}
 
+		double forwardOffset = baseForward - (lineIndex * 2.0D);
 		return new Vec3d(forwardOffset, 0.0D, flankOffset);
 	}
 
@@ -480,9 +502,9 @@ public class MinionFormationFollowGoal extends Goal {
 		int blockX = MathHelper.floor(x);
 		int blockZ = MathHelper.floor(z);
 		int startY = MathHelper.floor(baseY);
-		BlockPos.Mutable mutable = new BlockPos.Mutable(blockX, startY + 2, blockZ);
+		BlockPos.Mutable mutable = new BlockPos.Mutable(blockX, startY + 4, blockZ);
 
-		for (int dy = 2; dy >= -3; dy--) {
+		for (int dy = 4; dy >= -8; dy--) {
 			mutable.setY(startY + dy);
 			BlockState state = world.getBlockState(mutable);
 			BlockState stateBelow = world.getBlockState(mutable.down());

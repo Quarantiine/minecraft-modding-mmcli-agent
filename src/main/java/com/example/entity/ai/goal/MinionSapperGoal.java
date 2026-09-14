@@ -116,6 +116,11 @@ public class MinionSapperGoal extends Goal {
 			return false;
 		}
 
+		// Suppress sapper behavior if the minion is currently levitating (Arcane Levitation or Obstacle Vault)
+		if (this.minion.isArcaneLevitating()) {
+			return false;
+		}
+
 		if (this.checkCooldown > 0) {
 			this.checkCooldown--;
 			return false;
@@ -136,6 +141,9 @@ public class MinionSapperGoal extends Goal {
 					return !this.plannedBlocks.isEmpty();
 				}
 			}
+			// Builders never self-deploy sapper scaffolding; they use Arcane Levitation
+			// and Universal Obstacle Vaulting instead. Only signal-assist bridging (above) is permitted.
+			return false;
 		}
 
 		// 2. Resolve active destination (combat target, waypoint anchor, or owner)
@@ -240,6 +248,10 @@ public class MinionSapperGoal extends Goal {
 			return false;
 		}
 		if (isSuppressedByConstruction()) {
+			return false;
+		}
+		// Abort sapper if minion began levitating (e.g. obstacle vault triggered)
+		if (this.minion.isArcaneLevitating()) {
 			return false;
 		}
 		if (this.state == SapperState.CLIMBING) {
@@ -389,17 +401,8 @@ public class MinionSapperGoal extends Goal {
 					break;
 				}
 
-				BlockState placedState;
-				if (consumedStack != null && consumedStack.isOf(ModBlocks.CONSTRUCTION_BLOCK.asItem())) {
-					placedState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
-				} else if (consumedStack != null && consumedStack.isOf(Items.SCAFFOLDING)) {
-					placedState = Blocks.SCAFFOLDING.getDefaultState()
-						.with(ScaffoldingBlock.DISTANCE, 0)
-						.with(ScaffoldingBlock.BOTTOM, false);
-				} else {
-					// Zero-cost builder placement defaults to ModBlocks.CONSTRUCTION_BLOCK for superior solidity & non-collapsing properties
-					placedState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
-				}
+				// Standardize on ModBlocks.CONSTRUCTION_BLOCK for solid-top support, non-collapsing spans, and reliable AI climbing
+				BlockState placedState = ModBlocks.CONSTRUCTION_BLOCK.getDefaultState();
 
 				world.setBlockState(pos, placedState, Block.NOTIFY_ALL);
 				TraversalScaffoldingManager.getInstance().registerScaffolding(world, pos);
@@ -480,6 +483,10 @@ public class MinionSapperGoal extends Goal {
 	 * is a BUILDER or MINER currently engaged in or near an active construction session.
 	 * Prevents minions from misidentifying structure walls as natural cliffs and deploying
 	 * erratic traversal bridges instead of executing their planned construction/dismantle tasks.
+	 *
+	 * <p>Note: Builders are additionally excluded from <em>self-deploying</em> scaffolding
+	 * in {@link #canStart()} (they use Arcane Levitation and Obstacle Vaulting instead).
+	 * This method only governs the construction-session engagement check for miners.
 	 *
 	 * @return True if sapper behavior should be suppressed in favor of construction AI.
 	 */

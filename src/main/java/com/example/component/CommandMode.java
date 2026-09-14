@@ -16,7 +16,6 @@ import net.minecraft.util.function.ValueLists;
 public enum CommandMode implements StringIdentifiable {
 	FOLLOW("follow", 0.8F, "Follow", "§a"),
 	STAY("stay", 1.0F, "Stay", "§e"),
-	ATTACK("attack", 1.2F, "Attack", "§c"),
 	MINE("mine", 1.4F, "Mine", "§6"),
 	BUILD("build", 1.6F, "Build", "§b"),
 	RECRUIT("recruit", 1.8F, "Recruit", "§d");

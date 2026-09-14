@@ -33,7 +33,6 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.fromId(1));
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(2));
 		Assertions.assertEquals(MinionRole.MINER, MinionRole.fromId(3));
-		Assertions.assertEquals(MinionRole.RANGER, MinionRole.fromId(4));
 
 		// Fallback for out-of-bounds IDs defaults to WARRIOR
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.fromId(99));
@@ -43,12 +42,10 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.WARRIOR.next());
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.SENTINEL.next());
 		Assertions.assertEquals(MinionRole.MINER, MinionRole.BUILDER.next());
-		Assertions.assertEquals(MinionRole.RANGER, MinionRole.MINER.next());
-		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.RANGER.next());
+		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.MINER.next());
 
 		// Reverse cycling
-		Assertions.assertEquals(MinionRole.RANGER, MinionRole.WARRIOR.previous());
-		Assertions.assertEquals(MinionRole.MINER, MinionRole.RANGER.previous());
+		Assertions.assertEquals(MinionRole.MINER, MinionRole.WARRIOR.previous());
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.MINER.previous());
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.BUILDER.previous());
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.SENTINEL.previous());
@@ -58,14 +55,13 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.sentinel", MinionRole.SENTINEL.getTranslationKey());
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.builder", MinionRole.BUILDER.getTranslationKey());
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.miner", MinionRole.MINER.getTranslationKey());
-		Assertions.assertEquals("role.modid-mmcli-agent-modding.ranger", MinionRole.RANGER.getTranslationKey());
 	}
 
 	@Test
 	@DisplayName("Validate MinionRole cyclic algebra invariants")
 	void testMinionRoleCyclicInvariants() {
 		MinionRole[] roles = MinionRole.values();
-		Assertions.assertEquals(5, roles.length);
+		Assertions.assertEquals(4, roles.length);
 
 		for (MinionRole role : roles) {
 			// Invariant 1: Cycling length times returns to original
@@ -303,7 +299,7 @@ public class MinionSquadAndRoleTest {
 		List<MockMinion> army = List.of(
 			// Alive units belonging to commander
 			new MockMinion(1, commanderId, true, SquadGroup.ALPHA, MinionRole.WARRIOR),
-			new MockMinion(2, commanderId, true, SquadGroup.ALPHA, MinionRole.RANGER),
+			new MockMinion(2, commanderId, true, SquadGroup.ALPHA, MinionRole.WARRIOR),
 			new MockMinion(3, commanderId, true, SquadGroup.BRAVO, MinionRole.SENTINEL),
 			new MockMinion(4, commanderId, true, SquadGroup.CHARLIE, MinionRole.BUILDER),
 			new MockMinion(5, commanderId, true, SquadGroup.DELTA, MinionRole.MINER),
@@ -784,7 +780,7 @@ public class MinionSquadAndRoleTest {
 		// 10 living thralls for rival commander in each squad (40 rival total)
 		for (SquadGroup squad : SquadGroup.getSelectableSquads()) {
 			for (int i = 0; i < 10; i++) {
-				largeArmy.add(new MockMinion(idCounter++, rivalCommander, true, squad, MinionRole.RANGER));
+				largeArmy.add(new MockMinion(idCounter++, rivalCommander, true, squad, MinionRole.WARRIOR));
 			}
 		}
 

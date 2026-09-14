@@ -24,9 +24,11 @@ import org.joml.Matrix4f;
  * <ul>
  *   <li><b>Squad Banner</b> (Top): Displays squad channel flag, name, and Roman numeral (e.g. {@code ⚑ SQUAD ALPHA [I]})
  *       tinted with the squad's distinctive banner color.</li>
- *   <li><b>Role Crest & Lettering</b> (Bottom): Displays tactical archetype icon and uppercase role lettering
- *       (e.g. {@code ⚔ WARRIOR}, {@code 🛡 SENTINEL}, {@code 🔨 BUILDER}, {@code ⛏ MINER}, {@code 🏹 RANGER}),
+ *   <li><b>Role Crest & Lettering</b> (Middle): Displays tactical archetype icon and uppercase role lettering
+ *       (e.g. {@code ⚔ WARRIOR}, {@code 🛡 SENTINEL}, {@code 🔨 BUILDER}, {@code ⛏ MINER}),
  *       with an optional status indicator ({@code [HOLD]}) when holding position.</li>
+ *   <li><b>Hearts Health Display</b> (Bottom): Displays dynamic Minecraft heart glyphs and HP numbers
+ *       (e.g. {@code §c❤❤❤❤❤§8❤❤❤❤❤ §f20/40}) reflecting current health in real time.</li>
  * </ul>
  * <p>
  * Billboards directly toward the active player camera using {@link EntityRenderDispatcher#getRotation()},
@@ -46,6 +48,8 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 	public static final float TEXT_SCALE = 0.025F;
 	public static final float MODEL_SCALE = 0.9375F;
 	public static final float LINE_SPACING = 11.0F;
+	public static final int TOTAL_HEARTS = 10;
+	public static final String HEART_GLYPH = "❤";
 
 	private final TextRenderer textRenderer;
 	private final EntityRenderDispatcher dispatcher;
@@ -105,6 +109,7 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 
 		Text squadBannerText = getSquadBanner(squad, entity.isSelected());
 		Text roleCrestText = getRoleCrest(role, entity.isHoldingPosition());
+		Text healthDisplayText = getHealthDisplay(entity.getHealth(), entity.getMaxHealth());
 
 		matrices.push();
 
@@ -157,6 +162,10 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 		float x2 = -width2 / 2.0F;
 		float y2 = 0.0F;
 
+		float width3 = this.textRenderer.getWidth(healthDisplayText);
+		float x3 = -width3 / 2.0F;
+		float y3 = LINE_SPACING;
+
 		// Vanilla two-pass nametag rendering pipeline:
 		// Pass 1: SEE_THROUGH translucent pass with background plate (color 553648127 / 0x20FFFFFF)
 		this.textRenderer.draw(
@@ -175,6 +184,18 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 			roleCrestText,
 			x2,
 			y2,
+			553648127,
+			false,
+			matrix4f,
+			vertexConsumers,
+			TextRenderer.TextLayerType.SEE_THROUGH,
+			backgroundColor,
+			LightmapTextureManager.MAX_LIGHT_COORDINATE
+		);
+		this.textRenderer.draw(
+			healthDisplayText,
+			x3,
+			y3,
 			553648127,
 			false,
 			matrix4f,
@@ -210,6 +231,18 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 				0,
 				LightmapTextureManager.MAX_LIGHT_COORDINATE
 			);
+			this.textRenderer.draw(
+				healthDisplayText,
+				x3,
+				y3,
+				-1,
+				false,
+				matrix4f,
+				vertexConsumers,
+				TextRenderer.TextLayerType.NORMAL,
+				0,
+				LightmapTextureManager.MAX_LIGHT_COORDINATE
+			);
 		}
 
 		matrices.pop();
@@ -236,6 +269,73 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 	public static Text getSquadBanner(SquadGroup squad, boolean isSelected) {
 		String prefix = isSelected ? "§6★ " : "";
 		return Text.literal(prefix + squad.getColorCode() + squad.getSquadBanner());
+	}
+
+	/**
+	 * Formats the overhead hearts health display containing red heart glyphs for filled health,
+	 * dark gray heart glyphs for missing health, and exact numeric current/max HP values.
+	 * <p>
+	 * Example outputs:
+	 * <ul>
+	 *   <li>Full Health (40/40): {@code §c❤❤❤❤❤❤❤❤❤❤ §f40/40}</li>
+	 *   <li>Half Health (20/40): {@code §c❤❤❤❤❤§8❤❤❤❤❤ §f20/40}</li>
+	 *   <li>Zero Health (0/40): {@code §8❤❤❤❤❤❤❤❤❤❤ §f0/40}</li>
+	 * </ul>
+	 *
+	 * @param health    Current health of the minion.
+	 * @param maxHealth Maximum health of the minion.
+	 * @return Colored text component rendering the heart glyphs and HP numbers.
+	 */
+	public static Text getHealthDisplay(float health, float maxHealth) {
+		float max = Math.max(1.0F, maxHealth);
+		float current = Math.max(0.0F, Math.min(health, max));
+		float ratio = current / max;
+
+		int filledHearts = Math.min(TOTAL_HEARTS, Math.max(0, Math.round(ratio * TOTAL_HEARTS)));
+		// Guard edge cases so damaged health never appears 100% full, and living minion never appears 100% dead
+		if (current > 0.0F && filledHearts == 0) {
+			filledHearts = 1;
+		} else if (current < max && filledHearts == TOTAL_HEARTS && current > 0.0F) {
+			filledHearts = TOTAL_HEARTS - 1;
+		}
+
+		int emptyHearts = TOTAL_HEARTS - filledHearts;
+
+		int currentHp = Math.round(current);
+		int maxHp = Math.round(max);
+		if (current > 0.0F && currentHp == 0) {
+			currentHp = 1;
+		}
+
+		StringBuilder sb = new StringBuilder();
+		if (filledHearts > 0) {
+			sb.append("§c");
+			for (int i = 0; i < filledHearts; i++) {
+				sb.append(HEART_GLYPH);
+			}
+		}
+		if (emptyHearts > 0) {
+			sb.append("§8");
+			for (int i = 0; i < emptyHearts; i++) {
+				sb.append(HEART_GLYPH);
+			}
+		}
+		sb.append(" §f").append(currentHp).append("/").append(maxHp);
+
+		return Text.literal(sb.toString());
+	}
+
+	/**
+	 * Formats the overhead hearts health display for a given minion entity.
+	 *
+	 * @param minion The minion entity to query.
+	 * @return Colored text component rendering the heart glyphs and HP numbers.
+	 */
+	public static Text getHealthDisplay(MinionEntity minion) {
+		if (minion == null) {
+			return getHealthDisplay(0.0F, 1.0F);
+		}
+		return getHealthDisplay(minion.getHealth(), minion.getMaxHealth());
 	}
 
 	/**

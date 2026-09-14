@@ -10,6 +10,7 @@ import com.example.network.DismissMinionPayload;
 import com.example.network.TeleportMinionPayload;
 import com.example.network.UpdateMinionConfigPayload;
 import com.example.network.UpdateScepterPayload;
+import java.util.Optional;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 
 /**
@@ -24,6 +25,43 @@ public class ModClientNetworking {
 	 */
 	public static void registerClientNetworking() {
 		ExampleModClient.LOGGER.info("Registering Client Networking handlers for {}", ExampleMod.MOD_ID);
+		ClientPlayNetworking.registerGlobalReceiver(
+			com.example.network.SyncConstructionSessionPayload.ID,
+			(payload, context) -> context.client().execute(() -> com.example.client.renderer.ClientConstructionTracker.addSession(payload))
+		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			com.example.network.EndConstructionSessionPayload.ID,
+			(payload, context) -> context.client().execute(() -> com.example.client.renderer.ClientConstructionTracker.removeSession(payload.sessionId()))
+		);
+	}
+
+	/**
+	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server including squad filtering, rotation, and target archetype role.
+	 *
+	 * @param mode             The updated {@link CommandMode}.
+	 * @param blueprintId      The active architectural blueprint identifier.
+	 * @param targetSquad      The active target {@link SquadGroup} filter channel.
+	 * @param rotation         The structure rotation index (0 -> 0°, 1 -> 90°, 2 -> 180°, 3 -> 270°).
+	 * @param targetRole       Optional target {@link MinionRole} archetype for mass role transformation.
+	 * @param executeDirective True if immediate directive execution is requested.
+	 */
+	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, int rotation, Optional<MinionRole> targetRole, boolean executeDirective) {
+		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, targetSquad, rotation, targetRole, executeDirective);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches an {@link UpdateScepterPayload} with nullable target archetype role.
+	 *
+	 * @param mode             The updated {@link CommandMode}.
+	 * @param blueprintId      The active architectural blueprint identifier.
+	 * @param targetSquad      The active target {@link SquadGroup} filter channel.
+	 * @param rotation         The structure rotation index (0 -> 0°, 1 -> 90°, 2 -> 180°, 3 -> 270°).
+	 * @param targetRole       Nullable target {@link MinionRole} archetype for mass role transformation.
+	 * @param executeDirective True if immediate directive execution is requested.
+	 */
+	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, int rotation, MinionRole targetRole, boolean executeDirective) {
+		sendUpdateScepter(mode, blueprintId, targetSquad, rotation, Optional.ofNullable(targetRole), executeDirective);
 	}
 
 	/**
@@ -117,5 +155,33 @@ public class ModClientNetworking {
 	public static void sendDeselectAllMinions() {
 		DeselectMinionsPayload payload = new DeselectMinionsPayload(-1, true);
 		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.MassRolePayload} to assign an archetype role to all selected minions.
+	 *
+	 * @param role        The newly assigned archetype role.
+	 * @param targetSquad The target squad channel filter.
+	 */
+	public static void sendMassRole(MinionRole role, SquadGroup targetSquad) {
+		com.example.network.MassRolePayload payload = new com.example.network.MassRolePayload(role, targetSquad);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.RetreatPayload} to recall active minions to formation.
+	 *
+	 * @param targetSquad The target squad channel filter.
+	 */
+	public static void sendRetreat(SquadGroup targetSquad) {
+		com.example.network.RetreatPayload payload = new com.example.network.RetreatPayload(targetSquad != null ? targetSquad : SquadGroup.ALL);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.RetreatPayload} to recall all active minions to formation.
+	 */
+	public static void sendRetreat() {
+		sendRetreat(SquadGroup.ALL);
 	}
 }

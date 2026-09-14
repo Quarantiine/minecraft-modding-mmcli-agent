@@ -241,12 +241,12 @@ public class CommandScepterRotationTest {
 	@DisplayName("Sneak left-click mode dispatch invariant: BUILD mode cycles rotation, others deselect (Refinement 5)")
 	void testSneakLeftClickDispatchInvariant() {
 		CommandMode buildMode = CommandMode.BUILD;
-		CommandMode attackMode = CommandMode.ATTACK;
+		CommandMode stayMode = CommandMode.STAY;
 		CommandMode followMode = CommandMode.FOLLOW;
 
 		// Dispatch assertion
 		Assertions.assertTrue(buildMode == CommandMode.BUILD, "BUILD mode must cycle rotation");
-		Assertions.assertFalse(attackMode == CommandMode.BUILD, "ATTACK mode must deselect minions");
+		Assertions.assertFalse(stayMode == CommandMode.BUILD, "STAY mode must deselect minions");
 		Assertions.assertFalse(followMode == CommandMode.BUILD, "FOLLOW mode must deselect minions");
 	}
 }

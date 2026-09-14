@@ -9,7 +9,6 @@
 
   "mode.modid-mmcli-agent-modding.follow": "Follow",
   "mode.modid-mmcli-agent-modding.stay": "Stay",
-  "mode.modid-mmcli-agent-modding.attack": "Attack",
   "mode.modid-mmcli-agent-modding.mine": "Mine",
   "mode.modid-mmcli-agent-modding.build": "Build",
   "mode.modid-mmcli-agent-modding.recruit": "Recruit",
@@ -18,7 +17,6 @@
   "role.modid-mmcli-agent-modding.sentinel": "Sentinel",
   "role.modid-mmcli-agent-modding.builder": "Builder",
   "role.modid-mmcli-agent-modding.miner": "Miner",
-  "role.modid-mmcli-agent-modding.ranger": "Ranger",
 
   "squad.modid-mmcli-agent-modding.all": "All Squads",
   "squad.modid-mmcli-agent-modding.alpha": "Squad Alpha",
@@ -32,6 +30,7 @@
 
   "category.modid-mmcli-agent-modding.general": "Loki Minion Control",
   "key.modid-mmcli-agent-modding.command_hub": "Open Minion Command Hub",
+  "key.modid-mmcli-agent-modding.retreat": "Tactical Retreat / Regroup",
   "gui.modid-mmcli-agent-modding.command_hub.title": "Loki Command Hub",
   "gui.modid-mmcli-agent-modding.command_hub.execute": "Execute",
   "gui.modid-mmcli-agent-modding.command_hub.close": "Close",
@@ -43,6 +42,9 @@
   "gui.modid-mmcli-agent-modding.minion.teleport": "Teleport to Me",
   "gui.modid-mmcli-agent-modding.minion.dismiss": "Dismiss",
   "gui.modid-mmcli-agent-modding.minion.dismiss_all": "Dismiss All Minions",
+  "gui.modid-mmcli-agent-modding.minion.destroy": "Destroy",
+  "gui.modid-mmcli-agent-modding.minion.destroy_all": "Destroy All Minions",
+  "gui.modid-mmcli-agent-modding.minion.cancel": "Cancel",
   "gui.modid-mmcli-agent-modding.minion.role": "Role: %s",
   "gui.modid-mmcli-agent-modding.minion.squad": "Squad: %s",
   "gui.modid-mmcli-agent-modding.command_hub.squad_filter": "Squad Channel: %s",
@@ -91,5 +93,7 @@
   "tooltip.modid-mmcli-agent-modding.command_hub.close_desc": "Close the Command Hub [Shift / Esc / E]",
   "tooltip.modid-mmcli-agent-modding.minion_screen.teleport_desc": "Teleports this minion directly to your current position.",
   "tooltip.modid-mmcli-agent-modding.minion_screen.dismiss_desc": "Dismisses this minion, releasing all held and equipped gear.",
+  "tooltip.modid-mmcli-agent-modding.minion_screen.destroy_desc": "Permanently destroys this minion thrall.",
+  "tooltip.modid-mmcli-agent-modding.minion_screen.cancel_desc": "Close this screen without making changes.",
   "tooltip.modid-mmcli-agent-modding.minion.sneak_right_click": "Sneak + Right-Click: Open Minion Inventory & Equipment"
 }

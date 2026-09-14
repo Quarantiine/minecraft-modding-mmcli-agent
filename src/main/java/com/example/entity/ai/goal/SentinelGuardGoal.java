@@ -6,6 +6,7 @@ import java.util.EnumSet;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 
 /**
  * Tactical perimeter defense AI goal for {@link MinionEntity} thralls assigned the {@link MinionRole#SENTINEL} role.
@@ -121,10 +122,16 @@ public class SentinelGuardGoal extends Goal {
 			if (this.minion.getTarget() != null) {
 				this.minion.setTarget(null);
 			}
+			Vec3d anchorVec = new Vec3d(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D);
+			this.minion.setActiveTraversalDestination(anchorVec);
+			double dy = anchor.getY() - this.minion.getY();
+			if (dy > 1.25D || dy < -1.5D) {
+				this.minion.setArcaneLevitating(true);
+			}
 			this.minion.getNavigation().startMovingTo(
-				anchor.getX() + 0.5D,
-				anchor.getY(),
-				anchor.getZ() + 0.5D,
+				anchorVec.x,
+				anchorVec.y,
+				anchorVec.z,
 				SPRINT_SPEED
 			);
 		}
@@ -140,6 +147,8 @@ public class SentinelGuardGoal extends Goal {
 		double anchorCenterX = anchor.getX() + 0.5D;
 		double anchorCenterY = anchor.getY();
 		double anchorCenterZ = anchor.getZ() + 0.5D;
+		Vec3d anchorVec = new Vec3d(anchorCenterX, anchorCenterY, anchorCenterZ);
+		this.minion.setActiveTraversalDestination(anchorVec);
 
 		// Continually clear target if beyond leash
 		LivingEntity target = this.minion.getTarget();
@@ -153,7 +162,11 @@ public class SentinelGuardGoal extends Goal {
 
 		double distSq = this.minion.squaredDistanceTo(anchorCenterX, anchorCenterY, anchorCenterZ);
 		if (distSq > ARRIVAL_TOLERANCE_SQ) {
-			if (this.minion.getNavigation().isIdle()) {
+			double dy = anchorCenterY - this.minion.getY();
+			if (dy > 1.25D || dy < -1.5D) {
+				this.minion.setArcaneLevitating(true);
+			}
+			if (!this.minion.isArcaneLevitating() && this.minion.getNavigation().isIdle()) {
 				this.minion.getNavigation().startMovingTo(anchorCenterX, anchorCenterY, anchorCenterZ, SPRINT_SPEED);
 			}
 		} else {
@@ -164,6 +177,7 @@ public class SentinelGuardGoal extends Goal {
 
 	@Override
 	public void stop() {
+		this.minion.clearActiveTraversalDestination();
 		this.minion.getNavigation().stop();
 	}
 }

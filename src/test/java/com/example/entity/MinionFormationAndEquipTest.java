@@ -3,6 +3,9 @@ package com.example.entity;
 import com.example.entity.ai.goal.MinionFormationFollowGoal;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,86 +29,84 @@ public class MinionFormationAndEquipTest {
 	// =========================================================================
 
 	@Test
-	@DisplayName("Validate Vanguard (Warrior) forward-flanking wedge parametric geometry")
-	void testWarriorVanguardWedge() {
-		// Rank 0 (left point of wedge)
+	@DisplayName("Validate Frontline Rank (Warrior) straight army battle lines")
+	void testWarriorFrontlineLines() {
+		// Line 0 Warriors (all 4 units in rank 0..3 share identical forwardOffset = 4.0)
 		Vec3d rank0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.WARRIOR, 0);
-		Assertions.assertEquals(3.5D, rank0.x, 1e-5, "Rank 0 must be 3.5 blocks forward");
-		Assertions.assertEquals(-1.5D, rank0.z, 1e-5, "Rank 0 must be 1.5 blocks left");
-
-		// Rank 1 (right point of wedge)
 		Vec3d rank1 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.WARRIOR, 1);
-		Assertions.assertEquals(3.5D, rank1.x, 1e-5, "Rank 1 must be 3.5 blocks forward");
-		Assertions.assertEquals(1.5D, rank1.z, 1e-5, "Rank 1 must be 1.5 blocks right");
-
-		// Spacing between rank 0 and rank 1
-		double spacing01 = Math.hypot(rank0.x - rank1.x, rank0.z - rank1.z);
-		Assertions.assertEquals(3.0D, spacing01, 1e-5, "Front point spacing must be 3.0 blocks");
-
-		// Rank 2 (left flanking wing)
 		Vec3d rank2 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.WARRIOR, 2);
-		Assertions.assertEquals(2.0D, rank2.x, 1e-5, "Rank 2 should step back to 2.0 blocks forward");
-		Assertions.assertEquals(-3.5D, rank2.z, 1e-5, "Rank 2 flares left to -3.5 blocks");
-
-		// Rank 3 (right flanking wing)
 		Vec3d rank3 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.WARRIOR, 3);
-		Assertions.assertEquals(2.0D, rank3.x, 1e-5, "Rank 3 should step back to 2.0 blocks forward");
-		Assertions.assertEquals(3.5D, rank3.z, 1e-5, "Rank 3 flares right to 3.5 blocks");
 
-		// Wedge expands outward with rank: rank 2/3 must be wider than rank 0/1
-		Assertions.assertTrue(Math.abs(rank2.z) > Math.abs(rank0.z), "Wedge wings must flare wider than lead point");
+		Assertions.assertEquals(4.0D, rank0.x, 1e-5, "Rank 0 must be 4.0 blocks forward");
+		Assertions.assertEquals(-1.35D, rank0.z, 1e-5, "Rank 0 must be 1.35 blocks left");
+
+		Assertions.assertEquals(4.0D, rank1.x, 1e-5, "Rank 1 must be 4.0 blocks forward");
+		Assertions.assertEquals(1.35D, rank1.z, 1e-5, "Rank 1 must be 1.35 blocks right");
+
+		Assertions.assertEquals(4.0D, rank2.x, 1e-5, "Rank 2 must be in same straight line (4.0 blocks forward)");
+		Assertions.assertEquals(-3.60D, rank2.z, 1e-5, "Rank 2 flanks outer left (-3.60 blocks)");
+
+		Assertions.assertEquals(4.0D, rank3.x, 1e-5, "Rank 3 must be in same straight line (4.0 blocks forward)");
+		Assertions.assertEquals(3.60D, rank3.z, 1e-5, "Rank 3 flanks outer right (3.60 blocks)");
+
+		// Line 1 Warrior steps back by 2.0 blocks
+		Vec3d rank4 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.WARRIOR, 4);
+		Assertions.assertEquals(2.0D, rank4.x, 1e-5, "Rank 4 (Line 1) must be 2.0 blocks forward");
 	}
 
 	@Test
-	@DisplayName("Validate Bulwark (Sentinel) escort wings flanking commander")
-	void testSentinelEscortWings() {
-		// Tier 0 Sentinels: flanking left and right at player level
+	@DisplayName("Validate Midline Escort (Sentinel) straight army battle lines")
+	void testSentinelMidlineEscort() {
 		Vec3d rank0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.SENTINEL, 0);
 		Vec3d rank1 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.SENTINEL, 1);
-
-		Assertions.assertEquals(0.0D, rank0.x, 1e-5, "Rank 0 must be level with commander forward position");
-		Assertions.assertEquals(-3.0D, rank0.z, 1e-5, "Rank 0 must flank 3.0 blocks to the left");
-
-		Assertions.assertEquals(0.0D, rank1.x, 1e-5, "Rank 1 must be level with commander forward position");
-		Assertions.assertEquals(3.0D, rank1.z, 1e-5, "Rank 1 must flank 3.0 blocks to the right");
-
-		// Tier 1 Sentinels: slightly behind and wider
 		Vec3d rank2 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.SENTINEL, 2);
-		Assertions.assertEquals(-1.5D, rank2.x, 1e-5, "Rank 2 must step slightly behind commander");
-		Assertions.assertEquals(-4.5D, rank2.z, 1e-5, "Rank 2 flanks 4.5 blocks to the left");
+
+		Assertions.assertEquals(1.8D, rank0.x, 1e-5, "Sentinel rank 0 must be 1.8 blocks forward");
+		Assertions.assertEquals(-1.35D, rank0.z, 1e-5, "Sentinel rank 0 must flank 1.35 blocks left");
+
+		Assertions.assertEquals(1.8D, rank1.x, 1e-5, "Sentinel rank 1 must be 1.8 blocks forward");
+		Assertions.assertEquals(1.35D, rank1.z, 1e-5, "Sentinel rank 1 must flank 1.35 blocks right");
+
+		Assertions.assertEquals(1.8D, rank2.x, 1e-5, "Sentinel rank 2 must share straight line at 1.8 blocks forward");
+		Assertions.assertEquals(-3.60D, rank2.z, 1e-5, "Sentinel rank 2 must flank 3.60 blocks left");
 	}
 
 	@Test
-	@DisplayName("Validate Core (Builder & Miner) tucked safely behind vanguard")
+	@DisplayName("Validate Rearguard Support (Builder & Miner) straight army lines behind commander")
 	void testCoreSupportPlacement() {
 		Vec3d builder0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.BUILDER, 0);
 		Vec3d miner0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.MINER, 0);
 
 		// Core starts behind the commander
 		Assertions.assertTrue(builder0.x < 0, "Builder must be behind commander (negative forward)");
-		Assertions.assertEquals(-2.5D, builder0.x, 1e-5);
-		Assertions.assertEquals(-2.5D, miner0.x, 1e-5);
+		Assertions.assertEquals(-2.0D, builder0.x, 1e-5);
+		Assertions.assertEquals(-4.2D, miner0.x, 1e-5);
 
-		// Core width is narrow to stay protected between escort wings
-		Assertions.assertTrue(Math.abs(builder0.z) <= 2.5D, "Core must remain tucked between flank escort wings");
+		// Col spacing is 1.35 on inner pair
+		Assertions.assertEquals(-1.35D, builder0.z, 1e-5);
+		Assertions.assertEquals(-1.35D, miner0.z, 1e-5);
 	}
 
 	@Test
-	@DisplayName("Validate Skirmisher (Ranger) rearguard placement")
-	void testRangerRearguardPlacement() {
-		Vec3d rank0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.RANGER, 0);
-		Vec3d rank1 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.RANGER, 1);
+	@DisplayName("Validate Ranked Army Line Formations: straight parallel battle ranks with uniform forward offset per line")
+	void testRankedArmyLineFormation() {
+		for (MinionRole role : MinionRole.values()) {
+			for (int line = 0; line < 3; line++) {
+				Vec3d u0 = MinionFormationFollowGoal.calculateFormationOffset(role, line * 4);
+				Vec3d u1 = MinionFormationFollowGoal.calculateFormationOffset(role, line * 4 + 1);
+				Vec3d u2 = MinionFormationFollowGoal.calculateFormationOffset(role, line * 4 + 2);
+				Vec3d u3 = MinionFormationFollowGoal.calculateFormationOffset(role, line * 4 + 3);
 
-		// Rangers must be at deep rearguard (> 5 blocks behind commander)
-		Assertions.assertEquals(-6.0D, rank0.x, 1e-5, "Ranger rank 0 must hold station at -6.0 blocks rear");
-		Assertions.assertEquals(-2.0D, rank0.z, 1e-5, "Ranger rank 0 holds left rear line");
+				// All 4 units in the line must share the exact same forwardOffset to form a straight line
+				Assertions.assertEquals(u0.x, u1.x, 1e-5, role + " Line " + line + " units must form straight line");
+				Assertions.assertEquals(u0.x, u2.x, 1e-5, role + " Line " + line + " units must form straight line");
+				Assertions.assertEquals(u0.x, u3.x, 1e-5, role + " Line " + line + " units must form straight line");
 
-		Assertions.assertEquals(-6.0D, rank1.x, 1e-5, "Ranger rank 1 must hold station at -6.0 blocks rear");
-		Assertions.assertEquals(2.0D, rank1.z, 1e-5, "Ranger rank 1 holds right rear line");
-
-		// Tier 1 Ranger steps further back
-		Vec3d rank2 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.RANGER, 2);
-		Assertions.assertTrue(rank2.x < rank0.x, "Higher rank rangers must extend the rearguard further back");
+				// Symmetrical lateral positions
+				Assertions.assertEquals(-u0.z, u1.z, 1e-5, "Inner pair must be symmetrical across center");
+				Assertions.assertEquals(-u2.z, u3.z, 1e-5, "Outer pair must be symmetrical across center");
+			}
+		}
 	}
 
 	// =========================================================================
@@ -161,27 +162,27 @@ public class MinionFormationAndEquipTest {
 		double ownerY = 64.0D;
 		double ownerZ = 200.0D;
 
-		// Rank 0 Warrior: local forward = +3.5, local flank = -1.5
+		// Rank 0 Warrior: local forward = +4.0, local flank = -1.35
 
 		// 1. Yaw = 0 (Facing South, +Z): forward is +Z, flank-left is -X
 		Vec3d southPos = MinionFormationFollowGoal.calculateFormationStation(ownerX, ownerY, ownerZ, 0.0F, MinionRole.WARRIOR, 0);
-		Assertions.assertEquals(ownerX - 1.5D, southPos.x, 1e-4, "Facing South: left flank should be -X");
-		Assertions.assertEquals(ownerZ + 3.5D, southPos.z, 1e-4, "Facing South: forward should be +Z");
+		Assertions.assertEquals(ownerX - 1.35D, southPos.x, 1e-4, "Facing South: left flank should be -X");
+		Assertions.assertEquals(ownerZ + 4.0D, southPos.z, 1e-4, "Facing South: forward should be +Z");
 
 		// 2. Yaw = 180 (Facing North, -Z): forward is -Z, flank-left is +X
 		Vec3d northPos = MinionFormationFollowGoal.calculateFormationStation(ownerX, ownerY, ownerZ, 180.0F, MinionRole.WARRIOR, 0);
-		Assertions.assertEquals(ownerX + 1.5D, northPos.x, 1e-4, "Facing North: left flank should be +X");
-		Assertions.assertEquals(ownerZ - 3.5D, northPos.z, 1e-4, "Facing North: forward should be -Z");
+		Assertions.assertEquals(ownerX + 1.35D, northPos.x, 1e-4, "Facing North: left flank should be +X");
+		Assertions.assertEquals(ownerZ - 4.0D, northPos.z, 1e-4, "Facing North: forward should be -Z");
 
 		// 3. Yaw = 90 (Facing West, -X): forward is -X, flank-left is -Z
 		Vec3d westPos = MinionFormationFollowGoal.calculateFormationStation(ownerX, ownerY, ownerZ, 90.0F, MinionRole.WARRIOR, 0);
-		Assertions.assertEquals(ownerX - 3.5D, westPos.x, 1e-4, "Facing West: forward should be -X");
-		Assertions.assertEquals(ownerZ - 1.5D, westPos.z, 1e-4, "Facing West: left flank should be -Z");
+		Assertions.assertEquals(ownerX - 4.0D, westPos.x, 1e-4, "Facing West: forward should be -X");
+		Assertions.assertEquals(ownerZ - 1.35D, westPos.z, 1e-4, "Facing West: left flank should be -Z");
 
 		// 4. Yaw = 270 (Facing East, +X): forward is +X, flank-left is +Z
 		Vec3d eastPos = MinionFormationFollowGoal.calculateFormationStation(ownerX, ownerY, ownerZ, 270.0F, MinionRole.WARRIOR, 0);
-		Assertions.assertEquals(ownerX + 3.5D, eastPos.x, 1e-4, "Facing East: forward should be +X");
-		Assertions.assertEquals(ownerZ + 1.5D, eastPos.z, 1e-4, "Facing East: left flank should be +Z");
+		Assertions.assertEquals(ownerX + 4.0D, eastPos.x, 1e-4, "Facing East: forward should be +X");
+		Assertions.assertEquals(ownerZ + 1.35D, eastPos.z, 1e-4, "Facing East: left flank should be +Z");
 	}
 
 	// =========================================================================
@@ -228,8 +229,13 @@ public class MinionFormationAndEquipTest {
 	public static class TestAutoEquipLogic {
 		public static boolean canRoleAutoEquipMainhand(MinionRole role, TestItemCategory item) {
 			return switch (role) {
-				case RANGER -> item == TestItemCategory.RANGED_BOW || item == TestItemCategory.RANGED_CROSSBOW;
-				case WARRIOR, SENTINEL -> item == TestItemCategory.MELEE_SWORD
+				case WARRIOR -> item == TestItemCategory.MELEE_SWORD
+					|| item == TestItemCategory.MELEE_AXE
+					|| item == TestItemCategory.MELEE_MACE
+					|| item == TestItemCategory.MELEE_TRIDENT
+					|| item == TestItemCategory.RANGED_BOW
+					|| item == TestItemCategory.RANGED_CROSSBOW;
+				case SENTINEL -> item == TestItemCategory.MELEE_SWORD
 					|| item == TestItemCategory.MELEE_AXE
 					|| item == TestItemCategory.MELEE_MACE
 					|| item == TestItemCategory.MELEE_TRIDENT;
@@ -248,9 +254,6 @@ public class MinionFormationAndEquipTest {
 		public static boolean isPreferredMainhand(MinionRole role, TestItemCategory candidate, TestItemCategory current) {
 			if (current == null) return canRoleAutoEquipMainhand(role, candidate);
 
-			boolean candidateRanged = candidate == TestItemCategory.RANGED_BOW || candidate == TestItemCategory.RANGED_CROSSBOW;
-			boolean currentRanged = current == TestItemCategory.RANGED_BOW || current == TestItemCategory.RANGED_CROSSBOW;
-
 			boolean candidateMelee = candidate == TestItemCategory.MELEE_SWORD
 				|| candidate == TestItemCategory.MELEE_AXE
 				|| candidate == TestItemCategory.MELEE_MACE
@@ -261,8 +264,8 @@ public class MinionFormationAndEquipTest {
 				|| current == TestItemCategory.MELEE_TRIDENT;
 
 			return switch (role) {
-				case RANGER -> candidateRanged && !currentRanged;
-				case WARRIOR, SENTINEL -> candidateMelee && !currentMelee;
+				case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
+				case SENTINEL -> candidateMelee && !currentMelee;
 				case MINER -> (candidate == TestItemCategory.TOOL_PICKAXE) && (current != TestItemCategory.TOOL_PICKAXE);
 				case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 			};
@@ -278,37 +281,19 @@ public class MinionFormationAndEquipTest {
 	}
 
 	@Test
-	@DisplayName("Validate Ranger auto-equip: seeks bows/crossbows, rejects melee weapons")
-	void testRangerAutoEquipRestrictions() {
-		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.RANGER, TestItemCategory.RANGED_BOW));
-		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.RANGER, TestItemCategory.RANGED_CROSSBOW));
-
-		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.RANGER, TestItemCategory.MELEE_SWORD),
-			"Ranger must not auto-equip swords");
-		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.RANGER, TestItemCategory.MELEE_AXE),
-			"Ranger must not auto-equip axes");
-		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.RANGER, TestItemCategory.TOOL_PICKAXE),
-			"Ranger must not auto-equip pickaxes");
-
-		// Ranger swaps sword to bow
-		Assertions.assertTrue(TestAutoEquipLogic.isPreferredMainhand(MinionRole.RANGER, TestItemCategory.RANGED_BOW, TestItemCategory.MELEE_SWORD));
-	}
-
-	@Test
-	@DisplayName("Validate Warrior auto-equip: seeks swords/axes/maces, rejects ranged bows")
+	@DisplayName("Validate Warrior auto-equip: equips both melee (swords/axes/maces) and ranged (bows/crossbows)")
 	void testWarriorAutoEquipRestrictions() {
 		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.MELEE_SWORD));
 		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.MELEE_AXE));
 		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.MELEE_MACE));
 		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.MELEE_TRIDENT));
+		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.RANGED_BOW));
+		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.RANGED_CROSSBOW));
 
-		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.RANGED_BOW),
-			"Warrior must not auto-equip bows");
-		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.RANGED_CROSSBOW),
-			"Warrior must not auto-equip crossbows");
-
-		// Warrior swaps bow to sword
-		Assertions.assertTrue(TestAutoEquipLogic.isPreferredMainhand(MinionRole.WARRIOR, TestItemCategory.MELEE_SWORD, TestItemCategory.RANGED_BOW));
+		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.TOOL_PICKAXE),
+			"Warrior must not auto-equip pickaxes");
+		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.WARRIOR, TestItemCategory.TOOL_SHOVEL),
+			"Warrior must not auto-equip shovels");
 	}
 
 	@Test
@@ -361,14 +346,14 @@ public class MinionFormationAndEquipTest {
 			Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.ARMOR_BOOTS));
 
 			// Role-specific weapon compatibility
-			if (role == MinionRole.RANGER) {
+			if (role == MinionRole.WARRIOR) {
 				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_BOW));
 				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_CROSSBOW));
-				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_SWORD));
-				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_AXE));
+				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_SWORD));
+				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_AXE));
 				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.TOOL_PICKAXE));
 			} else {
-				// Non-ranger roles never equip ranged weapons
+				// Non-warrior roles never equip ranged weapons
 				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_BOW));
 				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_CROSSBOW));
 			}
@@ -389,6 +374,12 @@ public class MinionFormationAndEquipTest {
 			}
 
 			void autoEquip(MinionRole role) {
+				// 0. Active role enforcement: disarm invalid held weapon into storage
+				if (mainhand != null && !TestAutoEquipLogic.canRoleAutoEquipMainhand(role, mainhand)) {
+					storage.add(mainhand);
+					mainhand = null;
+				}
+
 				// Sentinel offhand priority
 				if (role == MinionRole.SENTINEL) {
 					for (int i = 0; i < storage.size(); i++) {
@@ -426,15 +417,15 @@ public class MinionFormationAndEquipTest {
 			}
 		}
 
-		// 1. Warrior starts with bow in mainhand, finds diamond sword in inventory
+		// 1. Warrior starts with pickaxe in mainhand, finds diamond sword in inventory
 		MockMinionInventory warriorInv = new MockMinionInventory();
-		warriorInv.mainhand = TestItemCategory.RANGED_BOW;
+		warriorInv.mainhand = TestItemCategory.TOOL_PICKAXE;
 		warriorInv.addItem(TestItemCategory.MELEE_SWORD);
 		int initialCount = warriorInv.totalItemCount();
 
 		warriorInv.autoEquip(MinionRole.WARRIOR);
 		Assertions.assertEquals(TestItemCategory.MELEE_SWORD, warriorInv.mainhand, "Warrior should equip sword");
-		Assertions.assertTrue(warriorInv.storage.contains(TestItemCategory.RANGED_BOW), "Displaced bow must return to inventory");
+		Assertions.assertTrue(warriorInv.storage.contains(TestItemCategory.TOOL_PICKAXE), "Displaced pickaxe must return to inventory");
 		Assertions.assertEquals(initialCount, warriorInv.totalItemCount(), "Total item count must be strictly invariant");
 
 		// 2. Sentinel with totem offhand finds shield
@@ -448,16 +439,34 @@ public class MinionFormationAndEquipTest {
 		Assertions.assertTrue(sentinelInv.storage.contains(TestItemCategory.OFFHAND_TOTEM), "Displaced totem must return to inventory");
 		Assertions.assertEquals(initialCount, sentinelInv.totalItemCount(), "Item count invariant preserved");
 
-		// 3. Ranger with sword finds bow
-		MockMinionInventory rangerInv = new MockMinionInventory();
-		rangerInv.mainhand = TestItemCategory.MELEE_SWORD;
-		rangerInv.addItem(TestItemCategory.RANGED_BOW);
-		initialCount = rangerInv.totalItemCount();
+		// 3. Warrior with shovel finds bow
+		MockMinionInventory warriorBowInv = new MockMinionInventory();
+		warriorBowInv.mainhand = TestItemCategory.TOOL_SHOVEL;
+		warriorBowInv.addItem(TestItemCategory.RANGED_BOW);
+		initialCount = warriorBowInv.totalItemCount();
 
-		rangerInv.autoEquip(MinionRole.RANGER);
-		Assertions.assertEquals(TestItemCategory.RANGED_BOW, rangerInv.mainhand, "Ranger should equip bow over sword");
-		Assertions.assertTrue(rangerInv.storage.contains(TestItemCategory.MELEE_SWORD), "Displaced sword preserved");
-		Assertions.assertEquals(initialCount, rangerInv.totalItemCount());
+		warriorBowInv.autoEquip(MinionRole.WARRIOR);
+		Assertions.assertEquals(TestItemCategory.RANGED_BOW, warriorBowInv.mainhand, "Warrior should equip bow over illegal shovel");
+		Assertions.assertTrue(warriorBowInv.storage.contains(TestItemCategory.TOOL_SHOVEL), "Displaced shovel preserved");
+		Assertions.assertEquals(initialCount, warriorBowInv.totalItemCount());
+
+		// 4. Sentinel with bow and empty storage disarms bow into storage
+		MockMinionInventory disarmInv = new MockMinionInventory();
+		disarmInv.mainhand = TestItemCategory.RANGED_BOW;
+		disarmInv.autoEquip(MinionRole.SENTINEL);
+		Assertions.assertNull(disarmInv.mainhand, "Sentinel must disarm illegal bow from mainhand");
+		Assertions.assertTrue(disarmInv.storage.contains(TestItemCategory.RANGED_BOW), "Disarmed bow must move to storage");
+	}
+
+	@Test
+	@DisplayName("Validate mob transfiguration clean-slate equipment invariant")
+	void testTransfigureCleanSlateEquipment() throws IOException {
+		Path scepterPath = Path.of("src/main/java/com/example/item/custom/CommandScepterItem.java");
+		String code = Files.readString(scepterPath);
+		Assertions.assertTrue(code.contains("minion.equipStack(slot, ItemStack.EMPTY)"),
+			"CommandScepterItem must initialize transfigured minions with empty equipment");
+		Assertions.assertFalse(code.contains("minion.equipStack(slot, equip.copy())"),
+			"CommandScepterItem must not copy mob equipment to recruited minion");
 	}
 
 	@Test
@@ -467,8 +476,8 @@ public class MinionFormationAndEquipTest {
 		double ownerY = 64.0D;
 		double ownerZ = 0.0D;
 
-		// Rank 0 Warrior: forward = 3.5, flank = -1.5 -> expected radial distance = sqrt(3.5^2 + 1.5^2) = sqrt(12.25 + 2.25) = sqrt(14.5) ≈ 3.80788655997
-		double expectedDistance = Math.hypot(3.5D, 1.5D);
+		// Rank 0 Warrior: forward = 4.0D, flank = -1.35D -> expected radial distance = sqrt(4.0^2 + 1.35^2)
+		double expectedDistance = Math.hypot(4.0D, 1.35D);
 
 		float[] testYaws = {0.0F, 45.0F, 90.0F, 135.0F, 180.0F, 225.0F, 270.0F, 315.0F, 360.0F, -90.0F, -180.0F};
 
@@ -481,11 +490,11 @@ public class MinionFormationAndEquipTest {
 	}
 
 	@Test
-	@DisplayName("Validate 16-thrall 4-echelon cohort pairwise formation collision spacing (>= 1.5 blocks)")
+	@DisplayName("Validate 12-thrall 3-echelon cohort pairwise formation collision spacing (>= 1.5 blocks)")
 	void testFullCohortCollisionExclusion() {
-		// Generate stations for 4 minions in each of the 4 tactical echelons (16 minions total):
-		// Vanguard (Warrior), Bulwark (Sentinel), Core (Builder), and Skirmisher (Ranger)
-		List<MinionRole> echelons = List.of(MinionRole.WARRIOR, MinionRole.SENTINEL, MinionRole.BUILDER, MinionRole.RANGER);
+		// Generate stations for 4 minions in each of the 3 tactical echelons (12 minions total):
+		// Frontline (Warrior), Midline Escort (Sentinel), and Rearguard Support (Builder)
+		List<MinionRole> echelons = List.of(MinionRole.WARRIOR, MinionRole.SENTINEL, MinionRole.BUILDER);
 		List<Vec3d> cohortStations = new ArrayList<>();
 		for (MinionRole role : echelons) {
 			for (int rank = 0; rank < 4; rank++) {
@@ -493,7 +502,7 @@ public class MinionFormationAndEquipTest {
 			}
 		}
 
-		Assertions.assertEquals(16, cohortStations.size(), "Cohort must comprise 16 stations across 4 echelons");
+		Assertions.assertEquals(12, cohortStations.size(), "Cohort must comprise 12 stations across 3 echelons");
 
 		// Every pair of stations across the tactical echelon cohort must maintain >= 1.50 blocks clearance
 		// (well above Minecraft biped 0.6 block collision width, completely preventing crowding)
@@ -790,15 +799,15 @@ public class MinionFormationAndEquipTest {
 		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligible3, w2, TestCohortUnit::getRole, TestCohortUnit::getId));
 		Assertions.assertEquals(1, MinionFormationFollowGoal.resolveRank(eligible3, w4, TestCohortUnit::getRole, TestCohortUnit::getId));
 
-		// Case 4: Multi-role isolation: Sentinels and Rangers do not interfere with Warrior ranks
+		// Case 4: Multi-role isolation: Sentinels and Builders do not interfere with Warrior ranks
 		TestCohortUnit s1 = new TestCohortUnit(15, MinionRole.SENTINEL, true, false, false);
-		TestCohortUnit r1 = new TestCohortUnit(25, MinionRole.RANGER, true, false, false);
-		List<TestCohortUnit> mixedCohort = List.of(w2, w4, s1, r1);
+		TestCohortUnit b1 = new TestCohortUnit(25, MinionRole.BUILDER, true, false, false);
+		List<TestCohortUnit> mixedCohort = List.of(w2, w4, s1, b1);
 		List<TestCohortUnit> eligibleMixed = mixedCohort.stream().filter(TestCohortUnit::isEligible).toList();
 
 		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, w2, TestCohortUnit::getRole, TestCohortUnit::getId));
 		Assertions.assertEquals(1, MinionFormationFollowGoal.resolveRank(eligibleMixed, w4, TestCohortUnit::getRole, TestCohortUnit::getId));
 		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, s1, TestCohortUnit::getRole, TestCohortUnit::getId));
-		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, r1, TestCohortUnit::getRole, TestCohortUnit::getId));
+		Assertions.assertEquals(0, MinionFormationFollowGoal.resolveRank(eligibleMixed, b1, TestCohortUnit::getRole, TestCohortUnit::getId));
 	}
 }

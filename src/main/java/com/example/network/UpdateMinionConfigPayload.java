@@ -14,7 +14,7 @@ import net.minecraft.util.Identifier;
  * to update the archetype {@link MinionRole} and tactical {@link SquadGroup} of a specific minion thrall.
  *
  * @param minionId The entity ID of the target minion thrall.
- * @param role     The newly assigned archetype role (Warrior, Sentinel, Builder, Miner, Ranger).
+ * @param role     The newly assigned archetype role (Warrior, Sentinel, Builder, Miner).
  * @param squad    The newly assigned squad group (Alpha, Bravo, Charlie, Delta).
  */
 public record UpdateMinionConfigPayload(

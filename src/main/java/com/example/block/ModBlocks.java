@@ -31,6 +31,8 @@ public class ModBlocks {
 				.sounds(BlockSoundGroup.SCAFFOLDING)
 				.dropsNothing()
 				.nonOpaque()
+				.suffocates((state, world, pos) -> false)
+				.blockVision((state, world, pos) -> false)
 		)
 	);
 

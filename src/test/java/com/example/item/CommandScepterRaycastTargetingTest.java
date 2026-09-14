@@ -373,16 +373,16 @@ public class CommandScepterRaycastTargetingTest {
 			dispatchQuickTap(CommandMode.BUILD, SquadGroup.ALL, TargetHitType.ENTITY, true, false, false)
 		);
 
-		// ATTACK mode aiming at hostile entity -> focus fire
+		// FOLLOW mode aiming at hostile entity -> focus fire
 		Assertions.assertEquals(
 			ActionOutcome.FOCUS_FIRE_PING,
-			dispatchQuickTap(CommandMode.ATTACK, SquadGroup.ALPHA, TargetHitType.ENTITY, true, false, false)
+			dispatchQuickTap(CommandMode.FOLLOW, SquadGroup.ALPHA, TargetHitType.ENTITY, true, false, false)
 		);
 
-		// ATTACK mode aiming at 32-block ground -> ground waypoint ping
+		// STAY mode aiming at 32-block ground -> ground waypoint ping
 		Assertions.assertEquals(
 			ActionOutcome.GROUND_WAYPOINT_PING,
-			dispatchQuickTap(CommandMode.ATTACK, SquadGroup.BRAVO, TargetHitType.BLOCK, false, false, false)
+			dispatchQuickTap(CommandMode.STAY, SquadGroup.BRAVO, TargetHitType.BLOCK, false, false, false)
 		);
 
 		// FOLLOW mode aiming at 32-block ground -> long range RTS waypoint ping

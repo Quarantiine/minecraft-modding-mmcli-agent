@@ -51,13 +51,11 @@ public class MinionOverheadBadgeTest {
 		Assertions.assertEquals("🛡", MinionRole.SENTINEL.getIcon());
 		Assertions.assertEquals("🔨", MinionRole.BUILDER.getIcon());
 		Assertions.assertEquals("⛏", MinionRole.MINER.getIcon());
-		Assertions.assertEquals("🏹", MinionRole.RANGER.getIcon());
 
 		Assertions.assertEquals("⚔ WARRIOR", MinionRole.WARRIOR.getBadgeLabel());
 		Assertions.assertEquals("🛡 SENTINEL", MinionRole.SENTINEL.getBadgeLabel());
 		Assertions.assertEquals("🔨 BUILDER", MinionRole.BUILDER.getBadgeLabel());
 		Assertions.assertEquals("⛏ MINER", MinionRole.MINER.getBadgeLabel());
-		Assertions.assertEquals("🏹 RANGER", MinionRole.RANGER.getBadgeLabel());
 
 		// Standing / Active
 		Text warriorCrest = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.WARRIOR, false);
@@ -71,9 +69,6 @@ public class MinionOverheadBadgeTest {
 
 		Text minerCrest = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.MINER, false);
 		Assertions.assertEquals("§6⛏ MINER", minerCrest.getString());
-
-		Text rangerCrest = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.RANGER, false);
-		Assertions.assertEquals("§5🏹 RANGER", rangerCrest.getString());
 
 		// Sitting / Holding Position
 		Text warriorHold = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.WARRIOR, true);
@@ -91,6 +86,8 @@ public class MinionOverheadBadgeTest {
 		Assertions.assertEquals(0.025F, MinionOverheadBadgeFeatureRenderer.TEXT_SCALE);
 		Assertions.assertEquals(0.9375F, MinionOverheadBadgeFeatureRenderer.MODEL_SCALE);
 		Assertions.assertEquals(11.0F, MinionOverheadBadgeFeatureRenderer.LINE_SPACING);
+		Assertions.assertEquals(10, MinionOverheadBadgeFeatureRenderer.TOTAL_HEARTS);
+		Assertions.assertEquals("❤", MinionOverheadBadgeFeatureRenderer.HEART_GLYPH);
 	}
 
 	@Test
@@ -128,5 +125,65 @@ public class MinionOverheadBadgeTest {
 		Assertions.assertTrue(sneakingY < standardY, "Sneaking pose must lower the badge");
 		float expectedSneaking = 1.95F + 0.55F - 0.20F;
 		Assertions.assertEquals(expectedSneaking, sneakingY, 1e-4F);
+	}
+
+	@Test
+	@DisplayName("Validate getHealthDisplay for full health and overfilled health")
+	void testHealthDisplayFullHealth() {
+		Text fullHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(40.0F, 40.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤❤❤❤❤❤ §f40/40", fullHealth.getString());
+
+		Text overfilledHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(55.0F, 40.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤❤❤❤❤❤ §f40/40", overfilledHealth.getString());
+	}
+
+	@Test
+	@DisplayName("Validate getHealthDisplay for damaged health, ratio scaling, and boundary edge cases")
+	void testHealthDisplayDamagedHealth() {
+		Text halfHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(20.0F, 40.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤§8❤❤❤❤❤ §f20/40", halfHealth.getString());
+
+		Text threeQuarterHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(30.0F, 40.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤❤❤❤§8❤❤ §f30/40", threeQuarterHealth.getString());
+
+		Text quarterHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(10.0F, 40.0F);
+		Assertions.assertEquals("§c❤❤❤§8❤❤❤❤❤❤❤ §f10/40", quarterHealth.getString());
+
+		// Edge case: 39/40 HP should show 9 filled hearts and 1 empty heart so damaged status is apparent
+		Text nearFullHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(39.0F, 40.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤❤❤❤❤§8❤ §f39/40", nearFullHealth.getString());
+
+		// Edge case: 1/40 HP should show at least 1 filled heart so living unit is not mistaken for dead
+		Text nearDeadHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(1.0F, 40.0F);
+		Assertions.assertEquals("§c❤§8❤❤❤❤❤❤❤❤❤ §f1/40", nearDeadHealth.getString());
+	}
+
+	@Test
+	@DisplayName("Validate getHealthDisplay for zero and negative health")
+	void testHealthDisplayZeroAndNegativeHealth() {
+		Text zeroHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(0.0F, 40.0F);
+		Assertions.assertEquals("§8❤❤❤❤❤❤❤❤❤❤ §f0/40", zeroHealth.getString());
+
+		Text negativeHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(-10.0F, 40.0F);
+		Assertions.assertEquals("§8❤❤❤❤❤❤❤❤❤❤ §f0/40", negativeHealth.getString());
+	}
+
+	@Test
+	@DisplayName("Validate getHealthDisplay across scaled max health values and null entity safety")
+	void testHealthDisplayScaledMaxHealth() {
+		Text bossHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(60.0F, 100.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤❤§8❤❤❤❤ §f60/100", bossHealth.getString());
+
+		Text smallHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(10.0F, 20.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤§8❤❤❤❤❤ §f10/20", smallHealth.getString());
+
+		Text highHealth = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(200.0F, 200.0F);
+		Assertions.assertEquals("§c❤❤❤❤❤❤❤❤❤❤ §f200/200", highHealth.getString());
+
+		Text zeroMaxSafeguard = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(0.0F, 0.0F);
+		Assertions.assertEquals("§8❤❤❤❤❤❤❤❤❤❤ §f0/1", zeroMaxSafeguard.getString());
+
+		Text nullMinion = MinionOverheadBadgeFeatureRenderer.getHealthDisplay(null);
+		Assertions.assertEquals("§8❤❤❤❤❤❤❤❤❤❤ §f0/1", nullMinion.getString());
 	}
 }

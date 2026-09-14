@@ -38,6 +38,7 @@ public class ExampleModClient implements ClientModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger("modid-client");
 
 	public static KeyBinding commandHubKey;
+	public static KeyBinding retreatKey;
 
 	@Override
 	public void onInitializeClient() {
@@ -74,8 +75,24 @@ public class ExampleModClient implements ClientModInitializer {
 			"category.modid-mmcli-agent-modding.general"
 		));
 
+		// Register keybind R for Tactical Retreat / Regroup
+		retreatKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+			"key.modid-mmcli-agent-modding.retreat",
+			InputUtil.Type.KEYSYM,
+			GLFW.GLFW_KEY_R,
+			"category.modid-mmcli-agent-modding.general"
+		));
+
 		// Tick handler for the keybind
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			while (retreatKey.wasPressed()) {
+				if (client.player != null) {
+					ItemStack heldScepter = CommandScepterItem.getHeldScepter(client.player);
+					com.example.component.SquadGroup squad = !heldScepter.isEmpty() ? CommandScepterItem.getTargetSquad(heldScepter) : com.example.component.SquadGroup.ALL;
+					ModClientNetworking.sendRetreat(squad);
+				}
+			}
+
 			while (commandHubKey.wasPressed()) {
 				if (client.player != null) {
 					ItemStack mainStack = client.player.getMainHandStack();

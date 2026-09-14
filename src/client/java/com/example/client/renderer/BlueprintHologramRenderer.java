@@ -3,6 +3,7 @@ package com.example.client.renderer;
 import com.example.blueprint.BlueprintBlock;
 import com.example.blueprint.BlueprintRegistry;
 import com.example.blueprint.StructureBlueprint;
+import java.util.Collection;
 import com.example.component.CommandMode;
 import com.example.item.ModItems;
 import com.example.item.custom.CommandScepterItem;
@@ -60,9 +61,16 @@ public class BlueprintHologramRenderer {
 			return;
 		}
 
-		ClientPlayerEntity player = client.player;
+		MatrixStack matrices = context.matrixStack();
+		Camera camera = context.camera();
+		if (matrices == null || camera == null) {
+			return;
+		}
 
-		// 1. Verify player is holding the Command Scepter in main hand or off hand
+		Collection<ClientConstructionTracker.ActiveSessionClientData> activeSessions = ClientConstructionTracker.getActiveSessions();
+
+		// Check whether player is holding scepter in BUILD mode for crosshair preview
+		ClientPlayerEntity player = client.player;
 		ItemStack scepterStack = null;
 		if (player.getMainHandStack().isOf(ModItems.COMMAND_SCEPTER)) {
 			scepterStack = player.getMainHandStack();
@@ -70,46 +78,103 @@ public class BlueprintHologramRenderer {
 			scepterStack = player.getOffHandStack();
 		}
 
-		if (scepterStack == null) {
-			return;
-		}
+		boolean showPreview = false;
+		BlockPos previewAnchorPos = null;
+		StructureBlueprint previewBlueprint = null;
+		boolean isMineMode = scepterStack != null && CommandScepterItem.getMode(scepterStack) == CommandMode.MINE;
+		boolean isBuildMode = scepterStack != null && CommandScepterItem.getMode(scepterStack) == CommandMode.BUILD;
 
-		// 2. Verify Command Scepter is actively in BUILD mode
-		CommandMode mode = CommandScepterItem.getMode(scepterStack);
-		if (mode != CommandMode.BUILD) {
-			return;
-		}
-
-		// 3. Resolve block hit target via crosshair or extended raycast
-		BlockHitResult hitResult = null;
-		if (client.crosshairTarget instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
-			hitResult = bhr;
-		} else {
-			float tickDelta = context.tickCounter() != null ? context.tickCounter().getTickDelta(false) : 0.0F;
-			HitResult ray = player.raycast(MAX_PREVIEW_REACH, tickDelta, false);
-			if (ray instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
+		if (isBuildMode || isMineMode) {
+			BlockHitResult hitResult = null;
+			if (client.crosshairTarget instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
 				hitResult = bhr;
+			} else {
+				float tickDelta = context.tickCounter() != null ? context.tickCounter().getTickDelta(false) : 0.0F;
+				HitResult ray = player.raycast(MAX_PREVIEW_REACH, tickDelta, false);
+				if (ray instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
+					hitResult = bhr;
+				}
+			}
+
+			if (hitResult != null) {
+				BlockPos clickedPos = hitResult.getBlockPos();
+				Direction side = hitResult.getSide();
+				if (isMineMode) {
+					previewAnchorPos = clickedPos;
+				} else {
+					previewAnchorPos = client.world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
+				}
+
+				String blueprintId = CommandScepterItem.getBlueprintId(scepterStack);
+				StructureBlueprint bp = BlueprintRegistry.getOrDefault(blueprintId);
+				if (bp != null && bp.getBlockCount() > 0) {
+					previewBlueprint = bp.rotate(CommandScepterItem.getRotation(scepterStack));
+					showPreview = true;
+				}
 			}
 		}
 
-		if (hitResult == null) {
+		// If no active sessions and no active scepter preview, skip matrix push & buffer allocation
+		if (activeSessions.isEmpty() && !showPreview) {
 			return;
 		}
 
-		// 4. Resolve anchor block coordinates identical to CommandScepterItem#useOnBlock
-		BlockPos clickedPos = hitResult.getBlockPos();
-		Direction side = hitResult.getSide();
-		BlockPos anchorPos = client.world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
-
-		// 5. Resolve active blueprint from item data component and apply current scepter rotation
-		String blueprintId = CommandScepterItem.getBlueprintId(scepterStack);
-		StructureBlueprint blueprint = BlueprintRegistry.getOrDefault(blueprintId);
-		if (blueprint == null || blueprint.getBlockCount() == 0) {
-			return;
+		Vec3d cameraPos = camera.getPos();
+		VertexConsumerProvider consumers = context.consumers();
+		if (consumers == null) {
+			consumers = client.getBufferBuilders().getEntityVertexConsumers();
 		}
-		blueprint = blueprint.rotate(CommandScepterItem.getRotation(scepterStack));
+		VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
 
-		// 6. Compute bounding boxes in world space
+		matrices.push();
+		matrices.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
+
+		// 1. Render persistent 3D holographic wireframes for all active in-world construction sessions
+		for (ClientConstructionTracker.ActiveSessionClientData sessionData : activeSessions) {
+			StructureBlueprint bp = BlueprintRegistry.getOrDefault(sessionData.blueprintId());
+			if (bp != null && bp.getBlockCount() > 0) {
+				StructureBlueprint rotatedBp = bp.rotate(sessionData.rotation());
+				if (sessionData.isDismantle()) {
+					// Fiery orange/red outline for active dismantling sessions
+					renderStructureHologram(matrices, buffer, sessionData.anchorPos(), rotatedBp, 1.0F, 0.35F, 0.10F, 0.85F, false);
+				} else {
+					// Neon cyan outline with ghost block schematics for active building sessions
+					renderStructureHologram(matrices, buffer, sessionData.anchorPos(), rotatedBp, 0.0F, 0.85F, 1.0F, 0.85F, true);
+				}
+			}
+		}
+
+		// 2. Render placement or mine preview at crosshair if scepter is actively in BUILD or MINE mode
+		if (showPreview && previewAnchorPos != null && previewBlueprint != null) {
+			if (isMineMode) {
+				renderStructureHologram(matrices, buffer, previewAnchorPos, previewBlueprint, 1.0F, 0.35F, 0.10F, 0.90F, false);
+			} else {
+				renderStructureHologram(matrices, buffer, previewAnchorPos, previewBlueprint, 0.0F, 0.85F, 1.0F, 0.90F, true);
+			}
+		}
+
+		matrices.pop();
+
+		// Flush lines layer immediately to GPU if buffer is immediate
+		if (consumers instanceof VertexConsumerProvider.Immediate immediate) {
+			immediate.draw(RenderLayer.getLines());
+		}
+	}
+
+	/**
+	 * Renders the 3D wireframe bounding box, origin anchor box, and optional ghost blocks for a structure.
+	 */
+	private static void renderStructureHologram(
+		MatrixStack matrices,
+		VertexConsumer buffer,
+		BlockPos anchorPos,
+		StructureBlueprint blueprint,
+		float r,
+		float g,
+		float b,
+		float a,
+		boolean renderGhostBlocks
+	) {
 		BlockBox localBox = blueprint.getBoundingBox();
 		double minX = anchorPos.getX() + localBox.getMinX();
 		double minY = anchorPos.getY() + localBox.getMinY();
@@ -121,56 +186,42 @@ public class BlueprintHologramRenderer {
 		Box renderBox = new Box(minX, minY, minZ, maxX, maxY, maxZ);
 		Box anchorBox = new Box(anchorPos);
 
-		// 7. Verify matrix stack and camera
-		MatrixStack matrices = context.matrixStack();
-		Camera camera = context.camera();
-		if (matrices == null || camera == null) {
-			return;
+		// Ghost block outlines
+		if (renderGhostBlocks) {
+			for (BlueprintBlock block : blueprint.getBlocks()) {
+				BlockPos bPos = anchorPos.add(block.offset());
+				WorldRenderer.drawBox(
+					matrices,
+					buffer,
+					new Box(bPos),
+					r * 0.8F,
+					g * 0.8F,
+					b * 0.8F,
+					0.25F
+				);
+			}
 		}
 
-		Vec3d cameraPos = camera.getPos();
-		VertexConsumerProvider consumers = context.consumers();
-		if (consumers == null) {
-			consumers = client.getBufferBuilders().getEntityVertexConsumers();
-		}
-		VertexConsumer buffer = consumers.getBuffer(RenderLayer.getLines());
-
-		// 8. Transform matrix stack relative to camera position
-		matrices.push();
-		matrices.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
-
-		// Faint block-level schematic wireframes (cyan / aqua)
-		for (BlueprintBlock block : blueprint.getBlocks()) {
-			BlockPos bPos = anchorPos.add(block.offset());
-			WorldRenderer.drawBox(
-				matrices,
-				buffer,
-				new Box(bPos),
-				0.0F, 0.70F, 0.95F, 0.35F
-			);
-		}
-
-		// Gold anchor box marking the blueprint origin
+		// Gold origin anchor box
 		WorldRenderer.drawBox(
 			matrices,
 			buffer,
 			anchorBox,
-			1.0F, 0.84F, 0.0F, 1.0F
+			1.0F,
+			0.84F,
+			0.0F,
+			0.95F
 		);
 
-		// Neon cyan blueprint 3D wireframe outline box
+		// Main bounding box outline
 		WorldRenderer.drawBox(
 			matrices,
 			buffer,
 			renderBox,
-			0.0F, 0.85F, 1.0F, 0.90F
+			r,
+			g,
+			b,
+			a
 		);
-
-		matrices.pop();
-
-		// Flush lines layer immediately to GPU if buffer is immediate
-		if (consumers instanceof VertexConsumerProvider.Immediate immediate) {
-			immediate.draw(RenderLayer.getLines());
-		}
 	}
 }

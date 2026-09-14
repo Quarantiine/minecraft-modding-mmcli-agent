@@ -1,5 +1,8 @@
 package com.example.client.gui;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -297,5 +300,43 @@ public class MinionScreenCloseTest {
 		Assertions.assertTrue(handler.isSlotClickedWithShift());
 		handler.setSlotClickedWithShift(false);
 		Assertions.assertFalse(handler.isSlotClickedWithShift());
+	}
+
+	// =========================================================================
+	// 6. Action Button Layout & Label Visibility Invariants
+	// =========================================================================
+
+	@Test
+	@DisplayName("Modal dimensions allocate 46px for dual-row bottom action panel")
+	void testModalDimensionInvariants() {
+		Assertions.assertEquals(46, MinionScreen.BOTTOM_PANEL_HEIGHT);
+		Assertions.assertEquals(248, MinionScreen.TOTAL_MODAL_HEIGHT);
+	}
+
+	@Test
+	@DisplayName("GUI layout guarantees Destroy on left and Cancel on right with no equipment label collision")
+	void testButtonLayoutAndHeaderInvariants() throws IOException {
+		Path screenPath = Path.of("src/client/java/com/example/client/gui/MinionScreen.java");
+		String code = Files.readString(screenPath);
+
+		// Verify 2-row button structure
+		Assertions.assertTrue(code.contains("this.teleportBtn = ButtonWidget.builder("));
+		Assertions.assertTrue(code.contains("this.destroyBtn = ButtonWidget.builder("));
+		Assertions.assertTrue(code.contains("this.cancelBtn = ButtonWidget.builder("));
+
+		// Verify Row 2 positioning: Destroy on left (x + 4), Cancel on right (x + 90)
+		Assertions.assertTrue(code.contains(".dimensions(this.x + 4, actionRow2Y, btnWidth, btnHeight)"),
+			"Destroy button must be on the left of row 2");
+		Assertions.assertTrue(code.contains(".dimensions(this.x + 90, actionRow2Y, btnWidth, btnHeight)"),
+			"Cancel button must be on the right of row 2");
+
+		// Verify Cancel button triggers this.close()
+		Assertions.assertTrue(code.contains("button -> this.close()"),
+			"Cancel button must close screen cleanly");
+
+		// Verify "Equipment" header has dedicated bold styling and no centered name collision at y=6
+		Assertions.assertTrue(code.contains("§8§l"), "Category headers must have prominent bold formatting");
+		Assertions.assertFalse(code.contains("Math.max(46, nameX), 6"),
+			"MinionScreen must not render colliding title text across the 38px gap at y=6");
 	}
 }

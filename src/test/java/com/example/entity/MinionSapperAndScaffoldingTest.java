@@ -147,8 +147,6 @@ public class MinionSapperAndScaffoldingTest {
 			"SENTINEL role must not place zero-cost scaffolding");
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.MINER),
 			"MINER role must not place zero-cost scaffolding");
-		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.RANGER),
-			"RANGER role must not place zero-cost scaffolding");
 	}
 
 	@Test
@@ -337,8 +335,8 @@ public class MinionSapperAndScaffoldingTest {
 		Assertions.assertFalse(evaluator.isSuppressed(MinionRole.MINER, false, true, false),
 			"Miner near BUILD session is not engaged and should not suppress sapper goal");
 
-		// Case 5: Combat roles (WARRIOR, RANGER, SENTINEL) -> never suppressed by construction
-		for (MinionRole combatRole : List.of(MinionRole.WARRIOR, MinionRole.RANGER, MinionRole.SENTINEL)) {
+		// Case 5: Combat roles (WARRIOR, SENTINEL) -> never suppressed by construction
+		for (MinionRole combatRole : List.of(MinionRole.WARRIOR, MinionRole.SENTINEL)) {
 			Assertions.assertFalse(evaluator.isSuppressed(combatRole, true, true, true),
 				combatRole + " must never have sapper goals suppressed by construction sites");
 		}

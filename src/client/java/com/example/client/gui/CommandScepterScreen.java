@@ -7,10 +7,12 @@ import com.example.client.network.ModClientNetworking;
 import com.example.component.CommandMode;
 import com.example.component.SquadGroup;
 import com.example.entity.custom.MinionEntity;
+import com.example.entity.custom.MinionRole;
 import com.example.item.custom.CommandScepterItem;
 import com.example.network.UpdateScepterPayload;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
@@ -34,7 +36,7 @@ import org.lwjgl.glfw.GLFW;
 public class CommandScepterScreen extends Screen {
 
 	private static final int WINDOW_WIDTH = 340;
-	private static final int WINDOW_HEIGHT = 250;
+	private static final int WINDOW_HEIGHT = 280;
 	private static final int BLUEPRINT_PAGE_SIZE = 3;
 
 	private final Hand hand;
@@ -42,11 +44,13 @@ public class CommandScepterScreen extends Screen {
 	private CommandMode selectedMode;
 	private String selectedBlueprintId;
 	private SquadGroup selectedSquad;
+	private MinionRole selectedRole;
 	private int nearbyThralls = 0;
 	private int nearbySelectedThralls = 0;
 	private int blueprintPage = 0;
 
 	private final List<ButtonWidget> squadButtons = new ArrayList<>();
+	private final List<ButtonWidget> roleButtons = new ArrayList<>();
 	private final List<ButtonWidget> modeButtons = new ArrayList<>();
 	private final List<ButtonWidget> blueprintButtons = new ArrayList<>();
 	private ButtonWidget prevPageBtn;
@@ -65,10 +69,12 @@ public class CommandScepterScreen extends Screen {
 			this.selectedMode = CommandScepterItem.getMode(scepterStack);
 			this.selectedBlueprintId = CommandScepterItem.getBlueprintId(scepterStack);
 			this.selectedSquad = CommandScepterItem.getTargetSquad(scepterStack);
+			this.selectedRole = CommandScepterItem.getTargetRole(scepterStack);
 		} else {
 			this.selectedMode = CommandMode.FOLLOW;
 			this.selectedBlueprintId = "modid-mmcli-agent-modding:watchtower";
 			this.selectedSquad = SquadGroup.ALL;
+			this.selectedRole = null;
 		}
 		this.shiftHeldOnOpen = isShiftOrSneakDown();
 	}
@@ -84,6 +90,7 @@ public class CommandScepterScreen extends Screen {
 	protected void init() {
 		super.init();
 		this.squadButtons.clear();
+		this.roleButtons.clear();
 		this.modeButtons.clear();
 		this.blueprintButtons.clear();
 
@@ -127,6 +134,27 @@ public class CommandScepterScreen extends Screen {
 			this.addDrawableChild(btn);
 		}
 
+		// Interactive Mass Role Assignment Bar (Warrior / Sentinel / Builder / Miner)
+		MinionRole[] roles = MinionRole.values();
+		int roleBtnWidth = 72;
+		int roleGap = 6;
+		int roleStartX = startX + 17;
+		int roleY = startY + 80;
+		for (int i = 0; i < roles.length; i++) {
+			MinionRole role = roles[i];
+			int btnX = roleStartX + i * (roleBtnWidth + roleGap);
+			ButtonWidget btn = ButtonWidget.builder(
+				getRoleButtonText(role),
+				b -> toggleRole(role)
+			)
+			.dimensions(btnX, roleY, roleBtnWidth, 20)
+			.tooltip(getRoleTooltip(role))
+			.build();
+
+			this.roleButtons.add(btn);
+			this.addDrawableChild(btn);
+		}
+
 		// 6 Command Mode Buttons in a 2-column grid
 		CommandMode[] modes = CommandMode.values();
 		for (int i = 0; i < modes.length; i++) {
@@ -134,7 +162,7 @@ public class CommandScepterScreen extends Screen {
 			int col = i % 2;
 			int row = i / 2;
 			int btnX = startX + 16 + col * 70;
-			int btnY = startY + 84 + row * 24;
+			int btnY = startY + 118 + row * 24;
 
 			ButtonWidget btn = ButtonWidget.builder(getModeButtonText(mode), b -> selectMode(mode))
 				.dimensions(btnX, btnY, 66, 20)
@@ -156,7 +184,7 @@ public class CommandScepterScreen extends Screen {
 		for (int slot = 0; slot < BLUEPRINT_PAGE_SIZE; slot++) {
 			final int slotIndex = slot;
 			int btnX = startX + 165;
-			int btnY = startY + 84 + slot * 36;
+			int btnY = startY + 118 + slot * 36;
 
 			ButtonWidget btn = ButtonWidget.builder(Text.empty(), b -> {
 				int index = this.blueprintPage * BLUEPRINT_PAGE_SIZE + slotIndex;
@@ -173,7 +201,7 @@ public class CommandScepterScreen extends Screen {
 		}
 
 		// Blueprint Catalog Pagination Controls
-		int pageControlsY = startY + 192;
+		int pageControlsY = startY + 226;
 		this.prevPageBtn = ButtonWidget.builder(Text.literal("◀"), b -> {
 			if (this.blueprintPage > 0) {
 				this.blueprintPage--;
@@ -200,7 +228,7 @@ public class CommandScepterScreen extends Screen {
 		updateBlueprintButtons();
 
 		// Action Buttons: Execute Directive, Deselect All, Teleport Minions, Dismiss All Minions, & Close
-		int bottomY = startY + 216;
+		int bottomY = startY + 250;
 		ButtonWidget executeBtn = ButtonWidget.builder(
 			Text.translatable("gui.modid-mmcli-agent-modding.command_hub.execute"),
 			b -> executeDirective()
@@ -236,15 +264,15 @@ public class CommandScepterScreen extends Screen {
 		this.addDrawableChild(teleportBtn);
 
 		ButtonWidget dismissBtn = ButtonWidget.builder(
-			Text.literal("§c✖ Dismiss"),
+			Text.literal("§c✖ Destroy All"),
 			b -> {
 				ModClientNetworking.sendDismissAllMinions();
 				this.close();
 			}
 		)
-		.dimensions(startX + 206, bottomY, 58, 20)
+		.dimensions(startX + 206, bottomY, 66, 20)
 		.tooltip(Tooltip.of(this.nearbyThralls > 0
-			? Text.literal("§cDismiss all " + this.nearbyThralls + " nearby owned minion(s) and drop equipment")
+			? Text.literal("§cDestroy all " + this.nearbyThralls + " nearby owned minion(s) and drop equipment")
 			: Text.translatable("message.modid-mmcli-agent-modding.no_minions_to_dismiss")))
 		.build();
 		dismissBtn.active = this.nearbyThralls > 0;
@@ -254,7 +282,7 @@ public class CommandScepterScreen extends Screen {
 			Text.translatable("gui.modid-mmcli-agent-modding.command_hub.close"),
 			b -> this.close()
 		)
-		.dimensions(startX + 268, bottomY, 58, 20)
+		.dimensions(startX + 276, bottomY, 50, 20)
 		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.command_hub.close_desc")))
 		.build();
 		this.addDrawableChild(closeBtn);
@@ -287,6 +315,22 @@ public class CommandScepterScreen extends Screen {
 		return Text.literal(prefix + squad.getColorCode() + getSquadLabel(squad));
 	}
 
+	private Text getRoleButtonText(MinionRole role) {
+		boolean isSelected = role == this.selectedRole;
+		String prefix = isSelected ? "§6▶ " : "";
+		return Text.literal(prefix + role.getColorCode() + role.getDisplayName());
+	}
+
+	private Tooltip getRoleTooltip(MinionRole role) {
+		boolean isSelected = role == this.selectedRole;
+		String desc = isSelected
+			? "§a[Active Selection] Minions inside Banner of Courage rally ring will transform into this archetype.\n§eClick again to deselect."
+			: "§7Click to select this archetype for channeled rally ring transformation.";
+		return Tooltip.of(Text.literal(
+			"§6✦ Archetype: " + role.getFormattedName() + " §7(" + role.getIcon() + ")\n" + desc
+		));
+	}
+
 	private Text getModeButtonText(CommandMode mode) {
 		boolean isSelected = mode == this.selectedMode;
 		String prefix = isSelected ? "§6▶ " : "";
@@ -313,6 +357,49 @@ public class CommandScepterScreen extends Screen {
 		refreshButtonLabels();
 	}
 
+	/**
+	 * Toggles or selects the active target archetype role. If the clicked role is already selected,
+	 * it is toggled off (unselected). Updates the held scepter item component, synchronizes with the server,
+	 * and refreshes button styling.
+	 *
+	 * @param role The MinionRole archetype to toggle.
+	 */
+	public void toggleRole(MinionRole role) {
+		if (this.selectedRole == role) {
+			this.selectedRole = null;
+		} else {
+			this.selectedRole = role;
+		}
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setTargetRole(this.scepterStack, this.selectedRole);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	/**
+	 * Directly sets the active target archetype role, updating the scepter stack and synchronizing with the server.
+	 *
+	 * @param role The MinionRole archetype to select, or null to clear selection.
+	 */
+	public void setSelectedRole(MinionRole role) {
+		this.selectedRole = role;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setTargetRole(this.scepterStack, this.selectedRole);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	/**
+	 * Resolves the currently selected target archetype role for mass conversion.
+	 *
+	 * @return The selected MinionRole, or null if no archetype is active.
+	 */
+	public MinionRole getSelectedRole() {
+		return this.selectedRole;
+	}
+
 	private void selectMode(CommandMode mode) {
 		this.selectedMode = mode;
 		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
@@ -337,8 +424,19 @@ public class CommandScepterScreen extends Screen {
 	}
 
 	private void syncToServer(boolean executeDirective) {
-		int rotation = CommandScepterItem.getRotationIndex(this.scepterStack);
-		ModClientNetworking.sendUpdateScepter(this.selectedMode, this.selectedBlueprintId, this.selectedSquad, rotation, executeDirective);
+		try {
+			int rotation = CommandScepterItem.getRotationIndex(this.scepterStack);
+			ModClientNetworking.sendUpdateScepter(
+				this.selectedMode,
+				this.selectedBlueprintId,
+				this.selectedSquad,
+				rotation,
+				Optional.ofNullable(this.selectedRole),
+				executeDirective
+			);
+		} catch (Throwable ignored) {
+			// Graceful fallback in headless or uninitialized test environments
+		}
 	}
 
 	private void refreshButtonLabels() {
@@ -348,15 +446,26 @@ public class CommandScepterScreen extends Screen {
 			this.squadButtons.get(i).setTooltip(getSquadTooltip(squads[i]));
 		}
 
+		MinionRole[] roles = MinionRole.values();
+		for (int i = 0; i < roles.length && i < this.roleButtons.size(); i++) {
+			this.roleButtons.get(i).setMessage(getRoleButtonText(roles[i]));
+			this.roleButtons.get(i).setTooltip(getRoleTooltip(roles[i]));
+		}
+
 		CommandMode[] modes = CommandMode.values();
 		for (int i = 0; i < modes.length && i < this.modeButtons.size(); i++) {
 			this.modeButtons.get(i).setMessage(getModeButtonText(modes[i]));
 		}
 
-		updateBlueprintButtons();
+		if (!this.blueprintButtons.isEmpty()) {
+			updateBlueprintButtons();
+		}
 	}
 
 	private void updateBlueprintButtons() {
+		if (this.blueprintButtons.isEmpty()) {
+			return;
+		}
 		List<StructureBlueprint> blueprints = new ArrayList<>(BlueprintRegistry.getAll());
 		int totalPages = Math.max(1, (blueprints.size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
 		if (this.blueprintPage >= totalPages) {
@@ -454,12 +563,41 @@ public class CommandScepterScreen extends Screen {
 			context.fill(indX, squadY + 20, indX + squadBtnWidth, squadY + 22, indicatorColor);
 		}
 
+		// Mass Role Archetype Bar label
+		String roleLabelSuffix = this.selectedRole != null
+			? " " + this.selectedRole.getFormattedName() + " §8(Rally Transform)"
+			: " §7[None]";
+		context.drawTextWithShadow(
+			this.textRenderer,
+			Text.literal("§eMass Role Archetype:" + roleLabelSuffix),
+			startX + 16,
+			startY + 69,
+			0xFFD700
+		);
+
+		// Active role indicator underline
+		if (this.selectedRole != null) {
+			int selectedRoleIndex = this.selectedRole.ordinal();
+			MinionRole[] roles = MinionRole.values();
+			if (selectedRoleIndex >= 0 && selectedRoleIndex < roles.length) {
+				int roleStartX = startX + 17;
+				int roleBtnWidth = 72;
+				int roleGap = 6;
+				int roleY = startY + 80;
+				int indX = roleStartX + selectedRoleIndex * (roleBtnWidth + roleGap);
+				int indicatorColor = this.selectedRole.getFormatting().getColorValue() != null
+					? (0xFF000000 | this.selectedRole.getFormatting().getColorValue())
+					: 0xFFFFD700;
+				context.fill(indX, roleY + 20, indX + roleBtnWidth, roleY + 22, indicatorColor);
+			}
+		}
+
 		// Section headers
 		context.drawTextWithShadow(
 			this.textRenderer,
 			Text.literal("§eCommand Mode:"),
 			startX + 16,
-			startY + 72,
+			startY + 106,
 			0xFFD700
 		);
 
@@ -467,7 +605,7 @@ public class CommandScepterScreen extends Screen {
 			this.textRenderer,
 			Text.literal("§bBlueprint Catalog:"),
 			startX + 165,
-			startY + 72,
+			startY + 106,
 			0x55FFFF
 		);
 
@@ -477,19 +615,18 @@ public class CommandScepterScreen extends Screen {
 			this.textRenderer,
 			Text.literal("§7Page §f" + (this.blueprintPage + 1) + "§7/§f" + totalPages),
 			startX + 245,
-			startY + 197,
+			startY + 231,
 			0xAAAAAA
 		);
 
 		// Mode Description Footer Box
-		int descY = startY + 160;
+		int descY = startY + 194;
 		context.fill(startX + 14, descY, startX + 158, descY + 46, 0x880D151D);
 		context.drawBorder(startX + 14, descY, 144, 46, 0xFF3A4E63);
 
 		String modeDesc = switch (this.selectedMode) {
 			case FOLLOW -> "§aMinions actively follow & guard master.";
 			case STAY -> "§eMinions hold positions & guard zone.";
-			case ATTACK -> "§cMinions prioritize & assault targets.";
 			case MINE -> "§6Minions harvest ores & break blocks.";
 			case BUILD -> "§bMinions erect selected blueprint.";
 			case RECRUIT -> "§dEnthrall living mobs into thralls.";

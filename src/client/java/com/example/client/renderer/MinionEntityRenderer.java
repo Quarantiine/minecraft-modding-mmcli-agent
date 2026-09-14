@@ -57,9 +57,6 @@ public class MinionEntityRenderer extends BipedEntityRenderer<MinionEntity, Play
 
 	@Override
 	public Vec3d getPositionOffset(MinionEntity entity, float tickDelta) {
-		if (entity.isSitting() && !entity.hasVehicle()) {
-			return new Vec3d(0.0D, -0.3125D, 0.0D);
-		}
 		if (entity.isInSneakingPose()) {
 			return new Vec3d(0.0D, -2.0F * entity.getScale() / 16.0F, 0.0D);
 		}
@@ -102,7 +99,7 @@ public class MinionEntityRenderer extends BipedEntityRenderer<MinionEntity, Play
 		}
 
 		model.sneaking = entity.isInSneakingPose();
-		model.riding = entity.isSitting();
+		model.riding = entity.hasVehicle();
 
 		BipedEntityModel.ArmPose mainArmPose = getArmPose(entity, Hand.MAIN_HAND);
 		BipedEntityModel.ArmPose offArmPose = getArmPose(entity, Hand.OFF_HAND);

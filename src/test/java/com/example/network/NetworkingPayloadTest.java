@@ -4,6 +4,10 @@ import com.example.ExampleMod;
 import com.example.component.CommandMode;
 import com.example.component.SquadGroup;
 import com.example.entity.custom.MinionRole;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import java.util.Optional;
+import net.minecraft.network.RegistryByteBuf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,7 +40,7 @@ public class NetworkingPayloadTest {
 		Assertions.assertEquals(payload, copy);
 		Assertions.assertEquals(payload.hashCode(), copy.hashCode());
 
-		UpdateMinionConfigPayload different = new UpdateMinionConfigPayload(42, MinionRole.RANGER, SquadGroup.CHARLIE);
+		UpdateMinionConfigPayload different = new UpdateMinionConfigPayload(42, MinionRole.WARRIOR, SquadGroup.CHARLIE);
 		Assertions.assertNotEquals(payload, different);
 	}
 
@@ -44,14 +48,14 @@ public class NetworkingPayloadTest {
 	@DisplayName("Validate UpdateScepterPayload squad group channel, rotation parameter, IDs, and backward-compatible constructors")
 	void testUpdateScepterPayload() {
 		UpdateScepterPayload payloadWithRotation = new UpdateScepterPayload(
-			CommandMode.ATTACK,
+			CommandMode.FOLLOW,
 			"modid-mmcli-agent-modding:watchtower",
 			SquadGroup.DELTA,
 			2,
 			true
 		);
 
-		Assertions.assertEquals(CommandMode.ATTACK, payloadWithRotation.mode());
+		Assertions.assertEquals(CommandMode.FOLLOW, payloadWithRotation.mode());
 		Assertions.assertEquals("modid-mmcli-agent-modding:watchtower", payloadWithRotation.blueprintId());
 		Assertions.assertEquals(SquadGroup.DELTA, payloadWithRotation.targetSquad());
 		Assertions.assertEquals(2, payloadWithRotation.rotation());
@@ -63,7 +67,7 @@ public class NetworkingPayloadTest {
 
 		// Backward-compatible constructor defaulting to rotation = 0
 		UpdateScepterPayload payloadWithSquad = new UpdateScepterPayload(
-			CommandMode.ATTACK,
+			CommandMode.FOLLOW,
 			"modid-mmcli-agent-modding:watchtower",
 			SquadGroup.DELTA,
 			true
@@ -103,6 +107,89 @@ public class NetworkingPayloadTest {
 			false
 		);
 		Assertions.assertEquals(legacyPayload, explicitAll);
+
+		// Payload with explicit target role
+		UpdateScepterPayload payloadWithRole = new UpdateScepterPayload(
+			CommandMode.FOLLOW,
+			"modid-mmcli-agent-modding:watchtower",
+			SquadGroup.ALPHA,
+			1,
+			Optional.of(MinionRole.WARRIOR),
+			false
+		);
+		Assertions.assertEquals(Optional.of(MinionRole.WARRIOR), payloadWithRole.targetRole());
+
+		// Payload clearing target role
+		UpdateScepterPayload payloadClearRole = new UpdateScepterPayload(
+			CommandMode.FOLLOW,
+			"modid-mmcli-agent-modding:watchtower",
+			SquadGroup.ALPHA,
+			1,
+			Optional.empty(),
+			false
+		);
+		Assertions.assertEquals(Optional.empty(), payloadClearRole.targetRole());
+	}
+
+	@Test
+	@DisplayName("Validate UpdateScepterPayload PacketCodec encode and decode roundtrip with target role and optional presence")
+	void testUpdateScepterPayloadPacketCodecRoundtrip() {
+		// Roundtrip for all 4 MinionRole archetypes wrapped in Optional.of
+		for (MinionRole role : MinionRole.values()) {
+			UpdateScepterPayload original = new UpdateScepterPayload(
+				CommandMode.FOLLOW,
+				"modid-mmcli-agent-modding:watchtower",
+				SquadGroup.BRAVO,
+				2,
+				Optional.of(role),
+				true
+			);
+
+			RegistryByteBuf buf = new RegistryByteBuf(Unpooled.buffer(), null);
+			try {
+				UpdateScepterPayload.PACKET_CODEC.encode(buf, original);
+				Assertions.assertTrue(buf.readableBytes() > 0, "Buffer must contain encoded bytes for role " + role);
+
+				UpdateScepterPayload decoded = UpdateScepterPayload.PACKET_CODEC.decode(buf);
+				Assertions.assertEquals(original, decoded, "Decoded payload must match original for role " + role);
+				Assertions.assertEquals(Optional.of(role), decoded.targetRole());
+				Assertions.assertEquals(CommandMode.FOLLOW, decoded.mode());
+				Assertions.assertEquals("modid-mmcli-agent-modding:watchtower", decoded.blueprintId());
+				Assertions.assertEquals(SquadGroup.BRAVO, decoded.targetSquad());
+				Assertions.assertEquals(2, decoded.rotation());
+				Assertions.assertTrue(decoded.executeDirective());
+				Assertions.assertEquals(0, buf.readableBytes(), "All bytes must be consumed from buffer for role " + role);
+			} finally {
+				buf.release();
+			}
+		}
+
+		// Roundtrip for Optional.empty() (cleared target archetype)
+		UpdateScepterPayload emptyRolePayload = new UpdateScepterPayload(
+			CommandMode.BUILD,
+			"modid-mmcli-agent-modding:obelisk",
+			SquadGroup.ALL,
+			0,
+			Optional.empty(),
+			false
+		);
+		RegistryByteBuf buf = new RegistryByteBuf(Unpooled.buffer(), null);
+		try {
+			UpdateScepterPayload.PACKET_CODEC.encode(buf, emptyRolePayload);
+			Assertions.assertTrue(buf.readableBytes() > 0, "Buffer must contain encoded bytes for empty role");
+
+			UpdateScepterPayload decoded = UpdateScepterPayload.PACKET_CODEC.decode(buf);
+			Assertions.assertEquals(emptyRolePayload, decoded, "Decoded payload must match empty role payload");
+			Assertions.assertTrue(decoded.targetRole().isEmpty(), "Target role must be empty");
+			Assertions.assertEquals(CommandMode.BUILD, decoded.mode());
+			Assertions.assertEquals("modid-mmcli-agent-modding:obelisk", decoded.blueprintId());
+			Assertions.assertEquals(SquadGroup.ALL, decoded.targetSquad());
+			Assertions.assertEquals(0, decoded.rotation());
+			Assertions.assertFalse(decoded.executeDirective());
+			Assertions.assertEquals(0, buf.readableBytes(), "All bytes must be consumed from buffer for empty role");
+		} finally {
+			buf.release();
+		}
 	}
 
 	@Test
@@ -203,5 +290,26 @@ public class NetworkingPayloadTest {
 		Assertions.assertEquals(single, copy);
 		Assertions.assertEquals(single.hashCode(), copy.hashCode());
 		Assertions.assertNotEquals(single, all);
+	}
+
+	@Test
+	@DisplayName("Validate RetreatPayload squad group channel, IDs, constructors, and packet codec")
+	void testRetreatPayload() {
+		RetreatPayload payload = new RetreatPayload(SquadGroup.BRAVO);
+		Assertions.assertEquals(SquadGroup.BRAVO, payload.targetSquad());
+		Assertions.assertEquals(RetreatPayload.ID, payload.getId());
+		Assertions.assertEquals(ExampleMod.MOD_ID, payload.getId().id().getNamespace());
+		Assertions.assertEquals("retreat", payload.getId().id().getPath());
+		Assertions.assertNotNull(RetreatPayload.PACKET_CODEC);
+
+		// Default constructor
+		RetreatPayload defaultPayload = new RetreatPayload();
+		Assertions.assertEquals(SquadGroup.ALL, defaultPayload.targetSquad());
+
+		// Equality
+		RetreatPayload copy = new RetreatPayload(SquadGroup.BRAVO);
+		Assertions.assertEquals(payload, copy);
+		Assertions.assertEquals(payload.hashCode(), copy.hashCode());
+		Assertions.assertNotEquals(payload, defaultPayload);
 	}
 }

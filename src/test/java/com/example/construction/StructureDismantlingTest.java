@@ -280,8 +280,6 @@ public class StructureDismantlingTest {
 		Assertions.assertFalse(canRoleParticipate(MinionRole.WARRIOR, ConstructionSession.SessionMode.DISMANTLE));
 		Assertions.assertFalse(canRoleParticipate(MinionRole.SENTINEL, ConstructionSession.SessionMode.BUILD));
 		Assertions.assertFalse(canRoleParticipate(MinionRole.SENTINEL, ConstructionSession.SessionMode.DISMANTLE));
-		Assertions.assertFalse(canRoleParticipate(MinionRole.RANGER, ConstructionSession.SessionMode.BUILD));
-		Assertions.assertFalse(canRoleParticipate(MinionRole.RANGER, ConstructionSession.SessionMode.DISMANTLE));
 	}
 
 	private static boolean canRoleParticipate(MinionRole role, ConstructionSession.SessionMode mode) {
