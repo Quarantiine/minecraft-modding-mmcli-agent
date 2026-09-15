@@ -430,8 +430,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 
 	@Override
 	protected void drawForeground(DrawContext context, int mouseX, int mouseY) {
-		// Category headers: bold, high-contrast, and spaced so "Equipment" never collides with anything
-		context.drawText(this.textRenderer, Text.literal("§8§l").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.equipment")), 8, 5, 0x1E293B, false);
+		// Category header: bold, high-contrast Inventory label
 		context.drawText(this.textRenderer, Text.literal("§8§l").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.inventory")), 116, 5, 0x1E293B, false);
 	}
 

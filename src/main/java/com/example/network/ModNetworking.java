@@ -222,7 +222,7 @@ public class ModNetworking {
 		int dismissedCount = 0;
 
 		if (payload.dismissAll() || payload.minionId() < 0) {
-			// Dismiss all owned minions within command radius (32 blocks)
+			// Dismiss all owned minions within command radius (64 blocks)
 			Box searchBox = player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS);
 			List<MinionEntity> nearbyMinions = world.getEntitiesByClass(
 				MinionEntity.class,
@@ -283,7 +283,7 @@ public class ModNetworking {
 		int teleportedCount = 0;
 
 		if (payload.teleportAll() || payload.minionId() < 0) {
-			// Teleport all owned minions within command radius (32 blocks)
+			// Teleport all owned minions within command radius (64 blocks)
 			Box searchBox = player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS);
 			List<MinionEntity> nearbyMinions = world.getEntitiesByClass(
 				MinionEntity.class,

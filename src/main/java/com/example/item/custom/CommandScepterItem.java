@@ -68,7 +68,7 @@ import net.minecraft.world.World;
  *     - Right-Click Living Mob: Transfigures target mob into an obedient {@link MinionEntity} thrall,
  *       preserving armor/equipment, binding owner UUID, and triggering arcane conversion VFX.
  * - FOLLOW / STAY Modes:
- *     - Right-Click Air or Ground: Broadcasts follow or hold-position commands to all owned minions within 32 blocks.
+ *     - Right-Click Air or Ground: Broadcasts follow or hold-position commands to all owned minions within 64 blocks.
  * - Contextual Combat:
  *     - Quick-Tap Hostile: Focus-fires squad minions onto the target with war drums and crit particles.
  *     - Channeled Banner of Courage (Hold Right-Click): Projects a 90° forward sector; on release rallies/transfigures minions and launches a coordinated Mass Attack on enclosed hostiles.
@@ -77,7 +77,7 @@ import net.minecraft.world.World;
  */
 public class CommandScepterItem extends Item {
 
-	public static final double MINION_COMMAND_RADIUS = 32.0D;
+	public static final double MINION_COMMAND_RADIUS = 64.0D;
 
 	@FunctionalInterface
 	public interface ScreenOpener {
@@ -632,7 +632,7 @@ public class CommandScepterItem extends Item {
 				return;
 			}
 
-			// 2. Block Hit: Long-range RTS ground waypoint ping (up to 32 blocks)
+			// 2. Block Hit: Long-range RTS ground waypoint ping (up to 64 blocks)
 			if (hit instanceof BlockHitResult blockHit && blockHit.getType() == HitResult.Type.BLOCK) {
 				BlockPos hitPos = blockHit.getBlockPos();
 				Direction hitSide = blockHit.getSide();
@@ -851,7 +851,7 @@ public class CommandScepterItem extends Item {
 			return;
 		}
 
-		// Perform 32-block crosshair raycast against terrain
+		// Perform 64-block crosshair raycast against terrain
 		BlockHitResult hitResult = raycastBlockTarget(player, MINION_COMMAND_RADIUS);
 		if (hitResult == null || hitResult.getType() != HitResult.Type.BLOCK) {
 			return;
@@ -993,7 +993,7 @@ public class CommandScepterItem extends Item {
 		CommandMode mode = getMode(stack);
 		SquadGroup squad = getTargetSquad(stack);
 
-		// 1. Crosshair Entity Check: if an entity is aligned with the cursor within 32 blocks
+		// 1. Crosshair Entity Check: if an entity is aligned with the cursor within 64 blocks
 		// (and not obstructed by terrain), prioritize entity interaction over ground waypoint.
 		EntityHitResult cursorEntityHit = raycastEntityTarget(player, MINION_COMMAND_RADIUS);
 		if (cursorEntityHit != null && cursorEntityHit.getEntity() instanceof LivingEntity targetEntity) {
@@ -1502,7 +1502,7 @@ public class CommandScepterItem extends Item {
 	}
 
 	/**
-	 * Deselects all owned minions within the command radius (32 blocks),
+	 * Deselects all owned minions within the command radius (64 blocks),
 	 * anchoring each standing minion at its current position so they hold their ground without sitting.
 	 *
 	 * @param player The commanding player.
@@ -1868,7 +1868,7 @@ public class CommandScepterItem extends Item {
 				);
 			}
 
-			// Find hostiles within 32 blocks (MINION_COMMAND_RADIUS) sorted by crosshair vector proximity
+			// Find hostiles within 64 blocks (MINION_COMMAND_RADIUS) sorted by crosshair vector proximity
 			MobEntity primaryTarget = findBestHostileTargetNear(world, player, player.getCameraPosVec(1.0F), MINION_COMMAND_RADIUS);
 
 			String squadLabel = filterSquad.getFormattedName();

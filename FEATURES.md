@@ -16,7 +16,7 @@ This document provides a comprehensive technical breakdown of all gameplay featu
 8. [Combat Sappers & Ephemeral Scaffolding](#8-combat-sappers--ephemeral-scaffolding)
 9. [Dedicated Construction Block Subsystem (`ConstructionBlock`)](#9-dedicated-construction-block-subsystem-constructionblock)
 10. [Advanced Mob Pathfinding Engine](#10-advanced-mob-pathfinding-engine)
-11. [Tactical Explosives: TNT Stick & Projectile](#11-tactical-explosives-tnt-stick--projectile)
+11. [Tactical Ordnance: TNT Stick & Frost Grenade Stick](#11-tactical-ordnance-tnt-stick--frost-grenade-stick)
 12. [Data Components & Network Protocol Architecture](#12-data-components--network-protocol-architecture)
 13. [Survival vs. Creative Mode Economy & Mechanics](#13-survival-vs-creative-mode-economy--mechanics)
 
@@ -33,7 +33,7 @@ The **Loki Command Scepter** is a high-tier tactical relic allowing players to c
          ▼                   ▼                     ▼                     ▼                   ▼
    [Shift + Right-Click] [BUILD Mode: Ground]  [MINE Mode: Ground]  [RECRUIT Mode: Mob]   [Tactical Broadcast]
     Open Command Hub GUI  Anchor Construction   Anchor Area Mine     Enthrall Mob into     FOLLOW / STAY
-    (Or press [V] key)    (Sneak: Dismantle)    & Deconstruction     Minion Thrall         Radius: 32 blocks
+    (Or press [V] key)    (Sneak: Dismantle)    & Deconstruction     Minion Thrall         Radius: 64 blocks
 ```
 
 ### Technical Specifications
@@ -58,15 +58,15 @@ The scepter cycles through 5 distinct operational modes via **Sneak + Right-Clic
 > **Contextual Combat Control**:
 > Operating mode `ATTACK` is retired. Combat is handled dynamically: quick-tap an enemy to focus-fire, or channel the 90° forward sector to launch a coordinated mass attack on an entire enemy formation!
 
-### Long-Range Crosshair Targeting (32.0D Reach)
+### Long-Range Crosshair Targeting (64.0D Reach)
 
-The scepter features an integrated 32-block line-of-sight raycasting engine:
+The scepter features an integrated 64-block line-of-sight raycasting engine:
 
 - **Direct Minion Selection**: Aiming crosshair at an owned minion and right-clicking toggles unit selection with audio/visual feedback (chime + hearts to select; bass + smoke to deselect). Selected minions display team glowing outlines and an amber star in their overhead badge.
-- **Selective Ground Waypoint Pings**: Right-clicking terrain up to 32 blocks away drops a ground beacon beam (`END_ROD` + `GLOW`). Selected minions matching the active squad channel sprint to the ping and automatically arrange into tactical combat stations, holding position upright at attention. Deployed minions are **automatically deselected** (`minion.setSelected(false)`), clearing selection outlines and freeing the commander's selection buffer for immediate subsequent squad micro-management without requiring manual deselection inputs.
-- **Hostile Focus-Fire Raycasting**: Aiming crosshair directly at a hostile mob up to 32 blocks away and right-clicking issues a squad-wide focus-fire ping, accompanied by war drum cadences and crit particles.
+- **Selective Ground Waypoint Pings**: Right-clicking terrain up to 64 blocks away drops a ground beacon beam (`END_ROD` + `GLOW`). Selected minions matching the active squad channel sprint to the ping and automatically arrange into tactical combat stations, holding position upright at attention. Deployed minions are **automatically deselected** (`minion.setSelected(false)`), clearing selection outlines and freeing the commander's selection buffer for immediate subsequent squad micro-management without requiring manual deselection inputs.
+- **Hostile Focus-Fire Raycasting**: Aiming crosshair directly at a hostile mob up to 64 blocks away and right-clicking issues a squad-wide focus-fire ping, accompanied by war drum cadences and crit particles.
 - **Direct Scepter Follow**: Right-clicking an owned minion while it is holding position commands that individual unit to break guard stance and follow master.
-- **Skyward Broadcast Directives**: Right-clicking the open sky broadcasts the active mode (`FOLLOW` or `STAY`) to all matching squad units within 32 blocks.
+- **Skyward Broadcast Directives**: Right-clicking the open sky broadcasts the active mode (`FOLLOW` or `STAY`) to all matching squad units within 64 blocks.
 - **Rapid Army Deselection**: In-world Sneak + Left-Click against any block in non-`BUILD` modes immediately deselects all active minions with bass audio and smoke puffs.
 
 ### Banner of Courage (Channeled 90° Forward Sector & Real-Time Highlighting)
@@ -106,10 +106,10 @@ In `BUILD` mode, commanders can rotate structures prior to placement:
 
 | Interaction | Condition | Behavior |
 | :--- | :--- | :--- |
-| **Right-Click (Quick Tap)** | Hostile Mob ($\le 32\text{D}$) | Focus-fire attack order; squad units focus target with drum cadence. |
-| **Right-Click (Quick Tap)** | Ground Block ($\le 32\text{D}$) | Drops ground waypoint; selected squad units sprint, form up, hold station, and **automatically deselect**. |
-| **Right-Click (Quick Tap)** | Owned Minion ($\le 32\text{D}$) | Toggles unit selection (chime/hearts vs bass/smoke). |
-| **Right-Click (Quick Tap)** | Open Sky / Air | Broadcasts active directive (`FOLLOW`, `STAY`) to 32-block radius. |
+| **Right-Click (Quick Tap)** | Hostile Mob ($\le 64\text{D}$) | Focus-fire attack order; squad units focus target with drum cadence. |
+| **Right-Click (Quick Tap)** | Ground Block ($\le 64\text{D}$) | Drops ground waypoint; selected squad units sprint, form up, hold station, and **automatically deselect**. |
+| **Right-Click (Quick Tap)** | Owned Minion ($\le 64\text{D}$) | Toggles unit selection (chime/hearts vs bass/smoke). |
+| **Right-Click (Quick Tap)** | Open Sky / Air | Broadcasts active directive (`FOLLOW`, `STAY`) to 64-block radius. |
 | **Hold Right-Click (>8 ticks)** | Hostiles in Sector | Charges 90° forward sector; launches coordinated **Mass Attack** across enemy formation. |
 | **Hold Right-Click (>8 ticks)** | Minions in Sector | Charges 90° forward sector; rallies, selects, and transfigures enclosed minions into primed role. |
 | **Sneak + Right-Click** | Aiming at Air | Cycles scepter command mode forward (`FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT`). |
@@ -139,6 +139,8 @@ The **Minion Thrall** is an autonomous bipedal worker, builder, and combat entit
 - **Movement Speed**: `0.30` base speed
 - **Attack Damage**: `5.0` base physical damage
 - **Step Height**: `1.0625D` base step height, allowing smooth traversal over slabs, stairs, and 1-block terrain steps without jumping.
+- **Follow Tracking Range**: `64.0D` base tracking radius (`EntityAttributes.GENERIC_FOLLOW_RANGE`), enabling minions to acquire targets, maintain formation, and respond to orders across large battlefields.
+- **Emergency Teleport Leash**: `64.0D` distance threshold (`TELEPORT_DISTANCE_THRESHOLD`), allowing units to engage distant hostiles and maneuver across complex terrain without prematurely snapping back to the commander.
 
 ### Upright Attention Stance & Posture
 
@@ -208,7 +210,7 @@ To ensure commanders can monitor their thralls' vital status at a glance during 
 | Role | Color | Combat Profile | Primary Equipment | Behaviors |
 | :--- | :--- | :--- | :--- | :--- |
 | **`WARRIOR`** | Red (`§c`) | Frontline Melee **or** Ranged Skirmish | Swords, Axes, Maces **OR** Bows, Crossbows | **Dual Combatant**: Functions as a frontline melee striker or as a ranged archer based on equipped weapon. Leads formation frontline. |
-| **`SENTINEL`** | Green (`§a`) | Perimeter Guard | Sword + Shield | Holds designated anchor; 8-block guard zone; 12-block leash retreat; prioritizes shields. |
+| **`SENTINEL`** | Green (`§a`) | Perimeter Guard & Combat Medic | Sword + Shield | Holds designated anchor; 8-block guard zone; 12-block leash retreat; prioritizes shields. **Aegis of Restoration**: Autonomously channels healing to allied minions under 70% HP within 10 blocks, restoring 6.0 HP (3 hearts) and granting Regeneration II for 5s with heart VFX and chime audio (6s cooldown; fallback self-heal below 40% HP). |
 | **`BUILDER`** | Blue (`§9`) | Construction | Pickaxes, Shovels | Autonomous multiblock construction and deconstruction with full 3D Arcane Levitation hover flight. |
 | **`MINER`** | Gold (`§6`) | Demolition | Pickaxes | Specializes in structure deconstruction and excavation. |
 
@@ -335,7 +337,7 @@ Opened via **Shift + Right-Click** with the scepter or pressing the **`V`** key.
 ```
 
 - **4-Button Mass Archetype Bar ($y = 232$)**: 
-  - **Direct Batch Conversion**: Clicking an archetype immediately dispatches a `MassRolePayload` converting all selected minions (or all minions within the active squad channel) within a **32-block radius** (`CommandScepterItem.MINION_COMMAND_RADIUS = 32.0D`) into the chosen role. If no minions are currently selected, it falls back to batch-assigning all owned minions within the 32-block radius matching the active squad filter.
+  - **Direct Batch Conversion**: Clicking an archetype immediately dispatches a `MassRolePayload` converting all selected minions (or all minions within the active squad channel) within a **64-block radius** (`CommandScepterItem.MINION_COMMAND_RADIUS = 64.0D`) into the chosen role. If no minions are currently selected, it falls back to batch-assigning all owned minions within the 64-block radius matching the active squad filter.
   - **Stateful Toggle & Transfiguration Priming**: Buttons operate as stateful toggle controls. Clicking an unselected role primes it as the scepter's active `TARGET_ROLE` (displaying a colored active indicator bar beneath the button and updating the modal title to `[Role] (Rally Transform)`). Clicking the already-selected role toggles it off. When primed, releasing a Banner of Courage rally ring in the world will automatically transfigure all gathered minions into this role.
   - **Contextual Tooltips**: Hovering over each button displays rich contextual tooltips explaining current selection state, role abilities, and rally transfiguration behavior.
 - **Squad Filter Bar**: Selects target squad division for directives and mass assignments.
@@ -353,7 +355,7 @@ Opened via **Shift + Right-Click** with the scepter or pressing the **`V`** key.
 Opened via **Sneak + Right-Click** directly on an owned minion. Features an expanded 248px modal:
 
 - **Header Plate**: Displays custom minion name/title, squad division color banner, and interactive Role / Squad cycle buttons.
-- **Labels**: Distinct bolded `"Equipment"` ($x = 8, y = 5$) and `"Inventory"` ($x = 116, y = 5$) headers.
+- **Labels**: Clean, prominent bolded `"Inventory"` ($x = 116, y = 5$) header above the 9-slot backpack (redundant Equipment text removed for streamlined visual clarity).
 - **6 Dedicated Equipment Slots**: Head, Chest, Legs, Feet, Mainhand, and Offhand with ghost item sprites.
 - **9-Slot Backpack Grid**: Internal storage matrix for minion resources and scavenged blocks.
 - **Live 3D Entity Preview & Hearts Health Plate**:
@@ -493,7 +495,7 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 
 ---
 
-## 11. Tactical Explosives: TNT Stick & Projectile
+## 11. Tactical Ordnance: TNT Stick & Frost Grenade Stick
 
 ### TNT Stick (`TntStickItem`)
 
@@ -508,6 +510,35 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 - **Identifier**: `modid-mmcli-agent-modding:tnt_projectile`
 - **Flight Physics**: Aerodynamic velocity with continuous smoke trail and flame particles.
 - **Detonation**: Explodes on server collision with solid blocks or entities with a $4.0\text{F}$ explosive power.
+
+### Frost Grenade Projectile Stick (`FrostGrenadeStickItem`)
+
+- **Identifier**: `modid-mmcli-agent-modding:frost_grenade_stick`
+- **Creative Tab**: `ItemGroups.COMBAT`
+- **Rarity**: `Rarity.RARE`
+- **Max Stack Size**: `1`
+- **Cooldown**: 10 ticks (0.5s) anti-spam delay
+- **Action**: Right-clicking launches an aerodynamic cryogenic projectile with custom throwing audio (`ENTITY_SNOWBALL_THROW` and `BLOCK_POWDER_SNOW_STEP`).
+- **In-Game Tooltip**: Color-coded tactical summary detailing fluid conversion, powder snow perimeter, and freezing debuffs.
+
+### Frost Grenade Projectile (`FrostGrenadeEntity`)
+
+- **Identifier**: `modid-mmcli-agent-modding:frost_projectile`
+- **Flight Physics**: Arcing thrown item physics leaving client-side snowflake (`SNOWFLAKE`) and snowball (`ITEM_SNOWBALL`) particle trails.
+- **Direct Impact (`onEntityHit`)**: Deals $3.0\text{F}$ direct cold/blunt damage on entity impact (+5.0 bonus damage against fire-elemental mobs like Blazes and Magma Cubes).
+- **Zero Block Destruction**: Causes no explosive block damage, preserving player structures, redstone, and terrain.
+- **Fluid & Fire Transmutation ($r = 3.5\text{D}$)**:
+  - **Water Flash-Freeze**: Both still and flowing water blocks instantly crystallize into solid ice (`Blocks.ICE`).
+  - **Lava Crystallization**: Still lava pools turn into obsidian (`Blocks.OBSIDIAN`), and flowing lava converts to cobblestone (`Blocks.COBBLESTONE`) accompanied by `BLOCK_LAVA_EXTINGUISH` audio.
+  - **Fire Extinguishment**: Active fires (`Blocks.FIRE`, `Blocks.SOUL_FIRE`) and lit campfires are quenched with steam and `BLOCK_FIRE_EXTINGUISH` audio.
+- **Perimeter Powder Snow Ring ($r \in [2.0\text{D}, 3.5\text{D}]$)**:
+  - Scans ground level on the outer circle of the blast zone.
+  - Places a ring of powder snow (`Blocks.POWDER_SNOW`) only on air/replaceable positions supported by solid ground or ice below, preserving an open center around the impact point.
+- **Entity Debuffs ($r = 5.0\text{D}$)**:
+  - **Fire Quenching**: Burning entities caught in the blast are extinguished (`entity.extinguishWithSound()`).
+  - **Freezing Ticks**: Inflicts $360$ frozen ticks (`FREEZE_TICKS`), instantly covering the player's screen in frost vignette and triggering shivering/cold damage for non-immune entities. Respects `entity.canFreeze()`.
+  - **Slowness III**: Inflicts `StatusEffects.SLOWNESS` level III (amplifier 2) for 160 ticks (8.0 seconds).
+- **Visual & Auditory Feedback**: Spawns 60 snowflake, 30 snowball, 20 cloud, and 1 flash particles, accompanied by glass shattering (`BLOCK_GLASS_BREAK`) and snow crunch audio.
 
 ---
 
@@ -527,9 +558,9 @@ Type-safe, immutable components attached to items such as the Loki Command Scept
 
 1. **`UpdateScepterPayload`**: Synchronizes active command mode, selected blueprint, target squad channel, rotation index, optional target archetype role, and directive dispatch flags.
 2. **`UpdateMinionConfigPayload`**: Updates an individual minion's role archetype and squad assignment.
-3. **`MassRolePayload`**: Batch-assigns a role archetype to all selected minions (or all matching squad minions) within a 32-block radius.
+3. **`MassRolePayload`**: Batch-assigns a role archetype to all selected minions (or all matching squad minions) within a 64-block radius.
 4. **`TeleportMinionPayload`**: Recalls an individual minion or broadcast-teleports all squad minions to the player.
-5. **`DismissMinionPayload`**: Decommissions an individual minion or broadcast-decommissions squad minions within 32 blocks.
+5. **`DismissMinionPayload`**: Decommissions an individual minion or broadcast-decommissions squad minions within 64 blocks.
 6. **`DeselectMinionsPayload`**: Clears active unit selection for an individual minion or the entire army.
 7. **`RetreatPayload`**: Dispatches instant tactical panic retreat (`Keybind R`), resetting combat targets, canceling guard posts, and recalling all squad minions to formation at sprint speed.
 

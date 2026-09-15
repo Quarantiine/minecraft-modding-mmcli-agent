@@ -14,6 +14,7 @@ import com.example.entity.ai.goal.MinionFormationFollowGoal;
 import com.example.entity.ai.goal.MinionRangedAttackGoal;
 import com.example.entity.ai.goal.MinionSapperGoal;
 import com.example.entity.ai.goal.SentinelGuardGoal;
+import com.example.entity.ai.goal.SentinelHealAllyGoal;
 import com.example.entity.ai.goal.WaypointHoldGoal;
 import com.example.entity.ai.pathing.MinionNavigation;
 import com.example.screen.MinionScreenHandler;
@@ -450,7 +451,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			.add(EntityAttributes.GENERIC_MOVEMENT_SPEED, 0.3D)
 			.add(EntityAttributes.GENERIC_ATTACK_DAMAGE, 5.0D)
 			.add(EntityAttributes.GENERIC_ARMOR, 4.0D)
-			.add(EntityAttributes.GENERIC_FOLLOW_RANGE, 32.0D)
+			.add(EntityAttributes.GENERIC_FOLLOW_RANGE, 64.0D)
 			.add(EntityAttributes.GENERIC_STEP_HEIGHT, 1.0625D);
 	}
 
@@ -461,6 +462,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(2, new LongDoorInteractGoal(this, true));
 		this.goalSelector.add(2, new MinionSapperGoal(this));
 		this.goalSelector.add(3, new SentinelGuardGoal(this));
+		this.goalSelector.add(3, new SentinelHealAllyGoal(this));
 		this.goalSelector.add(3, new WaypointHoldGoal(this));
 		this.goalSelector.add(3, new MinionBuildGoal(this));
 		this.goalSelector.add(4, new MinionRangedAttackGoal(this, 1.25D, 20));

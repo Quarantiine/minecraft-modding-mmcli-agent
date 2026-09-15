@@ -22,17 +22,18 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
 
 | Feature                      | Domain            | Identifier / Class                                                    | Core Capability                                                                                                           |                                        Specs                                        |
 | :--------------------------- | :---------------- | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------: |
-| **Loki Command Scepter**     | Custom Item       | `modid-mmcli-agent-modding:command_scepter`<br>`CommandScepterItem`   | 32-block raycast unit selection, ground waypoints with auto-deselect, persistent 90° assault queue targeting, 4-quadrant rotation & door sparkle HUD |         [Section 1](FEATURES.md#1-loki-command-scepter-commandscepteritem)          |
-| **Minion Thrall**            | Custom Entity     | `modid-mmcli-agent-modding:minion`<br>`MinionEntity`                  | 9-slot inventory, 4 archetype roles, Universal Arcane Levitation traversal (high cliffs, roofs & blocks), dynamic hearts health display, persistent assault chaining & upright posture |    [Section 2](FEATURES.md#2-autonomous-minion-thralls-minionentity--spawn-egg)     |
+| **Loki Command Scepter**     | Custom Item       | `modid-mmcli-agent-modding:command_scepter`<br>`CommandScepterItem`   | 64-block raycast unit selection, ground waypoints with auto-deselect, persistent 90° assault queue targeting, 4-quadrant rotation & door sparkle HUD |         [Section 1](FEATURES.md#1-loki-command-scepter-commandscepteritem)          |
+| **Minion Thrall**            | Custom Entity     | `modid-mmcli-agent-modding:minion`<br>`MinionEntity`                  | 9-slot inventory, 4 archetype roles (Sentinel Aegis of Restoration healing AI), 64-block follow & teleport leash range, Universal Arcane Levitation traversal, dynamic hearts health display, persistent assault chaining & upright posture |    [Section 2](FEATURES.md#2-autonomous-minion-thralls-minionentity--spawn-egg)     |
 | **Minion Spawn Egg**         | Custom Item       | `modid-mmcli-agent-modding:minion_spawn_egg`<br>`SpawnEggItem`        | Deep navy & arcane gold spawn egg; primes minions in standby stance                                                       |    [Section 2](FEATURES.md#2-autonomous-minion-thralls-minionentity--spawn-egg)     |
 | **Tactical Army AI**         | Squad AI          | `MinionRole`<br>`SquadGroup`                                          | Wildcard (`ALL`) and discrete squads (`ALPHA`–`DELTA`), formations & focus-fire                                           |   [Section 3](FEATURES.md#3-tactical-army-architecture-roles-squads--formations)    |
 | **Construction Manager**     | Server Engine     | `ConstructionManager`<br>`ConstructionSession`                        | Multi-phase build/dismantle sessions with holographic bounding particles                                                  |        [Section 6](FEATURES.md#6-multiblock-construction--blueprint-engine)         |
 | **Blueprint Catalog**        | Multiblock Engine | `BlueprintRegistry`<br>`StructureBlueprint`                           | Topologically sorted blueprints (Watchtower, Arcane Obelisk, Barricade)                                                   |        [Section 6](FEATURES.md#6-multiblock-construction--blueprint-engine)         |
 | **Structure Deconstruction** | Demolition Engine | `ConstructionSession`<br>`ConstructionManager`                        | Reverse topological dismantling (roofs first, foundations last) with bedrock immunity safeguards & tool salvage           |        [Section 7](FEATURES.md#7-structure-deconstruction--bedrock-immunity)        |
 | **Combat Sappers**           | Traversal AI      | `MinionSapperGoal`<br>`TraversalScaffoldingManager`                   | Autonomous chasm bridging, cliff ascent ladders with ceiling clearance avoidance & stall recovery                         |          [Section 8](FEATURES.md#8-combat-sappers--ephemeral-scaffolding)           |
-| **Construction Block**       | Custom Block      | `modid-mmcli-agent-modding:construction_block`<br>`ConstructionBlock` | Non-collapsing infinite span construction block with solid-top support and zero-drop demolition                           | [Section 9](FEATURES.md#9-dedicated-construction-block-subsystem-constructionblock) |
-| **TNT Stick**                | Custom Item       | `modid-mmcli-agent-modding:tnt_stick`<br>`TntStickItem`               | Single-stack throwable explosive stick with 5-tick anti-spam cooldown                                                     |       [Section 11](FEATURES.md#11-tactical-explosives-tnt-stick--projectile)        |
-| **TNT Projectile**           | Custom Entity     | `modid-mmcli-agent-modding:tnt_projectile`<br>`TntProjectileEntity`   | Server-authoritative projectile with smoke trail and 4.0F explosion                                                       |       [Section 11](FEATURES.md#11-tactical-explosives-tnt-stick--projectile)        |
+| **TNT Stick**                | Custom Item       | `modid-mmcli-agent-modding:tnt_stick`<br>`TntStickItem`               | Single-stack throwable explosive stick with 5-tick anti-spam cooldown                                                     | [Section 11](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick) |
+| **TNT Projectile**           | Custom Entity     | `modid-mmcli-agent-modding:tnt_projectile`<br>`TntProjectileEntity`   | Server-authoritative projectile with smoke trail and 4.0F explosion                                                       | [Section 11](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick) |
+| **Frost Grenade Stick**      | Custom Item       | `modid-mmcli-agent-modding:frost_grenade_stick`<br>`FrostGrenadeStickItem` | Throwable cryogenic stick with 10-tick cooldown; flash-freezes water, turns lava to obsidian, and creates powder snow ring | [Section 11](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick) |
+| **Frost Projectile**         | Custom Entity     | `modid-mmcli-agent-modding:frost_projectile`<br>`FrostGrenadeEntity`  | Zero block damage projectile; inflicts 360 freezing ticks, Slowness III, and extinguishes fire with snowflake trails       | [Section 11](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick) |
 | **Client Rendering & GUIs**  | Visuals & UI      | `com.example.client.renderer.*`<br>`com.example.client.gui.*`         | 3-line overhead badges (squad, role, hearts health), 3D rotating wireframes, MinionScreen health plate & Command Hub      |   [Section 4 & 5](FEATURES.md#4-client-visuals-holograms--overhead-crest-badges)    |
 | **Block Architecture**       | Registry System   | `ModBlocks`                                                           | Automated dual registration pairing `Registries.BLOCK` with `Registries.ITEM`                                             | [Section 9](FEATURES.md#9-dedicated-construction-block-subsystem-constructionblock) |
 | **Workforce Operations**     | RTS Workforce     | `MinionBuildGoal`<br>`MassRolePayload`                                | Unrestricted building AI, 3D Arcane Levitation (scaffolding-free), automatic waypoint formations & mass archetype roles |      [Section 3 & 6](FEATURES.md#6-multiblock-construction--blueprint-engine)       |
@@ -46,8 +47,8 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
 <br>
 
 - **Loki Command Scepter** ([`CommandScepterItem`](FEATURES.md#1-loki-command-scepter-commandscepteritem)):
-  - **Selective Waypoints with Auto-Deselect**: Right-click ground positions (or crosshair targeting up to 32 blocks away) to move _only_ minions currently selected and assigned to the active squad channel into tactical battle ranks. Upon dispatching to the waypoint station, units **automatically deselect** (`setSelected(false)`), clearing selection halos and freeing the commander's selection buffer for rapid subsequent unit micro-management without requiring manual deselection inputs.
-  - **Direct Unit Selection**: Right-click an owned minion (or aim crosshair within 32 blocks) to toggle selection with audio/particle feedback (chime + hearts to select; bass + smoke to deselect).
+  - **Selective Waypoints with Auto-Deselect**: Right-click ground positions (or crosshair targeting up to 64 blocks away) to move _only_ minions currently selected and assigned to the active squad channel into tactical battle ranks. Upon dispatching to the waypoint station, units **automatically deselect** (`setSelected(false)`), clearing selection halos and freeing the commander's selection buffer for rapid subsequent unit micro-management without requiring manual deselection inputs.
+  - **Direct Unit Selection**: Right-click an owned minion (or aim crosshair within 64 blocks) to toggle selection with audio/particle feedback (chime + hearts to select; bass + smoke to deselect).
   - **Squad Outlines**: Selected units glow with squad-specific team colors (Alpha Red, Bravo Blue, Charlie Green, Delta Gold, All White).
   - **Ranked Army Line Formations**: Ground waypoint pings and follow directives deploy minions into straight, parallel military battle ranks (Warriors forward in frontline lines, Sentinels in midline bulwark lines, Builders in rearguard support, Miners in deep logistics) rotated along commander line-of-sight yaw with an open central command corridor.
   - **Mass Archetype Role Assignment**: 4-button Mass Archetype bar in Command Hub (`CommandScepterScreen`) and `MassRolePayload` network protocol to instantaneously batch-convert selected units or squad channels into Warriors, Sentinels, Builders, or Miners.
@@ -63,7 +64,8 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
   - **Clean-Slate Spawning & Recruitment**: Freshly spawned or scepter-recruited thralls initialize with empty hands and empty 9-slot backpacks (zero equipment). Active role disarming strictly stows incompatible weapons.
   - **Persistent Inventory**: 9 inventory slots + 6 equipment slots managed via Sneak + Right-Click modal GUI.
   - **Friendly-Fire Immunity**: Custom damage gating prevents allied arrow fire, Sweeping Edge strikes, or accidental hits among teammates.
-  - **4 Archetype Roles**: `WARRIOR` (versatile dual-class: frontline swordsman or ranged archer based on equipped weapon), `SENTINEL` (perimeter guard & shield bulwark), `BUILDER` (architectural construction with Arcane Levitation hover flight), and `MINER` (excavation and demolition).
+  - **4 Archetype Roles**: `WARRIOR` (versatile dual-class: frontline swordsman or ranged archer based on equipped weapon), `SENTINEL` (perimeter guard, shield bulwark & combat medic channeling the **Aegis of Restoration** to heal wounded allies under 70% HP within 10 blocks), `BUILDER` (architectural construction with Arcane Levitation hover flight), and `MINER` (excavation and demolition).
+  - **Extended Operational Leash**: `64.0D` base tracking radius (`GENERIC_FOLLOW_RANGE`) and `64.0D` emergency teleport threshold, allowing units to engage distant hostiles and maneuver across terrain without snapping back to the commander.
   - **Universal Arcane Levitation Traversal & Obstacle Vaulting**: All minions possess universal 3D Arcane Levitation mobility. When navigating across extreme vertical elevation gaps (descending off high cliffs/buildings with $\Delta Y < -1.5\text{D}$ or ascending onto high ledges/cliffs with $\Delta Y > 1.25\text{D}$) or encountering pathfinding stalls ($\ge 4$ ticks), thralls seamlessly engage 3D Arcane Levitation flight with purple and cyan rune particle spirals (`PORTAL` + `ENCHANT`), gliding straight to their commander, waypoint, or combat destination with zero fall damage. Builders also retain continuous 3D hover flight for scaffold-free multiblock assembly.
   - **Singleplayer Host Auto-Adoption**: Server-safe ownership evaluation automatically adopts and rebinds tamed minions to the host player across client/server restarts.
   - **Persistent Assault Target Chaining (`assaultTargets`)**: Slaying a mob automatically triggers `acquireNextAssaultTarget()`, chaining to the nearest alive hostile in the 90° sector queue within 48 blocks at 1.35D sprint speed until all targets are eliminated. Panic retreat (`R`), ground waypoints, and hold orders safely flush the queue.
@@ -117,14 +119,18 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
   </details>
 
 <details open>
-<summary><b>💥 3. Tactical Explosives & Combat Entities</b></summary>
+<summary><b>💥 3. Tactical Ordnance & Combat Entities</b></summary>
 <br>
 
-- **TNT Stick** ([`TntStickItem`](FEATURES.md#11-tactical-explosives-tnt-stick--projectile)):
+- **TNT Stick** ([`TntStickItem`](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick)):
   - `EPIC` rarity Combat item. Right-click plays `ENTITY_TNT_PRIMED` sound, launches projectile at 1.5 velocity, and triggers a 5-tick (0.25s) anti-spam cooldown.
 
-- **TNT Projectile** ([`TntProjectileEntity`](FEATURES.md#11-tactical-explosives-tnt-stick--projectile)):
+- **TNT Projectile** ([`TntProjectileEntity`](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick)):
   - Aerodynamic projectile with smoke trail and flame spark effects; detonates on server collision with a 4.0F explosion.
+
+- **Frost Grenade Projectile Stick** ([`FrostGrenadeStickItem`](FEATURES.md#11-tactical-ordnance-tnt-stick--frost-grenade-stick)):
+  - `RARE` rarity Combat item with 10-tick (0.5s) cooldown. Launches a cryogenic projectile leaving snowflake trails.
+  - Causes zero block damage; flash-freezes water to ice, turns lava to obsidian, extinguishes fires, deploys a perimeter ring of powder snow, and inflicts 360 freezing ticks and Slowness III on caught entities.
   </details>
 
 <details open>
@@ -137,7 +143,7 @@ The mod's custom gameplay mechanics are organized across four core pillars: RTS 
   - Rendered with `LightmapTextureManager.MAX_LIGHT_COORDINATE` for crisp, fullbright legibility in deep caves and night raids.
 
 - **Custom Screen Interfaces**:
-  - `MinionScreen`: Framed biped equipment modal with separated equipment/inventory labels, 3D entity preview with prominent bottom hearts health plate, role/squad status, dual-row action bar (Teleport to Me, `§c✖ Destroy`, and `Cancel`), and **Smart Shift-to-Close** with item transfer latching (`SmartCloseHandler`).
+  - `MinionScreen`: Framed biped equipment modal with 6 dedicated equipment slots, 9-slot backpack inventory (streamlined with redundant Equipment header removed), 3D entity preview with prominent bottom hearts health plate, role/squad status, dual-row action bar (Teleport to Me, `§c✖ Destroy`, and `Cancel`), and **Smart Shift-to-Close** with item transfer latching (`SmartCloseHandler`).
   - `CommandScepterScreen`: Interactive Command Hub displaying real-time selected unit counts, formation controls, blueprint preview thumbnails, and a one-click **✕ Deselect** button with fast Shift dismissal.
   - `BlueprintHologramRenderer`: Translucent neon-cyan 3D wireframes rotating synchronously in real time with the active scepter rotation.
   </details>
@@ -163,7 +169,7 @@ The codebase incorporates five foundational engineering refinements designed to 
    - Clean Shift taps without slot clicks dismiss the modal instantly; `'E'` and `Escape` provide universal fast exit.
 5. **Refinement 5 — Sneak + Left-Click Blueprint Rotation Cycling & Door Sparkle HUD**:
    - Sneak + Left-Click in `BUILD` mode cycles rotation through $0^\circ \to 90^\circ \to 180^\circ \to 270^\circ$, updating client and server state seamlessly.
-   - Scepter `inventoryTick` performs 32-block crosshair raycasting, projecting rotating perimeter particles, vertical door sparkle beams (`HAPPY_VILLAGER` + `END_ROD`), and a real-time HUD actionbar readout (`§6🏗 [Name] §8| §bRotation: [Deg]° §8| §a🚪 Door: [Dir]`).
+   - Scepter `inventoryTick` performs 64-block crosshair raycasting, projecting rotating perimeter particles, vertical door sparkle beams (`HAPPY_VILLAGER` + `END_ROD`), and a real-time HUD actionbar readout (`§6🏗 [Name] §8| §bRotation: [Deg]° §8| §a🚪 Door: [Dir]`).
 6. **Refinement 6 — Bedrock Deconstruction Immunity & Sapper Ceiling Avoidance**:
    - Multi-tiered indestructible block immunity protects Bedrock, Barrier, End Portal, and Command Blocks across session task generation, task readiness, and dismantling execution, while builders leverage 3D Arcane Levitation without generating temporary scaffolding.
    - Sapper AI enforces upward shaft ceiling scans, 2-block ledge landing headroom checks, direct overhead ceiling collision sensors (`up(2)`), and vertical stall detection ($> 20$ ticks stall abort), preventing minions from ever hitting ceilings or stalling.
@@ -378,14 +384,16 @@ minecraft-modding/
             │   └── StructureDismantlingTest.java # Reverse topological sorting & dismantle prerequisites
             ├── entity/
             │   ├── ArcaneLevitationAndSectorTest.java # 3D flight & 90° forward sector math tests
+            │   ├── FrostGrenadeTest.java      # Frost grenade fluid freeze, powder snow, debuffs & tests
             │   ├── MinionAssaultTargetChainingTest.java # 90° assault queue chaining, multi-target eradication & retreat clearing
             │   ├── MinionFormationAndEquipTest.java # Ranked army line formations & warrior equipment duality
             │   ├── MinionOwnershipTest.java   # Singleplayer host auto-adoption tests
             │   ├── MinionSapperAndScaffoldingTest.java # Sapper bridging, climbing shafts, and decay safety
             │   ├── MinionSquadAndRoleTest.java# Roles, squads, serialization, and leash logic
+            │   ├── SentinelHealGoalTest.java  # Sentinel Aegis of Restoration healing AI & priority tests
             │   └── WaypointFormationAndMassRoleTest.java # Waypoint rank stations & MassRolePayload tests
             ├── item/
-            │   ├── CommandScepterRaycastTargetingTest.java # 32-block crosshair raycast & targeting math
+            │   ├── CommandScepterRaycastTargetingTest.java # 64-block crosshair raycast & targeting math
             │   └── CommandScepterRotationTest.java # Scepter rotation cycling & door beacon tests
             └── network/
                 └── NetworkingPayloadTest.java # C2S and S2C packet records, codecs, and compatibility

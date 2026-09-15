@@ -1,6 +1,7 @@
 package com.example.entity;
 
 import com.example.ExampleMod;
+import com.example.entity.custom.FrostGrenadeEntity;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.TntProjectileEntity;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
@@ -20,6 +21,16 @@ public class ModEntities {
 		Registries.ENTITY_TYPE,
 		Identifier.of(ExampleMod.MOD_ID, "tnt_projectile"),
 		EntityType.Builder.<TntProjectileEntity>create(TntProjectileEntity::new, SpawnGroup.MISC)
+			.dimensions(0.25F, 0.25F)
+			.maxTrackingRange(4)
+			.trackingTickInterval(10)
+			.build()
+	);
+
+	public static final EntityType<FrostGrenadeEntity> FROST_PROJECTILE = Registry.register(
+		Registries.ENTITY_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "frost_projectile"),
+		EntityType.Builder.<FrostGrenadeEntity>create(FrostGrenadeEntity::new, SpawnGroup.MISC)
 			.dimensions(0.25F, 0.25F)
 			.maxTrackingRange(4)
 			.trackingTickInterval(10)

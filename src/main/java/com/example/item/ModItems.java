@@ -7,6 +7,7 @@ import com.example.component.ModDataComponents;
 import com.example.component.SquadGroup;
 import com.example.entity.ModEntities;
 import com.example.item.custom.CommandScepterItem;
+import com.example.item.custom.FrostGrenadeStickItem;
 import com.example.item.custom.MinionSpawnEggItem;
 import com.example.item.custom.TntStickItem;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
@@ -29,6 +30,14 @@ public class ModItems {
 	public static final Item TNT_STICK = registerItem(
 		"tnt_stick",
 		new TntStickItem(new Item.Settings().maxCount(1).rarity(Rarity.EPIC))
+	);
+
+	/**
+	 * Frost Grenade Stick item that launches cryogenic frost projectiles.
+	 */
+	public static final Item FROST_GRENADE_STICK = registerItem(
+		"frost_grenade_stick",
+		new FrostGrenadeStickItem(new Item.Settings().maxCount(1).rarity(Rarity.RARE))
 	);
 
 	/**
@@ -72,9 +81,10 @@ public class ModItems {
 	public static void registerModItems() {
 		ExampleMod.LOGGER.info("Registering Mod Items for {}", ExampleMod.MOD_ID);
 
-		// Add TNT Stick and Command Scepter to the Combat item group / creative tab
+		// Add TNT Stick, Frost Grenade Stick, and Command Scepter to the Combat item group / creative tab
 		ItemGroupEvents.modifyEntriesEvent(ItemGroups.COMBAT).register(entries -> {
 			entries.add(TNT_STICK);
+			entries.add(FROST_GRENADE_STICK);
 			entries.add(COMMAND_SCEPTER);
 		});
 

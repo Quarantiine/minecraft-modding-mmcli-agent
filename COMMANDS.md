@@ -9,7 +9,7 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | Input                              | Target / Context         | Action                                                                                                                                                          |
 | :--------------------------------- | :----------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Right-Click** _(Quick Tap)_      | Hostile Mob              | **Focus-Fire Attack Ping**: Selected minions charge and attack this entity.                                                                                     |
-| **Right-Click** _(Quick Tap)_      | Ground Block (up to 32m) | **RTS Waypoint Ping**: Deploys minions into ranked army battle lines and auto-deselects them.                                   |
+| **Right-Click** _(Quick Tap)_      | Ground Block (up to 64m) | **RTS Waypoint Ping**: Deploys minions into ranked army battle lines and auto-deselects them.                                   |
 | **Right-Click** _(Quick Tap)_      | Owned Minion             | **Individual Follow**: Toggles follow order on this specific minion (follow / stop following).                                                                  |
 | **Right-Click** _(Quick Tap)_      | In **BUILD** Mode        | **Cycle Blueprint**: Cycles to next structure preset (Watchtower, Cottage, etc.).                                                                               |
 | **Right-Click** _(Quick Tap)_      | Open Air / Sky           | **Broadcast Directive**: Broadcasts current mode directive to active squad.                                                                                     |
@@ -24,6 +24,8 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | **Empty Hand Right-Click**         | Owned Minion             | **Sit / Guard**: Toggles minion sitting / stationary guard anchor.                                                                                              |
 | **Gold Ingot Right-Click**         | Untamed Minion           | **Bind / Tame**: Binds the minion permanently to your will (consumes 1 Gold Ingot in Survival).                                                                 |
 | **Food / Gold Right-Click**        | Wounded Minion           | **Heal**: Restores minion health (consumes food/gold in Survival; infinite in Creative).                                                                        |
+| **Right-Click** _(TNT Stick)_      | Open Air / Blocks        | **Throw Explosive Stick**: Launches projectile detonating on impact with 4.0F blast (5-tick cooldown).                                                          |
+| **Right-Click** _(Frost Grenade)_  | Open Air / Blocks        | **Throw Frost Grenade**: Launches cryogenic grenade flash-freezing fluids, placing powder snow ring, and freezing enemies (10-tick cooldown).                   |
 
 ---
 
@@ -34,7 +36,7 @@ The **Command Scepter** is your primary instrument of tactical command. It opera
 ### A. Quick Tap (Right-Click < 8 ticks)
 
 - **Targeting an Enemy**: Commands all selected squad members to focus-fire that target. Plays a war drum sound and spawns angry villager & crit particles.
-- **Targeting the Ground (up to 32 blocks)**: Drops an RTS waypoint marker with a golden beacon beam. Minions march, levitate across cliffs/gaps if needed, and form up in **Ranked Army Lines** facing the objective, automatically deselecting so you can issue fresh commands without re-clicking.
+- **Targeting the Ground (up to 64 blocks)**: Drops an RTS waypoint marker with a golden beacon beam. Minions march, levitate across cliffs/gaps if needed, and form up in **Ranked Army Lines** facing the objective, automatically deselecting so you can issue fresh commands without re-clicking.
 - **Targeting an Owned Minion**: Orders that individual minion to follow you immediately or stop following.
 - **Aiming into Open Air**: Broadcasts your current mode directive to your entire active squad.
 - **In BUILD Mode**: Cycles through your blueprint catalog (Watchtower, Cottage, Barracks, Workshop, etc.).
@@ -115,7 +117,7 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 | Archetype      | Preferred Weapon / Gear                    | Formation Position | Tactical Role                                                                                            |
 | :------------- | :----------------------------------------- | :----------------- | :------------------------------------------------------------------------------------------------------- |
 | **`WARRIOR`**  | Swords, Axes, Maces **OR** Bows, Crossbows | Frontline Rank 1   | **Versatile Combatant**: Fights as a frontline swordsman or as a ranged archer based on equipped weapon. |
-| **`SENTINEL`** | Shield, Mace + Heavy Armor                 | Bulwark Rank 2     | **Defensive Guardian**: High durability, absorbs damage, and holds fortified defense posts.              |
+| **`SENTINEL`** | Shield, Mace + Heavy Armor                 | Bulwark Rank 2     | **Defensive Guardian & Combat Medic**: Absorbs damage, holds fortified posts, and channels the **Aegis of Restoration** to heal wounded allies under 70% HP. |
 | **`BUILDER`**  | Pickaxe, Hammer + Toolset                  | Support Rank 3     | **Arcane Engineer**: 3D levitation flight to construct or dismantle multiblocks at any height.           |
 | **`MINER`**    | Pickaxe + Torch                            | Support Rank 3     | **Resource Gatherer**: Autonomous excavation, tunneling, and quarry operations.                          |
 
@@ -182,3 +184,27 @@ The commander's active game mode directly affects how minions handle resources, 
 | **Minion Spawn Egg**                   | Consumes **1 spawn egg** per mob spawned.                                                                                                                                                                                                                     | Spawns minions infinitely **without depleting** the held egg stack.                                                                                                                                  |
 | **Scepter Recruitment (`RECRUIT`)**    | Transfigures wild mobs into minion thralls.                                                                                                                                                                                                                   | Transfigures wild mobs into minion thralls.                                                                                                                                                          |
 | **Sapper Bridges & Construction Blocks**  | Ephemeral `ConstructionBlock` placed during combat sapper bridging/scaling has zero drops in both modes to prevent debris. Builders levitate and do not use scaffolding. | Zero drops in both modes.                                                                                                                                                                            |
+
+---
+
+## 💥 11. Tactical Ordnance: TNT Stick & Frost Grenade Stick
+
+In addition to squad command, commanders have access to throwable tactical ordnance items in the `Combat` creative tab:
+
+### TNT Stick (`modid-mmcli-agent-modding:tnt_stick`)
+- **Type**: Single-stack throwable explosive stick (`Rarity.EPIC`).
+- **Cooldown**: 5 ticks (0.25s) anti-spam delay.
+- **Flight & Blast**: Launches at 1.5 velocity leaving smoke and flame particles; detonates on server collision with a **4.0F explosion**.
+
+### Frost Grenade Stick (`modid-mmcli-agent-modding:frost_grenade_stick`)
+- **Type**: Single-stack throwable cryogenic stick (`Rarity.RARE`).
+- **Cooldown**: 10 ticks (0.5s) anti-spam delay.
+- **Flight & VFX**: Leaves trailing snowflakes and snowball debris in flight.
+- **Zero Block Destruction**: Preserves player structures, redstone, and terrain completely.
+- **Fluid & Fire Conversion ($r = 3.5\text{D}$)**:
+  - **Water Flash-Freeze**: Converts still and flowing water into solid ice (`Blocks.ICE`).
+  - **Lava Crystallization**: Converts still lava into obsidian (`Blocks.OBSIDIAN`) and flowing lava into cobblestone (`Blocks.COBBLESTONE`).
+  - **Fire Quenching**: Extinguishes normal fire, soul fire, and lit campfires with steam particles.
+- **Powder Snow Ring ($r \in [2.0\text{D}, 3.5\text{D}]$)**: Summons a perimeter ring of powder snow (`Blocks.POWDER_SNOW`) around the impact center on solid ground.
+- **Freezing Debuffs ($r = 5.0\text{D}$)**: Inflicts **360 freezing ticks** (full frost vignette + shivering damage) and **Slowness III** (8.0s) on caught entities, while quenching any burning targets.
+

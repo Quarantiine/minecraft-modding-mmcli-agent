@@ -38,7 +38,7 @@ import net.minecraft.world.World;
  *   <li><b>Collision Clearance:</b> Stations maintain 2.5 - 3.0 blocks spacing between comrades.</li>
  *   <li><b>Dynamic Pacing:</b> 1.15D steady march; 1.35D sprint when lagging behind (>8 blocks).</li>
  *   <li><b>Arrival Tolerance:</b> Halts within 2.0 blocks of assigned station to prevent jitter.</li>
- *   <li><b>Emergency Teleport:</b> Instantly recalls minion if distance exceeds 24 blocks.</li>
+ *   <li><b>Emergency Teleport:</b> Instantly recalls minion if distance exceeds 64 blocks.</li>
  * </ul>
  */
 public class MinionFormationFollowGoal extends Goal {
@@ -56,8 +56,8 @@ public class MinionFormationFollowGoal extends Goal {
 	public static final double START_FOLLOW_DISTANCE_SQ = START_FOLLOW_DISTANCE * START_FOLLOW_DISTANCE; // 6.25D
 	public static final double SPRINT_DISTANCE_THRESHOLD = 8.0D;
 	public static final double SPRINT_DISTANCE_THRESHOLD_SQ = SPRINT_DISTANCE_THRESHOLD * SPRINT_DISTANCE_THRESHOLD; // 64.0D
-	public static final double TELEPORT_DISTANCE_THRESHOLD = 24.0D;
-	public static final double TELEPORT_DISTANCE_THRESHOLD_SQ = TELEPORT_DISTANCE_THRESHOLD * TELEPORT_DISTANCE_THRESHOLD; // 576.0D
+	public static final double TELEPORT_DISTANCE_THRESHOLD = 64.0D;
+	public static final double TELEPORT_DISTANCE_THRESHOLD_SQ = TELEPORT_DISTANCE_THRESHOLD * TELEPORT_DISTANCE_THRESHOLD; // 4096.0D
 	public static final double COMBAT_LEASH_OVERRIDE_SQ = 256.0D; // 16 blocks
 	public static final double ASSAULT_LEASH_OVERRIDE_SQ = 2304.0D; // 48 blocks
 
@@ -180,7 +180,7 @@ public class MinionFormationFollowGoal extends Goal {
 
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
 
-		// Emergency teleport when estranged beyond 24 blocks
+		// Emergency teleport when estranged beyond 64 blocks
 		if (distToOwnerSq > TELEPORT_DISTANCE_THRESHOLD_SQ) {
 			if (owner instanceof ServerPlayerEntity serverPlayer) {
 				this.minion.teleportToPlayer(serverPlayer);

@@ -21,6 +21,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreens;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.entity.FlyingItemEntityRenderer;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
@@ -46,6 +47,9 @@ public class ExampleModClient implements ClientModInitializer {
 
 		// Register the custom projectile renderer so the projectile renders as a spinning 3D TNT item in flight
 		EntityRendererRegistry.register(ModEntities.TNT_PROJECTILE, TntProjectileRenderer::new);
+
+		// Register cryogenic frost projectile renderer
+		EntityRendererRegistry.register(ModEntities.FROST_PROJECTILE, FlyingItemEntityRenderer::new);
 
 		// Register the Minion entity renderer with biped model, armor, and held item support
 		EntityRendererRegistry.register(ModEntities.MINION, MinionEntityRenderer::new);

@@ -198,8 +198,8 @@ public class MinionFormationAndEquipTest {
 		Assertions.assertEquals(4.0D, MinionFormationFollowGoal.STOPPING_DISTANCE_SQ);
 		Assertions.assertEquals(8.0D, MinionFormationFollowGoal.SPRINT_DISTANCE_THRESHOLD);
 		Assertions.assertEquals(64.0D, MinionFormationFollowGoal.SPRINT_DISTANCE_THRESHOLD_SQ);
-		Assertions.assertEquals(24.0D, MinionFormationFollowGoal.TELEPORT_DISTANCE_THRESHOLD);
-		Assertions.assertEquals(576.0D, MinionFormationFollowGoal.TELEPORT_DISTANCE_THRESHOLD_SQ);
+		Assertions.assertEquals(64.0D, MinionFormationFollowGoal.TELEPORT_DISTANCE_THRESHOLD);
+		Assertions.assertEquals(4096.0D, MinionFormationFollowGoal.TELEPORT_DISTANCE_THRESHOLD_SQ);
 	}
 
 	// =========================================================================
@@ -546,8 +546,8 @@ public class MinionFormationAndEquipTest {
 		// Testing the exact pacing logic:
 		// dist <= 2.0 -> ARRIVAL / STOP
 		// 2.0 < dist <= 8.0 -> MARCH (1.15D)
-		// 8.0 < dist <= 24.0 -> SPRINT (1.35D)
-		// dist > 24.0 -> TELEPORT
+		// 8.0 < dist <= 64.0 -> SPRINT (1.35D)
+		// dist > 64.0 -> TELEPORT
 
 		record PacingState(boolean arrived, double speed, boolean emergencyTeleport) {}
 
@@ -570,28 +570,29 @@ public class MinionFormationAndEquipTest {
 		Assertions.assertTrue(evaluatePacing.apply(2.0D).arrived());
 
 		// 2. Marching zone (2.01 to 8.0 blocks)
-		PacingState marchState = evaluatePacing.apply(4.0D);
+		PacingState marchState = evaluatePacing.apply(2.01D);
 		Assertions.assertFalse(marchState.arrived());
 		Assertions.assertEquals(MinionFormationFollowGoal.MARCH_SPEED, marchState.speed(), 1e-5);
 		Assertions.assertFalse(marchState.emergencyTeleport());
 
 		PacingState marchBoundary = evaluatePacing.apply(8.0D);
 		Assertions.assertEquals(MinionFormationFollowGoal.MARCH_SPEED, marchBoundary.speed(), 1e-5);
+		Assertions.assertFalse(marchBoundary.emergencyTeleport());
 
-		// 3. Sprinting zone (8.01 to 24.0 blocks)
+		// 3. Sprinting zone (8.01 to 64.0 blocks)
 		PacingState sprintState = evaluatePacing.apply(12.0D);
 		Assertions.assertFalse(sprintState.arrived());
 		Assertions.assertEquals(MinionFormationFollowGoal.SPRINT_SPEED, sprintState.speed(), 1e-5);
 		Assertions.assertFalse(sprintState.emergencyTeleport());
 
-		PacingState sprintBoundary = evaluatePacing.apply(24.0D);
+		PacingState sprintBoundary = evaluatePacing.apply(64.0D);
 		Assertions.assertEquals(MinionFormationFollowGoal.SPRINT_SPEED, sprintBoundary.speed(), 1e-5);
 		Assertions.assertFalse(sprintBoundary.emergencyTeleport());
 
-		// 4. Emergency teleport recall (> 24.0 blocks)
-		PacingState teleportState = evaluatePacing.apply(25.0D);
+		// 4. Emergency teleport recall (> 64.0 blocks)
+		PacingState teleportState = evaluatePacing.apply(65.0D);
 		Assertions.assertTrue(teleportState.emergencyTeleport());
-		Assertions.assertTrue(evaluatePacing.apply(50.0D).emergencyTeleport());
+		Assertions.assertTrue(evaluatePacing.apply(100.0D).emergencyTeleport());
 	}
 
 	// =========================================================================
