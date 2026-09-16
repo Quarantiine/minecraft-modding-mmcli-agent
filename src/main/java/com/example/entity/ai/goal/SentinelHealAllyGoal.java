@@ -2,13 +2,17 @@ package com.example.entity.ai.goal;
 
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.particle.ParticleTypes;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
+import net.minecraft.text.Text;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
@@ -18,8 +22,8 @@ import java.util.List;
 /**
  * Combat-medic AI goal for {@link MinionEntity} units assigned the {@link MinionRole#SENTINEL} role.
  * <p>
- * Sentinels channel the "Aegis of Restoration" to heal wounded ally minions:
- * 1. Scans a 10-block radius for allied minions under 70% max health (prioritizing the lowest HP).
+ * Sentinels channel the "Aegis of Restoration" to heal wounded ally minions and players:
+ * 1. Scans a 10-block radius for allied players (commander priority) and minions under 70% max health.
  * 2. Channels a 1-second (20 ticks) restorative beam with emerald and enchanted sparkle particles.
  * 3. Restores 6.0 HP (3 hearts), grants Regeneration II for 5 seconds (100 ticks), spawns heart particles,
  *    and triggers an arcane resonance chime.
@@ -39,7 +43,7 @@ public class SentinelHealAllyGoal extends Goal {
 	public static final int REGEN_AMPLIFIER = 1; // Regeneration II
 
 	private final MinionEntity minion;
-	private MinionEntity targetAlly;
+	private LivingEntity targetAlly;
 	private int channelTicks;
 	private long lastHealTime;
 
@@ -64,8 +68,8 @@ public class SentinelHealAllyGoal extends Goal {
 			return false;
 		}
 
-		// 1. Search for lowest-health allied minion within 10 blocks
-		MinionEntity bestAlly = findMostWoundedAlly();
+		// 1. Search for lowest-health allied player or minion within 10 blocks
+		LivingEntity bestAlly = findMostWoundedAlly();
 		if (bestAlly != null) {
 			this.targetAlly = bestAlly;
 			return true;
@@ -214,6 +218,14 @@ public class SentinelHealAllyGoal extends Goal {
 						1.4F
 				);
 
+				// Action bar notification if healing a player
+				if (this.targetAlly instanceof ServerPlayerEntity serverPlayer) {
+					serverPlayer.sendMessage(
+							Text.literal("§a🛡 Sentinel channeled Aegis of Restoration to heal you!§r"),
+							true
+					);
+				}
+
 				this.lastHealTime = this.minion.getWorld().getTime();
 			}
 		}
@@ -226,9 +238,27 @@ public class SentinelHealAllyGoal extends Goal {
 	}
 
 	/**
-	 * Finds the allied minion with the lowest health ratio under 70% within healing range.
+	 * Finds the allied player or minion with the lowest health ratio under 70% within healing range.
+	 * Prioritizes the player commander if wounded.
 	 */
-	private MinionEntity findMostWoundedAlly() {
+	private LivingEntity findMostWoundedAlly() {
+		LivingEntity bestRecipient = null;
+		float lowestRatio = ALLY_HEALTH_THRESHOLD;
+
+		// 1. Check the owner player first (commander priority!)
+		LivingEntity owner = this.minion.getOwner();
+		if (owner instanceof PlayerEntity player && player.isAlive() && !player.isSpectator()) {
+			double distSq = this.minion.squaredDistanceTo(player);
+			if (distSq <= HEAL_RANGE_SQ) {
+				float ratio = player.getHealth() / player.getMaxHealth();
+				if (ratio < ALLY_HEALTH_THRESHOLD) {
+					lowestRatio = ratio;
+					bestRecipient = player;
+				}
+			}
+		}
+
+		// 2. Search nearby allied minions within 10 blocks
 		Box searchBox = this.minion.getBoundingBox().expand(HEAL_RANGE);
 		List<MinionEntity> nearbyMinions = this.minion.getWorld().getEntitiesByClass(
 				MinionEntity.class,
@@ -241,25 +271,39 @@ public class SentinelHealAllyGoal extends Goal {
 						&& m.getHealth() < m.getMaxHealth() * ALLY_HEALTH_THRESHOLD
 		);
 
-		if (nearbyMinions.isEmpty()) {
-			return null;
-		}
-
-		MinionEntity lowestAlly = null;
-		float lowestRatio = 1.0F;
-
 		for (MinionEntity ally : nearbyMinions) {
 			float ratio = ally.getHealth() / ally.getMaxHealth();
 			if (ratio < lowestRatio) {
 				lowestRatio = ratio;
-				lowestAlly = ally;
+				bestRecipient = ally;
 			}
 		}
 
-		return lowestAlly;
+		// 3. Also check any other allied players in the vicinity (multiplayer allies)
+		if (bestRecipient == null || !(bestRecipient instanceof PlayerEntity)) {
+			List<PlayerEntity> nearbyPlayers = this.minion.getWorld().getEntitiesByClass(
+					PlayerEntity.class,
+					searchBox,
+					p -> p != null
+							&& p.isAlive()
+							&& !p.isSpectator()
+							&& p != owner
+							&& this.minion.squaredDistanceTo(p) <= HEAL_RANGE_SQ
+							&& p.getHealth() < p.getMaxHealth() * ALLY_HEALTH_THRESHOLD
+			);
+			for (PlayerEntity player : nearbyPlayers) {
+				float ratio = player.getHealth() / player.getMaxHealth();
+				if (ratio < lowestRatio) {
+					lowestRatio = ratio;
+					bestRecipient = player;
+				}
+			}
+		}
+
+		return bestRecipient;
 	}
 
-	public MinionEntity getTargetAlly() {
+	public LivingEntity getTargetAlly() {
 		return this.targetAlly;
 	}
 

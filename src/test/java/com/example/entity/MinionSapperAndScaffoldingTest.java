@@ -145,8 +145,6 @@ public class MinionSapperAndScaffoldingTest {
 			"WARRIOR role must not place zero-cost scaffolding");
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.SENTINEL),
 			"SENTINEL role must not place zero-cost scaffolding");
-		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.MINER),
-			"MINER role must not place zero-cost scaffolding");
 	}
 
 	@Test
@@ -303,10 +301,7 @@ public class MinionSapperAndScaffoldingTest {
 				if (role == MinionRole.BUILDER) {
 					return isEngaged || nearBuildSession || nearDismantleSession;
 				}
-				if (role == MinionRole.MINER) {
-					return isEngaged || nearDismantleSession;
-				}
-				// Combat roles (WARRIOR, RANGER, SENTINEL) are never suppressed by construction
+				// Combat roles (WARRIOR, SENTINEL) are never suppressed by construction
 				return false;
 			}
 		}
@@ -325,17 +320,7 @@ public class MinionSapperAndScaffoldingTest {
 		Assertions.assertFalse(evaluator.isSuppressed(MinionRole.BUILDER, false, false, false),
 			"Unengaged builder far from sessions must remain eligible for combat sapper traversal");
 
-		// Case 3: Miner engaged or near DISMANTLE session -> sapper suppressed
-		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.MINER, true, false, false),
-			"Miner engaged in deconstruction must suppress sapper goal");
-		Assertions.assertTrue(evaluator.isSuppressed(MinionRole.MINER, false, false, true),
-			"Miner near DISMANTLE session must suppress sapper goal");
-
-		// Case 4: Miner near BUILD-only session -> not compatible, sapper NOT suppressed
-		Assertions.assertFalse(evaluator.isSuppressed(MinionRole.MINER, false, true, false),
-			"Miner near BUILD session is not engaged and should not suppress sapper goal");
-
-		// Case 5: Combat roles (WARRIOR, SENTINEL) -> never suppressed by construction
+		// Case 3: Combat roles (WARRIOR, SENTINEL) -> never suppressed by construction
 		for (MinionRole combatRole : List.of(MinionRole.WARRIOR, MinionRole.SENTINEL)) {
 			Assertions.assertFalse(evaluator.isSuppressed(combatRole, true, true, true),
 				combatRole + " must never have sapper goals suppressed by construction sites");
@@ -449,7 +434,7 @@ public class MinionSapperAndScaffoldingTest {
 				if (!active || !dimension.equals(dim)) {
 					return false;
 				}
-				if (role == MinionRole.MINER && !dismantle) {
+				if (role != MinionRole.BUILDER) {
 					return false;
 				}
 				double maxDistSq = maxDistance * maxDistance;
@@ -488,12 +473,9 @@ public class MinionSapperAndScaffoldingTest {
 		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.BUILDER));
 		buildSession.active = true;
 
-		// 7. MINER role role-filter:
-		// In BUILD mode: MINER is not near/suppressed
-		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.MINER));
-		// Switch session to DISMANTLE mode: MINER is now near/suppressed!
-		buildSession.dismantle = true;
-		Assertions.assertTrue(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.MINER));
+		// 7. Non-BUILDER roles (WARRIOR, SENTINEL): not suppressed
+		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.WARRIOR));
+		Assertions.assertFalse(buildSession.isNear("minecraft:overworld", new BlockPos(100, 65, 100), radius, MinionRole.SENTINEL));
 	}
 
 	@Test

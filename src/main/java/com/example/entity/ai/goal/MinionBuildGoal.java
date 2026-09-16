@@ -84,9 +84,9 @@ public class MinionBuildGoal extends Goal {
 			return false;
 		}
 
-		// Architectural gating: BUILDER participates in construction & deconstruction; MINER participates in deconstruction
+		// Architectural gating: BUILDER participates in both construction & deconstruction
 		MinionRole role = this.minion.getRole();
-		if (role != MinionRole.BUILDER && role != MinionRole.MINER) {
+		if (role != MinionRole.BUILDER) {
 			return false;
 		}
 
@@ -99,12 +99,12 @@ public class MinionBuildGoal extends Goal {
 			return false;
 		}
 
-		// Find nearest active construction/dismantle session belonging to minion's master within 48 blocks
+		// Find nearest active construction/dismantle session belonging to minion's master within 128 blocks
 		Optional<ConstructionSession> sessionOpt = ConstructionManager.getInstance().findNearestSessionForMinion(
 			serverWorld,
 			this.minion.getBlockPos(),
 			this.minion.getOwnerUuid(),
-			48.0D,
+			128.0D,
 			role
 		);
 
@@ -113,10 +113,6 @@ public class MinionBuildGoal extends Goal {
 		}
 
 		ConstructionSession session = sessionOpt.get();
-		if (role == MinionRole.MINER && !session.isDismantle()) {
-			return false;
-		}
-
 		ConstructionTask task = session.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
 		if (task == null) {
 			return false;
@@ -158,6 +154,7 @@ public class MinionBuildGoal extends Goal {
 
 		if (this.currentTask != null) {
 			this.minion.setActivelyBuilding(true);
+			this.minion.setArcaneLevitating(true);
 			// Preserve held weapon before equipping preview block or dismantle tool
 			saveHeldWeapon();
 
@@ -269,8 +266,7 @@ public class MinionBuildGoal extends Goal {
 		double horizontalDistSq = dx * dx + dz * dz;
 		double verticalDiff = Math.abs(this.minion.getY() - (double) targetPos.getY());
 
-		int diffY = targetPos.getY() - this.minion.getBlockY();
-		if (diffY > 1 && !this.minion.isArcaneLevitating()) {
+		if (!this.minion.isArcaneLevitating()) {
 			this.minion.setArcaneLevitating(true);
 			this.hoverStationVec = findOptimalHoverStation(serverWorld, targetPos);
 		}
@@ -390,6 +386,28 @@ public class MinionBuildGoal extends Goal {
 				// 2. Scavenge nearby containers (chests, barrels, shulkers) within 12 blocks
 				hasResources = scavengeNearbyContainers(serverWorld, requiredItem);
 			}
+
+			// 3. Peer-to-peer allied minion block sharing
+			if (!hasResources) {
+				hasResources = com.example.entity.ai.logistics.MinionLogisticsHelper.requestItemFromAllies(this.minion, serverWorld, requiredItem);
+				if (hasResources) {
+					int slot = findItemSlot(minionInv, requiredItem);
+					if (slot != -1) {
+						minionInv.removeStack(slot, 1);
+					}
+				}
+			}
+
+			// 4. Autonomous Material Harvesting & Agro-Forestry
+			if (!hasResources) {
+				hasResources = com.example.entity.ai.logistics.MinionHarvestingHelper.tryAutonomousHarvest(this.minion, serverWorld, requiredItem, this.currentSession);
+				if (hasResources) {
+					int slot = findItemSlot(minionInv, requiredItem);
+					if (slot != -1) {
+						minionInv.removeStack(slot, 1);
+					}
+				}
+			}
 		}
 
 		// If resources could not be found in inventory or nearby containers
@@ -400,14 +418,34 @@ public class MinionBuildGoal extends Goal {
 
 		// Execute block placement in world if not already matching
 		if (!alreadyPlaced) {
+			// Zero-drop pre-clearing in creative mode
+			if (this.currentSession.isCreative()) {
+				BlockState existingObstacle = serverWorld.getBlockState(targetPos);
+				if (!existingObstacle.isAir()) {
+					serverWorld.breakBlock(targetPos, false, this.minion);
+				}
+			}
+
 			if (targetState.getBlock() instanceof DoorBlock) {
 				if (targetState.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+					if (this.currentSession.isCreative()) {
+						BlockState upperObstacle = serverWorld.getBlockState(targetPos.up());
+						if (!upperObstacle.isAir()) {
+							serverWorld.breakBlock(targetPos.up(), false, this.minion);
+						}
+					}
 					serverWorld.setBlockState(targetPos, targetState, Block.NOTIFY_ALL);
 					BlockState upperState = targetState.with(DoorBlock.HALF, DoubleBlockHalf.UPPER);
 					serverWorld.setBlockState(targetPos.up(), upperState, Block.NOTIFY_ALL);
 				} else {
 					BlockPos lowerPos = targetPos.down();
 					if (!serverWorld.getBlockState(lowerPos).isOf(targetState.getBlock())) {
+						if (this.currentSession.isCreative()) {
+							BlockState lowerObstacle = serverWorld.getBlockState(lowerPos);
+							if (!lowerObstacle.isAir()) {
+								serverWorld.breakBlock(lowerPos, false, this.minion);
+							}
+						}
 						BlockState lowerState = targetState.with(DoorBlock.HALF, DoubleBlockHalf.LOWER);
 						serverWorld.setBlockState(lowerPos, lowerState, Block.NOTIFY_ALL);
 					}
@@ -455,6 +493,9 @@ public class MinionBuildGoal extends Goal {
 
 		// Complete the task in the session
 		this.currentSession.completeTask(this.currentTask, serverWorld);
+
+		// Check for excess non-blueprint materials and deposit into supply depots
+		com.example.entity.ai.logistics.MinionHarvestingHelper.checkAndDepositExcessMaterials(this.minion, serverWorld, this.currentSession);
 
 		// Reset work and navigation counters
 		this.workTicks = 0;

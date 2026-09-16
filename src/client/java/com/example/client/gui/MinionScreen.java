@@ -30,7 +30,7 @@ import org.lwjgl.glfw.GLFW;
  * Features:
  * <ul>
  *   <li>Live 3D entity preview with status, role, squad, and combat statistics tooltip</li>
- *   <li>Interactive Role Cycling Button to switch archetype (Warrior, Sentinel, Builder, Miner)</li>
+ *   <li>Interactive Role Cycling Button to switch archetype (Warrior, Sentinel, Builder)</li>
  *   <li>Interactive Squad Cycling Button to assign tactical squad channel (Alpha, Bravo, Charlie, Delta)</li>
  *   <li>Equipment slots (Head, Chest, Legs, Feet, Mainhand, Offhand)</li>
  *   <li>3x3 Minion Inventory and player inventory/hotbar slots</li>
@@ -113,7 +113,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		// Cycling badge widgets for Role and Squad positioned inside top header frame
 		int badgeY = this.y - 22;
 
-		// 1. Role Cycling Badge Widget (Warrior -> Sentinel -> Builder -> Miner)
+		// 1. Role Cycling Badge Widget (Warrior -> Sentinel -> Builder)
 		this.roleButton = CyclingButtonWidget.<MinionRole>builder(role -> Text.literal(role.getColorCode() + getRoleBadgeSymbol(role) + " " + role.getDisplayName()))
 			.values(MinionRole.values())
 			.initially(this.currentRole)
@@ -277,7 +277,6 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			case WARRIOR -> "⚔";
 			case SENTINEL -> "🛡";
 			case BUILDER -> "🔨";
-			case MINER -> "⛏";
 		};
 	}
 
@@ -292,9 +291,8 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 	private static Text getRoleTooltip(MinionRole role) {
 		String desc = switch (role) {
 			case WARRIOR -> "§7Versatile combatant engaging in melee or ranged combat.\n§8• Swordsman or Archer based on equipped weapon\n§8• Equipment: Swords, Axes, Maces, Bows & Crossbows";
-			case SENTINEL -> "§7Perimeter guard holding station & intercepting hostiles.\n§8• Perimeter: 8 blocks | Anchor Leash: 12 blocks\n§8• Equipment: Shields (offhand) & Melee weapons";
-			case BUILDER -> "§7Architectural constructor building blueprint structures.\n§8• Arcane Levitation flight & structural placement\n§8• Equipment: Blueprint blocks & Pickaxes";
-			case MINER -> "§7Resource excavator and subsurface mining specialist.\n§8• Vein mining & automated block gathering\n§8• Equipment: Pickaxes & Shovels";
+			case SENTINEL -> "§7Perimeter guard holding station & intercepting hostiles.\n§8• Perimeter: 8 blocks | Anchor Leash: 128 blocks\n§8• Equipment: Shields (offhand) & Melee weapons";
+			case BUILDER -> "§7Architectural constructor, miner & resource logistics specialist.\n§8• Blueprint building, vein mining & autonomous harvesting\n§8• Equipment: Blueprint blocks, Pickaxes, Axes & Shovels";
 		};
 		return Text.literal("§6✦ Role Archetype: " + role.getFormattedName() + "\n" + desc + "\n§eClick or scroll to cycle role.");
 	}

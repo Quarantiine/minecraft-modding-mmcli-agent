@@ -338,7 +338,6 @@ public class BedrockAndCeilingSafeguardTest {
 			"BUILDER role must place construction blocks at zero cost");
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.WARRIOR));
 		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.SENTINEL));
-		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.MINER));
 	}
 
 	@Test

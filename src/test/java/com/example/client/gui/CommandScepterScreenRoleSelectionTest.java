@@ -44,10 +44,6 @@ public class CommandScepterScreenRoleSelectionTest {
 		screen.toggleRole(MinionRole.WARRIOR);
 		Assertions.assertEquals(MinionRole.WARRIOR, screen.getSelectedRole(), "Toggling WARRIOR should switch selection to WARRIOR");
 
-		// Toggling MINER should switch selection to MINER
-		screen.toggleRole(MinionRole.MINER);
-		Assertions.assertEquals(MinionRole.MINER, screen.getSelectedRole(), "Toggling MINER should switch selection to MINER");
-
 		// Toggling BUILDER should switch selection to BUILDER
 		screen.toggleRole(MinionRole.BUILDER);
 		Assertions.assertEquals(MinionRole.BUILDER, screen.getSelectedRole(), "Toggling BUILDER should switch selection to BUILDER");

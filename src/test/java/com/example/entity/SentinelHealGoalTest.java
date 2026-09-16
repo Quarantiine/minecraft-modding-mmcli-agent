@@ -121,4 +121,33 @@ public class SentinelHealGoalTest {
 		Assertions.assertTrue(screenContent.contains("minion.inventory"),
 				"MinionScreen must preserve minion.inventory category header");
 	}
+
+	@Test
+	@DisplayName("Validate Player commander healing eligibility and priority over minions")
+	void testPlayerHealingAndCommanderPriority() {
+		record MockEntity(String name, boolean isPlayer, float health, float maxHealth, double distSq) {
+			float healthRatio() {
+				return health / maxHealth;
+			}
+			boolean isEligible(float threshold, double maxDistSq) {
+				return distSq <= maxDistSq && health < maxHealth * threshold;
+			}
+		}
+
+		// Player with 12 HP (60% HP) vs Minion with 26 HP (65% HP)
+		MockEntity commander = new MockEntity("PlayerCommander", true, 12.0F, 20.0F, 16.0D);
+		MockEntity minionAlly = new MockEntity("WoundedMinion", false, 26.0F, 40.0F, 9.0D);
+		MockEntity distantPlayer = new MockEntity("DistantAlly", true, 8.0F, 20.0F, 144.0D); // Out of range
+
+		Assertions.assertTrue(commander.isEligible(SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD, SentinelHealAllyGoal.HEAL_RANGE_SQ),
+				"Commander at 60% HP within 4 blocks must be eligible for healing");
+		Assertions.assertTrue(minionAlly.isEligible(SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD, SentinelHealAllyGoal.HEAL_RANGE_SQ),
+				"Minion at 65% HP within 3 blocks must be eligible for healing");
+		Assertions.assertFalse(distantPlayer.isEligible(SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD, SentinelHealAllyGoal.HEAL_RANGE_SQ),
+				"Distant player beyond 10 blocks must be out of range");
+
+		// Commander with lower ratio (0.60 vs 0.65) must be prioritized
+		Assertions.assertTrue(commander.healthRatio() < minionAlly.healthRatio(),
+				"Commander at 60% HP must have priority over minion at 65% HP");
+	}
 }

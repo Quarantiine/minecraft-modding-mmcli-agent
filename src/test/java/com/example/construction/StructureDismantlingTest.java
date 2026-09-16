@@ -267,13 +267,9 @@ public class StructureDismantlingTest {
 	@Test
 	@DisplayName("Validate minion role authorization matrix for BUILD vs DISMANTLE sessions")
 	void testRoleAuthorizationMatrix() {
-		// Builder role participates in both
+		// Builder role participates in both BUILD and DISMANTLE
 		Assertions.assertTrue(canRoleParticipate(MinionRole.BUILDER, ConstructionSession.SessionMode.BUILD));
 		Assertions.assertTrue(canRoleParticipate(MinionRole.BUILDER, ConstructionSession.SessionMode.DISMANTLE));
-
-		// Miner role participates exclusively in DISMANTLE
-		Assertions.assertFalse(canRoleParticipate(MinionRole.MINER, ConstructionSession.SessionMode.BUILD));
-		Assertions.assertTrue(canRoleParticipate(MinionRole.MINER, ConstructionSession.SessionMode.DISMANTLE));
 
 		// Combat roles do not participate in construction or deconstruction
 		Assertions.assertFalse(canRoleParticipate(MinionRole.WARRIOR, ConstructionSession.SessionMode.BUILD));
@@ -283,9 +279,7 @@ public class StructureDismantlingTest {
 	}
 
 	private static boolean canRoleParticipate(MinionRole role, ConstructionSession.SessionMode mode) {
-		if (role == MinionRole.BUILDER) return true;
-		if (role == MinionRole.MINER) return mode == ConstructionSession.SessionMode.DISMANTLE;
-		return false;
+		return role == MinionRole.BUILDER;
 	}
 
 	@Test

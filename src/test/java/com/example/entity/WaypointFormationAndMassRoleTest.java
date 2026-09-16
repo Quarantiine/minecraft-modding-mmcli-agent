@@ -53,15 +53,15 @@ public class WaypointFormationAndMassRoleTest {
 		Vec3d waypointCenter = new Vec3d(100.0, 64.0, 100.0);
 		float facingYaw = 0.0F; // Facing South (+Z forward, -X right, +X left)
 
-		// Create a realistic workforce composition: 2 Warriors, 2 Sentinels, 1 Builder, 2 Miners
+		// Create a realistic workforce composition: 2 Warriors, 2 Sentinels, 3 Builders
 		List<MinionRole> squadRoles = List.of(
 			MinionRole.WARRIOR,
 			MinionRole.WARRIOR,
 			MinionRole.SENTINEL,
 			MinionRole.SENTINEL,
 			MinionRole.BUILDER,
-			MinionRole.MINER,
-			MinionRole.MINER
+			MinionRole.BUILDER,
+			MinionRole.BUILDER
 		);
 
 		Map<MinionRole, Integer> roleRanks = new HashMap<>();
@@ -355,7 +355,7 @@ public class WaypointFormationAndMassRoleTest {
 			List<MockTacticalMinion> army = List.of(
 				// Enclosed within radius 8.0 (commander at 0.0, 0.0)
 				new MockTacticalMinion(1, commanderId, true, 3.0, 4.0, SquadGroup.ALPHA, MinionRole.WARRIOR, true, "10,64,10"),   // dist = 5.0 <= 8.0
-				new MockTacticalMinion(2, commanderId, true, -4.0, 3.0, SquadGroup.BRAVO, MinionRole.MINER, false, "20,64,20"),   // dist = 5.0 <= 8.0
+				new MockTacticalMinion(2, commanderId, true, -4.0, 3.0, SquadGroup.BRAVO, MinionRole.BUILDER, false, "20,64,20"),   // dist = 5.0 <= 8.0
 				new MockTacticalMinion(3, commanderId, true, 2.0, -3.0, SquadGroup.CHARLIE, MinionRole.BUILDER, true, null),      // dist = 3.6 <= 8.0
 				// Outside radius (dist = 14.0 > 8.0)
 				new MockTacticalMinion(4, commanderId, true, 14.0, 0.0, SquadGroup.DELTA, MinionRole.SENTINEL, true, "30,64,30"),
@@ -445,7 +445,7 @@ public class WaypointFormationAndMassRoleTest {
 
 		List<MinionUnit> units = List.of(
 			new MinionUnit(1, commanderId, true, 2.0, 2.0, SquadGroup.ALPHA, MinionRole.WARRIOR),
-			new MinionUnit(2, commanderId, true, -2.0, 1.0, SquadGroup.BRAVO, MinionRole.MINER),
+			new MinionUnit(2, commanderId, true, -2.0, 1.0, SquadGroup.BRAVO, MinionRole.SENTINEL),
 			new MinionUnit(3, commanderId, true, 1.0, -3.0, SquadGroup.CHARLIE, MinionRole.BUILDER)
 		);
 
@@ -466,7 +466,7 @@ public class WaypointFormationAndMassRoleTest {
 		// Roles must remain intact
 		Assertions.assertEquals(MinionRole.WARRIOR, units.get(0).role);
 		Assertions.assertFalse(units.get(0).autoEquipped);
-		Assertions.assertEquals(MinionRole.MINER, units.get(1).role);
+		Assertions.assertEquals(MinionRole.SENTINEL, units.get(1).role);
 		Assertions.assertFalse(units.get(1).autoEquipped);
 		Assertions.assertEquals(MinionRole.BUILDER, units.get(2).role);
 		Assertions.assertFalse(units.get(2).autoEquipped);

@@ -406,6 +406,32 @@ public class ConstructionManager {
 		}
 	}
 
+	/**
+	 * Cancels all active construction and deconstruction sessions belonging to the specified owner,
+	 * broadcasting termination packets to clients and destroying visual wireframes.
+	 *
+	 * @param ownerUuid The UUID of the session owner.
+	 * @param world     The server world.
+	 */
+	public void cancelSessionsForOwner(UUID ownerUuid, ServerWorld world) {
+		if (ownerUuid == null || world == null) {
+			return;
+		}
+		List<ConstructionSession> ownerList = this.sessionsByOwner.get(ownerUuid);
+		if (ownerList == null || ownerList.isEmpty()) {
+			return;
+		}
+		List<UUID> toCancel = new ArrayList<>();
+		for (ConstructionSession session : ownerList) {
+			if (session.isActive()) {
+				toCancel.add(session.getId());
+			}
+		}
+		for (UUID sessionId : toCancel) {
+			cancelSession(sessionId, world);
+		}
+	}
+
 	private void removeSession(ConstructionSession session) {
 		this.activeSessions.remove(session.getId());
 		this.sessionsByAnchor.remove(session.getAnchorPos());
@@ -496,8 +522,8 @@ public class ConstructionManager {
 			if (!session.isActive() || !session.getDimension().equals(world.getRegistryKey())) {
 				continue;
 			}
-			// Miners only participate in DISMANTLE sessions
-			if (role == com.example.entity.custom.MinionRole.MINER && !session.isDismantle()) {
+			// Builder role participates in both BUILD and DISMANTLE sessions
+			if (role != null && role != MinionRole.BUILDER) {
 				continue;
 			}
 			double distSq = minionPos.getSquaredDistance(session.getAnchorPos());
@@ -556,7 +582,7 @@ public class ConstructionManager {
 			return true;
 		}
 		MinionRole role = minion.getRole();
-		if ((role == MinionRole.BUILDER || role == MinionRole.MINER)
+		if (role == MinionRole.BUILDER
 				&& minion.getWorld() instanceof ServerWorld serverWorld
 				&& minion.getOwnerUuid() != null) {
 			return isMinionNearActiveSession(serverWorld, minion.getBlockPos(), minion.getOwnerUuid(), maxDistance, role);
@@ -595,7 +621,7 @@ public class ConstructionManager {
 			if (!session.isActive() || !session.getDimension().equals(world.getRegistryKey())) {
 				continue;
 			}
-			if (role == MinionRole.MINER && !session.isDismantle()) {
+			if (role != null && role != MinionRole.BUILDER) {
 				continue;
 			}
 

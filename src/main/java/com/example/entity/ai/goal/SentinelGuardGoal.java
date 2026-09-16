@@ -21,7 +21,7 @@ public class SentinelGuardGoal extends Goal {
 	private final MinionEntity minion;
 	private static final double PERIMETER_RADIUS = 8.0D;
 	private static final double PERIMETER_RADIUS_SQ = PERIMETER_RADIUS * PERIMETER_RADIUS;
-	private static final double LEASH_DISTANCE = 12.0D;
+	private static final double LEASH_DISTANCE = 128.0D;
 	private static final double LEASH_DISTANCE_SQ = LEASH_DISTANCE * LEASH_DISTANCE;
 	private static final double ARRIVAL_TOLERANCE_SQ = 4.0D; // 2 blocks radius
 	private static final double SPRINT_SPEED = 1.35D;

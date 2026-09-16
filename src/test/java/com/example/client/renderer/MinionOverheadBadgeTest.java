@@ -50,12 +50,10 @@ public class MinionOverheadBadgeTest {
 		Assertions.assertEquals("⚔", MinionRole.WARRIOR.getIcon());
 		Assertions.assertEquals("🛡", MinionRole.SENTINEL.getIcon());
 		Assertions.assertEquals("🔨", MinionRole.BUILDER.getIcon());
-		Assertions.assertEquals("⛏", MinionRole.MINER.getIcon());
 
 		Assertions.assertEquals("⚔ WARRIOR", MinionRole.WARRIOR.getBadgeLabel());
 		Assertions.assertEquals("🛡 SENTINEL", MinionRole.SENTINEL.getBadgeLabel());
 		Assertions.assertEquals("🔨 BUILDER", MinionRole.BUILDER.getBadgeLabel());
-		Assertions.assertEquals("⛏ MINER", MinionRole.MINER.getBadgeLabel());
 
 		// Standing / Active
 		Text warriorCrest = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.WARRIOR, false);
@@ -66,9 +64,6 @@ public class MinionOverheadBadgeTest {
 
 		Text builderCrest = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.BUILDER, false);
 		Assertions.assertEquals("§9🔨 BUILDER", builderCrest.getString());
-
-		Text minerCrest = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.MINER, false);
-		Assertions.assertEquals("§6⛏ MINER", minerCrest.getString());
 
 		// Sitting / Holding Position
 		Text warriorHold = MinionOverheadBadgeFeatureRenderer.getRoleCrest(MinionRole.WARRIOR, true);

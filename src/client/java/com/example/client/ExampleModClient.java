@@ -94,6 +94,7 @@ public class ExampleModClient implements ClientModInitializer {
 					ItemStack heldScepter = CommandScepterItem.getHeldScepter(client.player);
 					com.example.component.SquadGroup squad = !heldScepter.isEmpty() ? CommandScepterItem.getTargetSquad(heldScepter) : com.example.component.SquadGroup.ALL;
 					ModClientNetworking.sendRetreat(squad);
+					com.example.client.renderer.ClientConstructionTracker.clear();
 				}
 			}
 

@@ -108,6 +108,76 @@ public class FrostGrenadeTest {
 	}
 
 	@Test
+	@DisplayName("Validate block transmutation to snow: sphere geometry, solid block conversion, and safeguards")
+	void testBlockTransmutationToSnow() throws Exception {
+		// 1. Validate sphere geometry for block transmutation
+		Vec3d center = new Vec3d(0, 64, 0);
+		BlockPos centerPos = BlockPos.ofFloored(center);
+		double radiusSq = FrostGrenadeEntity.FREEZE_RADIUS * FrostGrenadeEntity.FREEZE_RADIUS; // 12.25
+		int r = (int) Math.ceil(FrostGrenadeEntity.FREEZE_RADIUS); // 4
+
+		List<BlockPos> inRadius = new ArrayList<>();
+		List<BlockPos> outRadius = new ArrayList<>();
+
+		for (int dx = -r; dx <= r; dx++) {
+			for (int dy = -r; dy <= r; dy++) {
+				for (int dz = -r; dz <= r; dz++) {
+					BlockPos pos = centerPos.add(dx, dy, dz);
+					if (pos.getSquaredDistance(centerPos) <= radiusSq) {
+						inRadius.add(pos);
+					} else {
+						outRadius.add(pos);
+					}
+				}
+			}
+		}
+
+		// Verify center and near points are inside the freeze sphere
+		Assertions.assertTrue(inRadius.contains(centerPos), "Center must be in transmutation radius");
+		Assertions.assertTrue(inRadius.contains(centerPos.add(1, 0, 0)), "(1,0,0) must be in radius");
+		Assertions.assertTrue(inRadius.contains(centerPos.add(0, 2, 0)), "(0,2,0) must be in radius");
+		Assertions.assertTrue(inRadius.contains(centerPos.add(0, -3, 0)), "(0,-3,0) distSq 9 must be in radius");
+		Assertions.assertTrue(inRadius.contains(centerPos.add(2, 1, 2)), "(2,1,2) distSq 9 must be in radius");
+
+		// Verify far points are outside the freeze sphere
+		Assertions.assertTrue(outRadius.contains(centerPos.add(4, 0, 0)), "(4,0,0) distSq 16 must be outside radius");
+		Assertions.assertTrue(outRadius.contains(centerPos.add(0, 4, 0)), "(0,4,0) distSq 16 must be outside radius");
+		Assertions.assertTrue(outRadius.contains(centerPos.add(3, 2, 2)), "(3,2,2) distSq 17 must be outside radius");
+
+		// 2. Validate source invariants in FrostGrenadeEntity.java
+		java.nio.file.Path entityPath = java.nio.file.Path.of("src/main/java/com/example/entity/custom/FrostGrenadeEntity.java");
+		Assertions.assertTrue(java.nio.file.Files.exists(entityPath), "FrostGrenadeEntity.java must exist");
+		String entityContent = java.nio.file.Files.readString(entityPath);
+
+		Assertions.assertTrue(entityContent.contains("transmuteBlocksToSnow(serverWorld, centerPos)"),
+				"onCollision must invoke transmuteBlocksToSnow");
+		Assertions.assertTrue(entityContent.contains("public static int transmuteBlocksToSnow"),
+				"FrostGrenadeEntity must define transmuteBlocksToSnow");
+		Assertions.assertTrue(entityContent.contains("public static boolean canTransmuteToSnowBlock"),
+				"FrostGrenadeEntity must define canTransmuteToSnowBlock");
+		Assertions.assertTrue(entityContent.contains("Blocks.SNOW_BLOCK.getDefaultState()"),
+				"transmuteBlocksToSnow must place Blocks.SNOW_BLOCK");
+		Assertions.assertTrue(entityContent.contains("Blocks.SNOW.getDefaultState()"),
+				"transmuteBlocksToSnow must place Blocks.SNOW layers on surfaces");
+
+		// 3. Validate safeguards in canTransmuteToSnowBlock
+		Assertions.assertTrue(entityContent.contains("state.getHardness(world, pos) < 0.0F"),
+				"canTransmuteToSnowBlock must protect unbreakable blocks like bedrock");
+		Assertions.assertTrue(entityContent.contains("world.getBlockEntity(pos) != null"),
+				"canTransmuteToSnowBlock must protect block entities and containers like chests");
+		Assertions.assertTrue(entityContent.contains("state.isLiquid()"),
+				"canTransmuteToSnowBlock must exclude liquids");
+		Assertions.assertTrue(entityContent.contains("Blocks.POWDER_SNOW"),
+				"canTransmuteToSnowBlock must exclude already frozen snow/ice");
+
+		// 4. Validate tooltip in FrostGrenadeStickItem.java
+		java.nio.file.Path itemPath = java.nio.file.Path.of("src/main/java/com/example/item/custom/FrostGrenadeStickItem.java");
+		String itemContent = java.nio.file.Files.readString(itemPath);
+		Assertions.assertTrue(itemContent.contains("Blocks §7➔ §fSnow"),
+				"FrostGrenadeStickItem tooltip must advertise Blocks to Snow transmutation");
+	}
+
+	@Test
 	@DisplayName("Validate item registry and stack properties source invariants")
 	void testItemProperties() throws Exception {
 		java.nio.file.Path modItemsPath = java.nio.file.Path.of("src/main/java/com/example/item/ModItems.java");
@@ -130,3 +200,4 @@ public class FrostGrenadeTest {
 				"Client must register FlyingItemEntityRenderer for FROST_PROJECTILE");
 	}
 }
+

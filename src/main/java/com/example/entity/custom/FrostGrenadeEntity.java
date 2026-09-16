@@ -36,11 +36,12 @@ import java.util.List;
  * Leaves an active snowflake and frost particle trail in flight, and triggers
  * a flash-freeze detonation upon impact:
  * 1. Zero block explosion destruction
- * 2. Flash-freezes water into ice
- * 3. Converts lava into obsidian (and cobblestone for flowing lava)
- * 4. Extinguishes surface fires and lit campfires
- * 5. Deploys a perimeter ring of powder snow
- * 6. Inflicts freezing ticks, Slowness III, and extinguishes burning entities
+ * 2. Transmutes destructible solid blocks into Snow Blocks and coats surfaces with Snow layers
+ * 3. Flash-freezes water into ice
+ * 4. Converts lava into obsidian (and cobblestone for flowing lava)
+ * 5. Extinguishes surface fires and lit campfires
+ * 6. Deploys a perimeter ring of powder snow
+ * 7. Inflicts freezing ticks, Slowness III, and extinguishes burning entities
  */
 public class FrostGrenadeEntity extends ThrownItemEntity {
 
@@ -106,6 +107,7 @@ public class FrostGrenadeEntity extends ThrownItemEntity {
 			BlockPos centerPos = BlockPos.ofFloored(hitPos);
 
 			applyFluidAndFireTransmutation(serverWorld, centerPos);
+			transmuteBlocksToSnow(serverWorld, centerPos);
 			deployPowderSnowRing(serverWorld, centerPos);
 			applyEntityDebuffs(serverWorld, hitPos);
 			spawnDetonationVfxAndAudio(serverWorld, hitPos);
@@ -162,6 +164,85 @@ public class FrostGrenadeEntity extends ThrownItemEntity {
 	}
 
 	/**
+	 * Transmutes destructible solid blocks within the freeze radius into Snow Blocks,
+	 * and covers exposed ground surfaces with Snow layers.
+	 * Preserves unbreakable blocks (bedrock), block entities/containers (chests),
+	 * fluids (handled separately), and existing ice/snow.
+	 */
+	public static int transmuteBlocksToSnow(ServerWorld world, BlockPos centerPos) {
+		int r = (int) Math.ceil(FREEZE_RADIUS);
+		double maxDistSq = FREEZE_RADIUS * FREEZE_RADIUS;
+		int transmutedCount = 0;
+
+		for (BlockPos pos : BlockPos.iterate(centerPos.add(-r, -r, -r), centerPos.add(r, r, r))) {
+			if (pos.getSquaredDistance(centerPos) <= maxDistSq) {
+				BlockState state = world.getBlockState(pos);
+
+				if (canTransmuteToSnowBlock(state, world, pos)) {
+					world.setBlockState(pos, Blocks.SNOW_BLOCK.getDefaultState(), Block.NOTIFY_ALL);
+					transmutedCount++;
+
+					// If the block directly above is air or replaceable vegetation, coat it with a snow layer
+					BlockPos abovePos = pos.up();
+					if (abovePos.getSquaredDistance(centerPos) <= maxDistSq) {
+						BlockState aboveState = world.getBlockState(abovePos);
+						if (aboveState.isAir() || (aboveState.isReplaceable() && !aboveState.isLiquid())) {
+							world.setBlockState(abovePos, Blocks.SNOW.getDefaultState(), Block.NOTIFY_ALL);
+						}
+					}
+				} else if (state.isAir() || (state.isReplaceable() && !state.isLiquid())) {
+					// Check if resting on top of a solid block or existing snow/ice
+					BlockPos groundBelow = pos.down();
+					BlockState stateBelow = world.getBlockState(groundBelow);
+					if (stateBelow.isSolidBlock(world, groundBelow)
+							|| stateBelow.isSideSolidFullSquare(world, groundBelow, Direction.UP)
+							|| stateBelow.isOf(Blocks.SNOW_BLOCK) || stateBelow.isOf(Blocks.ICE)
+							|| stateBelow.isOf(Blocks.PACKED_ICE)) {
+						world.setBlockState(pos, Blocks.SNOW.getDefaultState(), Block.NOTIFY_ALL);
+					}
+				}
+			}
+		}
+		return transmutedCount;
+	}
+
+	/**
+	 * Evaluates whether a block state is eligible to be transmuted into a solid Snow Block.
+	 */
+	public static boolean canTransmuteToSnowBlock(BlockState state, World world, BlockPos pos) {
+		if (state.isAir()) {
+			return false;
+		}
+		// Fluids handled by fluid transmutation (water -> ice, lava -> obsidian)
+		if (state.isLiquid() || state.getFluidState().isIn(FluidTags.WATER) || state.getFluidState().isIn(FluidTags.LAVA)) {
+			return false;
+		}
+		// Unbreakable blocks safeguard (bedrock, barrier, end portal frame, etc.)
+		if (state.getHardness(world, pos) < 0.0F) {
+			return false;
+		}
+		// Tile entity and container safeguard (chests, barrels, furnaces, spawners, etc.)
+		if (world.getBlockEntity(pos) != null) {
+			return false;
+		}
+		// Already cold or snow/ice
+		if (state.isOf(Blocks.SNOW_BLOCK) || state.isOf(Blocks.POWDER_SNOW)
+				|| state.isOf(Blocks.SNOW) || state.isOf(Blocks.ICE)
+				|| state.isOf(Blocks.PACKED_ICE) || state.isOf(Blocks.BLUE_ICE)) {
+			return false;
+		}
+		// Fire extinguished separately
+		if (state.isOf(Blocks.FIRE) || state.isOf(Blocks.SOUL_FIRE)) {
+			return false;
+		}
+		// Replaceable vegetation (short grass, ferns, flowers) gets covered by snow layers instead of becoming a full block
+		if (state.isReplaceable()) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	 * Deploys a perimeter ring of powder snow at ground level around the impact zone.
 	 * Only replaces air or non-solid replaceable blocks with a solid base underneath.
 	 */
@@ -186,9 +267,10 @@ public class FrostGrenadeEntity extends ThrownItemEntity {
 							BlockPos groundBelow = candidatePos.down();
 							BlockState stateBelow = world.getBlockState(groundBelow);
 
-							// Place powder snow only on solid ground or ice surfaces
+							// Place powder snow only on solid ground, snow blocks, or ice surfaces
 							if (stateBelow.isSolidBlock(world, groundBelow)
 									|| stateBelow.isSideSolidFullSquare(world, groundBelow, Direction.UP)
+									|| stateBelow.isOf(Blocks.SNOW_BLOCK)
 									|| stateBelow.isOf(Blocks.ICE) || stateBelow.isOf(Blocks.PACKED_ICE)) {
 								world.setBlockState(candidatePos, Blocks.POWDER_SNOW.getDefaultState(), Block.NOTIFY_ALL);
 								break; // Placed at top surface for this (x,z) column

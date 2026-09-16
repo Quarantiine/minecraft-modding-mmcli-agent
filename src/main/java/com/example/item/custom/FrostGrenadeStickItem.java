@@ -18,8 +18,8 @@ import java.util.List;
 
 /**
  * Custom handheld stick item that launches a FrostGrenadeEntity on right-click.
- * Detonates with zero block damage, flash-freezing water to ice, converting lava to obsidian,
- * summoning a perimeter ring of powder snow, and inflicting freezing ticks and slowness.
+ * Detonates with zero block damage, turning blocks into snow, flash-freezing water to ice,
+ * converting lava to obsidian, summoning a perimeter ring of powder snow, and inflicting freezing ticks and slowness.
  */
 public class FrostGrenadeStickItem extends Item {
 
@@ -71,7 +71,7 @@ public class FrostGrenadeStickItem extends Item {
 	public void appendTooltip(ItemStack stack, Item.TooltipContext context, List<Text> tooltip, TooltipType type) {
 		tooltip.add(Text.translatable("tooltip.modid-mmcli-agent-modding.frost_grenade_stick.desc").formatted(Formatting.GRAY));
 		tooltip.add(Text.empty());
-		tooltip.add(Text.literal("§b• Water §7➔ §bIce §8| §c• Lava §7➔ §8Obsidian"));
+		tooltip.add(Text.literal("§f• Blocks §7➔ §fSnow §8| §bWater §7➔ §bIce §8| §c• Lava §7➔ §8Obsidian"));
 		tooltip.add(Text.literal("§f• Outer Ring: §fPowder Snow"));
 		tooltip.add(Text.literal("§9• Inflicts: §bFreezing Ticks §7+ §9Slowness III"));
 	}

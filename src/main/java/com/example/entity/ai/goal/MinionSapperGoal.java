@@ -492,7 +492,7 @@ public class MinionSapperGoal extends Goal {
 	 */
 	public boolean isSuppressedByConstruction() {
 		MinionRole role = this.minion.getRole();
-		if (role == MinionRole.BUILDER || role == MinionRole.MINER) {
+		if (role == MinionRole.BUILDER) {
 			return ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion);
 		}
 		return false;

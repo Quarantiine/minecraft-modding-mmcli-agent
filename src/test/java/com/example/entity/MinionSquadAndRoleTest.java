@@ -32,7 +32,7 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.fromId(0));
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.fromId(1));
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(2));
-		Assertions.assertEquals(MinionRole.MINER, MinionRole.fromId(3));
+		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(3)); // Legacy ID 3 maps to BUILDER
 
 		// Fallback for out-of-bounds IDs defaults to WARRIOR
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.fromId(99));
@@ -41,12 +41,10 @@ public class MinionSquadAndRoleTest {
 		// Sequential cycling
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.WARRIOR.next());
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.SENTINEL.next());
-		Assertions.assertEquals(MinionRole.MINER, MinionRole.BUILDER.next());
-		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.MINER.next());
+		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.BUILDER.next());
 
 		// Reverse cycling
-		Assertions.assertEquals(MinionRole.MINER, MinionRole.WARRIOR.previous());
-		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.MINER.previous());
+		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.WARRIOR.previous());
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.BUILDER.previous());
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.SENTINEL.previous());
 
@@ -54,14 +52,13 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.warrior", MinionRole.WARRIOR.getTranslationKey());
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.sentinel", MinionRole.SENTINEL.getTranslationKey());
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.builder", MinionRole.BUILDER.getTranslationKey());
-		Assertions.assertEquals("role.modid-mmcli-agent-modding.miner", MinionRole.MINER.getTranslationKey());
 	}
 
 	@Test
 	@DisplayName("Validate MinionRole cyclic algebra invariants")
 	void testMinionRoleCyclicInvariants() {
 		MinionRole[] roles = MinionRole.values();
-		Assertions.assertEquals(4, roles.length);
+		Assertions.assertEquals(3, roles.length);
 
 		for (MinionRole role : roles) {
 			// Invariant 1: Cycling length times returns to original
@@ -302,7 +299,7 @@ public class MinionSquadAndRoleTest {
 			new MockMinion(2, commanderId, true, SquadGroup.ALPHA, MinionRole.WARRIOR),
 			new MockMinion(3, commanderId, true, SquadGroup.BRAVO, MinionRole.SENTINEL),
 			new MockMinion(4, commanderId, true, SquadGroup.CHARLIE, MinionRole.BUILDER),
-			new MockMinion(5, commanderId, true, SquadGroup.DELTA, MinionRole.MINER),
+			new MockMinion(5, commanderId, true, SquadGroup.DELTA, MinionRole.BUILDER),
 			new MockMinion(6, commanderId, true, SquadGroup.DELTA, MinionRole.WARRIOR),
 			// Dead minion belonging to commander (must be filtered out)
 			new MockMinion(7, commanderId, false, SquadGroup.ALPHA, MinionRole.WARRIOR),
@@ -372,8 +369,8 @@ public class MinionSquadAndRoleTest {
 	public static class TestSentinelGuardLogic {
 		public static final double PERIMETER_RADIUS = 8.0D;
 		public static final double PERIMETER_RADIUS_SQ = PERIMETER_RADIUS * PERIMETER_RADIUS; // 64.0
-		public static final double LEASH_DISTANCE = 12.0D;
-		public static final double LEASH_DISTANCE_SQ = LEASH_DISTANCE * LEASH_DISTANCE;       // 144.0
+		public static final double LEASH_DISTANCE = 128.0D;
+		public static final double LEASH_DISTANCE_SQ = LEASH_DISTANCE * LEASH_DISTANCE;
 		public static final double ARRIVAL_TOLERANCE_SQ = 4.0D;                               // 2 blocks radius
 		public static final double SPRINT_SPEED = 1.35D;
 
@@ -527,9 +524,9 @@ public class MinionSquadAndRoleTest {
 		// Inside perimeter -> leash goal does not trigger; minion is free to fight
 		Assertions.assertFalse(logic.canStart(), "Combat within perimeter should not trigger leash retreat");
 
-		// Case 4: Target retreats beyond 12 blocks from anchor (13 blocks away, distSq = 169 > 144)
-		logic.targetPos = new TestSentinelGuardLogic.Vec3(113.0, 64.0, 100.0);
-		Assertions.assertTrue(logic.canStart(), "Target fleeing beyond 12 blocks must trigger leash retreat");
+		// Case 4: Target retreats beyond 128 blocks from anchor (129 blocks away, distSq = 129^2 > 128^2)
+		logic.targetPos = new TestSentinelGuardLogic.Vec3(229.0, 64.0, 100.0);
+		Assertions.assertTrue(logic.canStart(), "Target fleeing beyond 128 blocks must trigger leash retreat");
 
 		logic.start();
 		Assertions.assertTrue(logic.aggroBroken, "Aggro must be broken immediately");
@@ -537,13 +534,13 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertTrue(logic.isNavigating);
 		Assertions.assertEquals(TestSentinelGuardLogic.SPRINT_SPEED, logic.navigationSpeed);
 
-		// Case 5: Sentinel lured beyond 12 blocks from anchor (14 blocks away)
-		logic.minionPos = new TestSentinelGuardLogic.Vec3(114.0, 64.0, 100.0);
-		logic.targetPos = new TestSentinelGuardLogic.Vec3(111.0, 64.0, 100.0); // Target at 11 blocks
+		// Case 5: Sentinel lured beyond 128 blocks from anchor (130 blocks away)
+		logic.minionPos = new TestSentinelGuardLogic.Vec3(230.0, 64.0, 100.0);
+		logic.targetPos = new TestSentinelGuardLogic.Vec3(200.0, 64.0, 100.0); // Target at 100 blocks
 		logic.targetAlive = true;
 		logic.aggroBroken = false;
 
-		Assertions.assertTrue(logic.canStart(), "Sentinel lured beyond 12 blocks must trigger leash retreat");
+		Assertions.assertTrue(logic.canStart(), "Sentinel lured beyond 128 blocks must trigger leash retreat");
 		logic.start();
 		Assertions.assertTrue(logic.aggroBroken);
 		Assertions.assertNull(logic.targetPos);

@@ -88,6 +88,11 @@ public class MinionFormationFollowGoal extends Goal {
 			return false;
 		}
 
+		// Minions actively building or engaged in construction work never follow formation
+		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
+			return false;
+		}
+
 		// During active mass assault, minions relentlessly pursue targets across the battlefield;
 		// do not disengage or return to formation until all targets are slain or minion is recalled/estranged (>48 blocks)
 		if (this.minion.hasAssaultTargets() && this.minion.squaredDistanceTo(owner) < ASSAULT_LEASH_OVERRIDE_SQ) {
@@ -102,7 +107,8 @@ public class MinionFormationFollowGoal extends Goal {
 
 		this.cachedRank = this.resolveRank(owner);
 		Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
-		double distToStationSq = this.minion.squaredDistanceTo(station.x, station.y, station.z);
+		double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
+		double distToStationSq = this.minion.squaredDistanceTo(station.x, walkableY, station.z);
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
 
 		return distToStationSq > START_FOLLOW_DISTANCE_SQ || distToOwnerSq > SPRINT_DISTANCE_THRESHOLD_SQ;
@@ -123,6 +129,11 @@ public class MinionFormationFollowGoal extends Goal {
 			return false;
 		}
 
+		// Minions actively building or engaged in construction work never follow formation
+		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
+			return false;
+		}
+
 		// During active mass assault, minions relentlessly pursue targets across the battlefield;
 		// do not disengage or return to formation until all targets are slain or minion is recalled/estranged (>48 blocks)
 		if (this.minion.hasAssaultTargets() && this.minion.squaredDistanceTo(owner) < ASSAULT_LEASH_OVERRIDE_SQ) {
@@ -135,7 +146,8 @@ public class MinionFormationFollowGoal extends Goal {
 		}
 
 		Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
-		double distToStationSq = this.minion.squaredDistanceTo(station.x, station.y, station.z);
+		double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
+		double distToStationSq = this.minion.squaredDistanceTo(station.x, walkableY, station.z);
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
 
 		return distToStationSq > STOPPING_DISTANCE_SQ || distToOwnerSq > SPRINT_DISTANCE_THRESHOLD_SQ;
@@ -160,8 +172,10 @@ public class MinionFormationFollowGoal extends Goal {
 
 	@Override
 	public void stop() {
-		this.minion.clearActiveTraversalDestination();
 		this.minion.getNavigation().stop();
+		this.minion.setVelocity(0.0D, this.minion.getVelocity().y, 0.0D);
+		this.minion.velocityModified = true;
+		this.minion.clearActiveTraversalDestination();
 	}
 
 	@Override
@@ -180,11 +194,13 @@ public class MinionFormationFollowGoal extends Goal {
 
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
 
-		// Emergency teleport when estranged beyond 64 blocks
+		// Emergency teleport when estranged beyond 64 blocks (only if not actively engaged in construction)
 		if (distToOwnerSq > TELEPORT_DISTANCE_THRESHOLD_SQ) {
-			if (owner instanceof ServerPlayerEntity serverPlayer) {
-				this.minion.teleportToPlayer(serverPlayer);
-				return;
+			if (!this.minion.isActivelyBuilding() && !com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
+				if (owner instanceof ServerPlayerEntity serverPlayer) {
+					this.minion.teleportToPlayer(serverPlayer);
+					return;
+				}
 			}
 		}
 
@@ -198,6 +214,8 @@ public class MinionFormationFollowGoal extends Goal {
 		// Arrival station check: stop within 2 blocks
 		if (distToStationSq <= STOPPING_DISTANCE_SQ) {
 			this.minion.getNavigation().stop();
+			this.minion.setVelocity(0.0D, this.minion.getVelocity().y, 0.0D);
+			this.minion.velocityModified = true;
 			return;
 		}
 
@@ -446,7 +464,6 @@ public class MinionFormationFollowGoal extends Goal {
 			case WARRIOR -> baseForward = 4.0D;
 			case SENTINEL -> baseForward = 1.8D;
 			case BUILDER -> baseForward = -2.0D;
-			case MINER -> baseForward = -4.2D;
 			default -> baseForward = -2.0D;
 		}
 

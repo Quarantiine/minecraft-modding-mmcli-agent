@@ -1927,7 +1927,7 @@ public class CommandScepterItem extends Item {
 			targetSquad = SquadGroup.ALL;
 		}
 		SquadGroup filterSquad = targetSquad;
-		Box searchBox = player.getBoundingBox().expand(48.0D);
+		Box searchBox = player.getBoundingBox().expand(64.0D);
 		List<MinionEntity> minions = world.getEntitiesByClass(
 			MinionEntity.class,
 			searchBox,
@@ -1945,6 +1945,10 @@ public class CommandScepterItem extends Item {
 			if (world instanceof ServerWorld serverWorld) {
 				serverWorld.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, minion.getX(), minion.getY() + 0.8D, minion.getZ(), 4, 0.2D, 0.2D, 0.2D, 0.02D);
 			}
+		}
+
+		if (world instanceof ServerWorld serverWorld) {
+			com.example.construction.ConstructionManager.getInstance().cancelSessionsForOwner(player.getUuid(), serverWorld);
 		}
 
 		MinionFormationFollowGoal.refreshFormationAnchor(player);
@@ -1978,12 +1982,12 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> miners = world.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && m.getRole() == MinionRole.MINER && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && m.getRole() == MinionRole.BUILDER && filterSquad.matches(m.getSquad())
 			);
 
 			String squadLabel = filterSquad.getFormattedName();
 			player.sendMessage(
-				Text.literal("§6⛏ Mine Mode [" + squadLabel + "§6]: " + miners.size() + " Miner(s) ready for excavation directives!§r"),
+				Text.literal("§6⛏ Mine Mode [" + squadLabel + "§6]: " + miners.size() + " Builder(s) ready for excavation directives!§r"),
 				true
 			);
 		}

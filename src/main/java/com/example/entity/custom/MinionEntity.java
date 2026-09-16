@@ -120,6 +120,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	private Vec3d activeTraversalDestination = null;
 	private boolean activelyBuilding = false;
 	private int traversalStallTicks = 0;
+	private int arcaneLevitationTicks = 0;
 
 	public MinionEntity(EntityType<? extends TameableEntity> entityType, World world) {
 		super(entityType, world);
@@ -223,8 +224,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	public void setArcaneLevitating(boolean levitating) {
 		this.arcaneLevitating = levitating;
 		this.setNoGravity(levitating);
-		this.noClip = levitating;
-		if (levitating) {
+		if (!levitating) {
+			this.arcaneLevitationTicks = 0;
+		} else {
 			this.fallDistance = 0.0F;
 		}
 	}
@@ -291,7 +293,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 
 		LivingEntity owner = this.getOwner();
-		if (owner != null && owner.isAlive()) {
+		if (owner != null && owner.isAlive() && (this.isSelected() && (!this.getNavigation().isIdle() || this.getMoveControl().isMoving()))) {
 			return owner.getPos();
 		}
 
@@ -582,7 +584,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 					boolean isMoving = !this.getNavigation().isIdle() || this.getMoveControl().isMoving();
 					if (isMoving && this.horizontalCollision) {
 						this.obstacleStallTicks++;
-						if (this.obstacleStallTicks >= 6) {
+						if (this.obstacleStallTicks >= 2) {
 							this.obstacleStallTicks = 0;
 							this.obstacleVaultTicks = 14;
 							this.setArcaneLevitating(true);
@@ -604,6 +606,25 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				}
 			}
 		}
+	}
+
+	@Override
+	public void pushAwayFrom(Entity entity) {
+		// Suppress mutual shoving between allied minions when holding station, resting, or sitting
+		if (entity instanceof MinionEntity ally && ally.isOwner(this.getOwner())) {
+			if (this.isSitting() || this.getGuardAnchorPos() != null || (this.getNavigation().isIdle() && !this.getMoveControl().isMoving())) {
+				return;
+			}
+		}
+		super.pushAwayFrom(entity);
+	}
+
+	@Override
+	public boolean isPushable() {
+		if (this.isSitting() || this.getGuardAnchorPos() != null) {
+			return false;
+		}
+		return super.isPushable();
 	}
 
 	@Override
@@ -640,6 +661,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				this.setArcaneLevitating(false);
 			}
 			return;
+		}
+
+		if (this.arcaneLevitating) {
+			this.arcaneLevitationTicks++;
 		}
 
 		Vec3d targetDest = this.resolveActiveTargetDestination();
@@ -696,11 +721,100 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			return;
 		}
 
+		// Determine dynamic target clearance altitude based on destination and obstacles ahead
+		double targetClearanceAltitude = targetDest.y;
+		double obstacleTopClearanceY = this.getY();
+
+		// Scan along the horizontal traversal vector toward targetDest to detect obstacle walls/ledges
+		double hDist = Math.sqrt(horizontalDistSq);
+		if (hDist > 0.15D) {
+			double dirX = dx / hDist;
+			double dirZ = dz / hDist;
+			int minionFootY = this.getBlockY();
+
+			for (double step = 0.4D; step <= 2.0D; step += 0.8D) {
+				int aheadX = (int) Math.floor(this.getX() + dirX * step);
+				int aheadZ = (int) Math.floor(this.getZ() + dirZ * step);
+
+				// Scan upward from minion feet up to 24 blocks to detect obstacle top
+				for (int checkY = minionFootY; checkY <= minionFootY + 24; checkY++) {
+					BlockPos checkPos = new BlockPos(aheadX, checkY, aheadZ);
+					BlockState state = serverWorld.getBlockState(checkPos);
+					if (state.isSolidBlock(serverWorld, checkPos) || state.isFullCube(serverWorld, checkPos)) {
+						double neededClearance = checkY + 1.25D;
+						if (neededClearance > obstacleTopClearanceY) {
+							obstacleTopClearanceY = neededClearance;
+						}
+					}
+				}
+			}
+		}
+		targetClearanceAltitude = Math.max(targetDest.y, obstacleTopClearanceY);
+
+		// Headroom ceiling check: if solid blocks exist directly above minion, clamp clearance to ceiling
+		for (int cy = this.getBlockY() + 2; cy <= this.getBlockY() + 4; cy++) {
+			BlockPos ceilPos = new BlockPos(this.getBlockX(), cy, this.getBlockZ());
+			BlockState ceilState = serverWorld.getBlockState(ceilPos);
+			if (ceilState.isSolidBlock(serverWorld, ceilPos)) {
+				targetClearanceAltitude = Math.min(targetClearanceAltitude, cy - 1.9D);
+				break;
+			}
+		}
+
+		// Non-builder landing check during traversal:
+		// Whenever a minion is over solid ground (on top of a scaled ledge, roof, or ground)
+		// and is not actively climbing a higher obstacle directly ahead:
+		// IMMEDIATELY LAND! Deactivate levitation and restore normal ground walking & step height!
+		if (!this.activelyBuilding && this.arcaneLevitating) {
+			BlockPos feet = this.getBlockPos();
+			BlockPos below = feet.down();
+			BlockState belowState = serverWorld.getBlockState(below);
+			boolean overSolidGround = this.isOnGround() || belowState.isSolidBlock(serverWorld, below);
+
+			boolean climbingWallAhead = (obstacleTopClearanceY > this.getY() + 0.3D) && (this.horizontalCollision || this.traversalStallTicks >= 1);
+
+			if (overSolidGround && !climbingWallAhead) {
+				this.setArcaneLevitating(false);
+				this.arcaneLevitationTicks = 0;
+				this.traversalStallTicks = 0;
+				this.obstacleStallTicks = 0;
+				this.setVelocity(this.getVelocity().x * 0.5D, 0.0D, this.getVelocity().z * 0.5D);
+				this.velocityModified = true;
+				serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 4, 0.15D, 0.05D, 0.15D, 0.02D);
+				serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.2D, this.getZ(), 3, 0.2D, 0.1D, 0.2D, 0.05D);
+				return;
+			}
+
+			// Failsafe: if levitating for over 120 ticks (6 seconds) without progress, gently descend
+			if (this.arcaneLevitationTicks > 120) {
+				this.setArcaneLevitating(false);
+				this.arcaneLevitationTicks = 0;
+				this.setVelocity(0.0D, -0.22D, 0.0D);
+				this.velocityModified = true;
+				return;
+			}
+		}
+
+		// Melee Warrior grounding in combat:
+		// If a melee Warrior is fighting a target on the ground and is elevated above it (dy < -0.8D),
+		// glide down immediately to melee reach rather than hovering in the air.
+		if (this.getRole() == MinionRole.WARRIOR && !isRangedWeapon(this.getMainHandStack()) && this.getTarget() != null) {
+			if (dy < -0.8D && this.arcaneLevitating) {
+				this.setVelocity(dx * 0.15D, -0.35D, dz * 0.15D);
+				this.velocityModified = true;
+				return;
+			}
+		}
+
 		// Minion is not within arrival tolerance: evaluate levitation triggers
 		boolean elevationDisparity = dy > 1.25D || dy < -1.5D;
+		if (dy < -1.5D && this.isOnGround()) {
+			elevationDisparity = false;
+		}
+		boolean obstacleBlocked = (targetClearanceAltitude > this.getY() + 0.5D) && (this.horizontalCollision || this.traversalStallTicks >= 2);
 		boolean movingIntent = !this.getNavigation().isIdle() || this.getMoveControl().isMoving();
 		boolean horizontalStuck = this.horizontalCollision && movingIntent;
-		boolean navigationStalled = this.getNavigation().isIdle() && totalDistSq > 4.0D;
+		boolean navigationStalled = !this.arcaneLevitating && movingIntent && this.getNavigation().isIdle() && totalDistSq > 4.0D;
 
 		if (horizontalStuck || navigationStalled) {
 			this.traversalStallTicks++;
@@ -708,7 +822,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			this.traversalStallTicks = Math.max(0, this.traversalStallTicks - 1);
 		}
 
-		boolean shouldLevitate = elevationDisparity || this.traversalStallTicks >= 4 || this.obstacleVaultTicks > 0;
+		boolean shouldLevitate = elevationDisparity || obstacleBlocked || this.traversalStallTicks >= 2 || this.obstacleVaultTicks > 0;
 
 		if (shouldLevitate) {
 			if (!this.arcaneLevitating) {
@@ -717,31 +831,37 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.2D, this.getZ(), 3, 0.2D, 0.1D, 0.2D, 0.05D);
 			}
 
-			// Arcane 3D gliding kinematics
-			Vec3d delta = new Vec3d(dx, dy, dz);
-			double dist = Math.sqrt(totalDistSq);
-			if (dist > 0.01D) {
-				Vec3d dir = delta.multiply(1.0D / dist);
-				double speed = dist > 10.0D ? 0.45D : 0.35D;
-				double vx = dir.x * speed;
-				double vy = dir.y * speed;
-				double vz = dir.z * speed;
+			// Arcane 3D gliding kinematics: full horizontal propulsion towards target
+			double horizDist = Math.sqrt(horizontalDistSq);
+			double speed = horizDist > 10.0D ? 0.45D : 0.35D;
+			double vx = (horizDist > 0.01D) ? (dx / horizDist) * speed : 0.0D;
+			double vz = (horizDist > 0.01D) ? (dz / horizDist) * speed : 0.0D;
+			double vy;
 
-				if (dy > 0.5D || this.horizontalCollision) {
-					// Strong upward lift to scale cliffs and obstacle ledges
-					vy = Math.max(vy, 0.38D);
-				} else if (dy < -0.5D) {
-					// Controlled downward glide off high cliffs and buildings
+			if (this.getY() < targetClearanceAltitude - 0.05D) {
+				// We need to ascend to clear the obstacle or reach elevated target
+				double liftRemaining = targetClearanceAltitude - this.getY();
+				vy = Math.min(0.38D, liftRemaining * 0.5D + 0.22D);
+				vy = Math.max(vy, 0.30D);
+			} else {
+				// At or above target clearance altitude: clear the obstacle ledge smoothly
+				vy = 0.0D;
+				if (this.getY() > targetDest.y + 0.5D) {
+					// Controlled downward glide toward destination
 					vy = Math.min(vy, -0.22D);
-					vy = Math.max(vy, -0.42D);
 				}
-
-				this.setVelocity(vx, vy, vz);
-				this.velocityModified = true;
-				this.fallDistance = 0.0F;
-				this.getNavigation().stop();
-				this.getLookControl().lookAt(targetDest.x, targetDest.y + 0.5D, targetDest.z);
 			}
+
+			// If directly colliding horizontally and still below clearance altitude, maintain lift
+			if (this.horizontalCollision && this.getY() < targetClearanceAltitude - 0.05D) {
+				vy = Math.max(vy, 0.38D);
+			}
+
+			this.setVelocity(vx, vy, vz);
+			this.velocityModified = true;
+			this.fallDistance = 0.0F;
+			this.getNavigation().stop();
+			this.getLookControl().lookAt(targetDest.x, targetDest.y + 0.5D, targetDest.z);
 		} else if (this.arcaneLevitating) {
 			// If neither elevation disparity nor stall applies and we are levitating, check for gentle landing
 			BlockPos feet = this.getBlockPos();
@@ -1066,7 +1186,6 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		return switch (role) {
 			case WARRIOR -> isMeleeWeapon(stack) || isRangedWeapon(stack);
 			case SENTINEL -> isMeleeWeapon(stack);
-			case MINER -> stack.getItem() instanceof MiningToolItem || stack.getItem() instanceof SwordItem;
 			case BUILDER -> stack.getItem() instanceof MiningToolItem || isMeleeWeapon(stack);
 		};
 	}
@@ -1082,7 +1201,6 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		return switch (role) {
 			case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 			case SENTINEL -> isMeleeWeapon(candidate) && !isMeleeWeapon(current);
-			case MINER -> (candidate.getItem() instanceof MiningToolItem) && !(current.getItem() instanceof MiningToolItem);
 			case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 		};
 	}

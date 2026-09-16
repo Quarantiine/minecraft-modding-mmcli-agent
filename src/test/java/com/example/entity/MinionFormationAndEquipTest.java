@@ -72,19 +72,15 @@ public class MinionFormationAndEquipTest {
 	}
 
 	@Test
-	@DisplayName("Validate Rearguard Support (Builder & Miner) straight army lines behind commander")
+	@DisplayName("Validate Rearguard Support (Builder) straight army lines behind commander")
 	void testCoreSupportPlacement() {
 		Vec3d builder0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.BUILDER, 0);
-		Vec3d miner0 = MinionFormationFollowGoal.calculateFormationOffset(MinionRole.MINER, 0);
 
 		// Core starts behind the commander
 		Assertions.assertTrue(builder0.x < 0, "Builder must be behind commander (negative forward)");
 		Assertions.assertEquals(-2.0D, builder0.x, 1e-5);
-		Assertions.assertEquals(-4.2D, miner0.x, 1e-5);
-
 		// Col spacing is 1.35 on inner pair
 		Assertions.assertEquals(-1.35D, builder0.z, 1e-5);
-		Assertions.assertEquals(-1.35D, miner0.z, 1e-5);
 	}
 
 	@Test
@@ -239,10 +235,6 @@ public class MinionFormationAndEquipTest {
 					|| item == TestItemCategory.MELEE_AXE
 					|| item == TestItemCategory.MELEE_MACE
 					|| item == TestItemCategory.MELEE_TRIDENT;
-				case MINER -> item == TestItemCategory.TOOL_PICKAXE
-					|| item == TestItemCategory.TOOL_SHOVEL
-					|| item == TestItemCategory.MELEE_AXE
-					|| item == TestItemCategory.MELEE_SWORD;
 				case BUILDER -> item == TestItemCategory.TOOL_PICKAXE
 					|| item == TestItemCategory.TOOL_SHOVEL
 					|| item == TestItemCategory.MELEE_AXE
@@ -266,7 +258,6 @@ public class MinionFormationAndEquipTest {
 			return switch (role) {
 				case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 				case SENTINEL -> candidateMelee && !currentMelee;
-				case MINER -> (candidate == TestItemCategory.TOOL_PICKAXE) && (current != TestItemCategory.TOOL_PICKAXE);
 				case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 			};
 		}
@@ -310,15 +301,6 @@ public class MinionFormationAndEquipTest {
 		Assertions.assertFalse(TestAutoEquipLogic.isPreferredOffhand(MinionRole.SENTINEL, TestItemCategory.OFFHAND_TOTEM, TestItemCategory.OFFHAND_SHIELD));
 	}
 
-	@Test
-	@DisplayName("Validate Miner auto-equip: prioritizes pickaxes, rejects ranged weapons")
-	void testMinerAutoEquipRestrictions() {
-		Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.MINER, TestItemCategory.TOOL_PICKAXE));
-		Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(MinionRole.MINER, TestItemCategory.RANGED_BOW));
-
-		// Miner swaps sword to pickaxe
-		Assertions.assertTrue(TestAutoEquipLogic.isPreferredMainhand(MinionRole.MINER, TestItemCategory.TOOL_PICKAXE, TestItemCategory.MELEE_SWORD));
-	}
 
 	@Test
 	@DisplayName("Validate Builder auto-equip: accepts construction tools & melee, rejects ranged weapons")

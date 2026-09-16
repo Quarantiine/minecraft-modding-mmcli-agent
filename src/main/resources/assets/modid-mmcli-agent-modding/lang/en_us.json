@@ -51,7 +51,7 @@
   "gui.modid-mmcli-agent-modding.minion.squad": "Squad: %s",
   "gui.modid-mmcli-agent-modding.command_hub.squad_filter": "Squad Channel: %s",
 
-  "tooltip.modid-mmcli-agent-modding.frost_grenade_stick.desc": "Launches a cryogenic frost grenade that flash-freezes water into ice, turns lava into obsidian, summons a ring of powder snow, and inflicts freezing and slowness.",
+  "tooltip.modid-mmcli-agent-modding.frost_grenade_stick.desc": "Launches a cryogenic frost grenade that turns blocks into snow, flash-freezes water into ice, turns lava into obsidian, summons a ring of powder snow, and inflicts freezing and slowness.",
   "tooltip.modid-mmcli-agent-modding.command_scepter.desc": "Tactical scepter for commanding minions, recruiting thralls, and orchestrating multiblock construction.",
   "tooltip.modid-mmcli-agent-modding.command_scepter.target_squad": "Target Squad: %s",
   "tooltip.modid-mmcli-agent-modding.command_scepter.shift_right_click": "Shift + Right-Click: Open Command Hub GUI",

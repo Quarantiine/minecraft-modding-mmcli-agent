@@ -27,8 +27,7 @@ import net.minecraft.util.function.ValueLists;
 public enum MinionRole implements StringIdentifiable {
 	WARRIOR(0, "warrior", "Warrior", "§c", Formatting.RED),
 	SENTINEL(1, "sentinel", "Sentinel", "§a", Formatting.GREEN),
-	BUILDER(2, "builder", "Builder", "§9", Formatting.BLUE),
-	MINER(3, "miner", "Miner", "§6", Formatting.GOLD);
+	BUILDER(2, "builder", "Builder", "§9", Formatting.BLUE);
 
 	public static final Codec<MinionRole> CODEC = StringIdentifiable.createCodec(MinionRole::values);
 
@@ -121,7 +120,6 @@ public enum MinionRole implements StringIdentifiable {
 			case WARRIOR -> "⚔";
 			case SENTINEL -> "🛡";
 			case BUILDER -> "🔨";
-			case MINER -> "⛏";
 		};
 	}
 
@@ -133,12 +131,16 @@ public enum MinionRole implements StringIdentifiable {
 	}
 
 	/**
-	 * Resolves a role by its numeric identifier with fallback to {@link #WARRIOR}.
+	 * Resolves a role by its numeric identifier with fallback to {@link #WARRIOR},
+	 * gracefully mapping legacy MINER (ID 3) to {@link #BUILDER}.
 	 *
 	 * @param id The numeric identifier.
 	 * @return The matching MinionRole, or WARRIOR if out of bounds.
 	 */
 	public static MinionRole fromId(int id) {
+		if (id == 3) {
+			return BUILDER; // Gracefully map legacy MINER (ID 3) to BUILDER
+		}
 		MinionRole[] values = values();
 		if (id < 0 || id >= values.length) {
 			return WARRIOR;

@@ -10,22 +10,22 @@ This mod transforms your Minecraft world into an RTS battlefield and automated c
 
 The mod introduces strategic army management, autonomous AI companions, and structural engineering into Minecraft 1.21:
 
-- **Autonomous Minion Thralls**: Tameable, persistent companions with 4 distinct archetype roles:
+- **Autonomous Minion Thralls**: Tameable, persistent companions with 3 versatile archetype roles:
   - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman or ranged archer based on equipped weapons.
-  - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded allies within 10 blocks.
-  - 🏗 **Builder**: Multiblock assembly specialist equipped with 3D Arcane Levitation flight for scaffold-free construction.
-  - ⛏ **Miner**: Area excavation and demolition specialist with bedrock immunity safeguards.
-  - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, and obstacle-vaulting traversal.
+  - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded players (commander priority) and allied minions within 10 blocks, maintaining an expanded 128-block operational leash.
+  - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, and deposits surplus materials into autonomous supply depot chests.
+  - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 3D Arcane Levitation flight throughout construction, and instant 2-tick obstacle-vaulting traversal.
 - **The Loki Command Scepter**: Handheld tactical relic enabling:
-  - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines.
+  - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines with expanded 128-block operational leash freedom.
   - **Banner of Courage (90° Forward Sector)**: Hold right-click to project an expanding tactical cone; releasing launches a synchronized Mass Assault queue hunting down all enclosed hostiles.
-  - **Command Hub GUI (`V` key)**: Interactive tactical hub for squad routing (Alpha through Delta), mode cycling, mass role assignment, and blueprint selection.
-  - **Panic Retreat (`R` key)**: Emergency recall sounding a warning bell, clearing combat targets, and sprinting minions back into formation.
+  - **Command Hub GUI (`V` key)**: Interactive tactical hub for squad routing (Alpha through Delta), mode cycling, 3-role mass archetype assignment, and blueprint selection.
+  - **Panic Retreat (`R` key)**: Instant emergency recall sounding a warning bell, immediately dismissing all 3D holographic wireframes, cancelling active construction sessions, clearing combat targets, and sprinting minions back into formation.
 - **Multiblock Construction & Deconstruction**:
   - Live 3D holographic wireframe and ghost-block previews with 4-quadrant rotation (0°, 90°, 180°, 270°).
   - Pre-engineered topological blueprints: *Overlord Watchtower* (7×7×9), *Arcane Obelisk* (5×5×8), and *Defensive Barricade* (9×3×3).
   - Top-down area clearance and demolition engine with Bedrock and indestructible block protection.
-- **Tactical Ordnance**: Throwable TNT Sticks and cryogenic Frost Grenades (flash-freezes water, turns lava to obsidian, and applies Slowness III).
+  - Zero-drop Creative Mode pre-clearing ensuring zero clutter item drops when building over existing terrain.
+- **Tactical Ordnance**: Throwable TNT Sticks and cryogenic Frost Grenades (transmutes blocks into snow, flash-freezes water, turns lava to obsidian, summons a powder snow ring, and applies Slowness III).
 
 > 📖 **In-Game Controls & Commands**: For the full controls cheat sheet and scepter input manual, see [**COMMANDS.md**](COMMANDS.md).
 >
@@ -76,7 +76,7 @@ To test server-authoritative logic, multiplayer sync, or network packets:
 
 ### 5. Running Automated Unit Tests
 
-Run the automated test suite (220 unit tests across 20 suites covering AI, math, networking, and safeguards):
+Run the automated test suite (249 unit tests across 23 suites covering AI, math, networking, logistics, ordnance, and safeguards):
 
 ```bash
 ./gradlew test

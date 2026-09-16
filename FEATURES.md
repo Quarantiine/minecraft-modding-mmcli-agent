@@ -50,7 +50,7 @@ The scepter cycles through 5 distinct operational modes via **Sneak + Right-Clic
 
 1. **`FOLLOW`** (`0.8F` pitch, `§aFollow`): Directs matching squad thralls to break stationary posts, assemble into formation, and escort the commander.
 2. **`STAY`** (`1.0F` pitch, `§eStay`): Directs matching squad thralls to halt movement and hold ground at attention.
-3. **`MINE`** (`1.4F` pitch, `§6Mine`): Directs miners and builders to begin top-down deconstruction of clicked multiblock structures.
+3. **`MINE`** (`1.4F` pitch, `§6Mine`): Directs builders to begin top-down deconstruction of clicked multiblock structures or 3D terrain volumes.
 4. **`BUILD`** (`1.6F` pitch, `§bBuild`): Projects blueprint holographic wireframes and anchors new multiblock construction sessions.
 5. **`RECRUIT`** (`1.8F` pitch, `§dRecruit`): Targets wild or enemy mobs to transfigure them into loyal minion thralls.
 
@@ -205,14 +205,13 @@ To ensure commanders can monitor their thralls' vital status at a glance during 
 
 ## 3. Tactical Army Architecture: Roles, Squads & Formations
 
-### 4 Specialized Archetype Roles (`MinionRole`)
+### 3 Specialized Archetype Roles (`MinionRole`)
 
 | Role | Color | Combat Profile | Primary Equipment | Behaviors |
 | :--- | :--- | :--- | :--- | :--- |
 | **`WARRIOR`** | Red (`§c`) | Frontline Melee **or** Ranged Skirmish | Swords, Axes, Maces **OR** Bows, Crossbows | **Dual Combatant**: Functions as a frontline melee striker or as a ranged archer based on equipped weapon. Leads formation frontline. |
-| **`SENTINEL`** | Green (`§a`) | Perimeter Guard & Combat Medic | Sword + Shield | Holds designated anchor; 8-block guard zone; 12-block leash retreat; prioritizes shields. **Aegis of Restoration**: Autonomously channels healing to allied minions under 70% HP within 10 blocks, restoring 6.0 HP (3 hearts) and granting Regeneration II for 5s with heart VFX and chime audio (6s cooldown; fallback self-heal below 40% HP). |
-| **`BUILDER`** | Blue (`§9`) | Construction | Pickaxes, Shovels | Autonomous multiblock construction and deconstruction with full 3D Arcane Levitation hover flight. |
-| **`MINER`** | Gold (`§6`) | Demolition | Pickaxes | Specializes in structure deconstruction and excavation. |
+| **`SENTINEL`** | Green (`§a`) | Perimeter Guard & Combat Medic | Sword + Shield | Holds designated anchor; 8-block guard zone; 128-block leash freedom; prioritizes shields. **Aegis of Restoration**: Autonomously channels healing to the player commander and allied minions under 70% HP within 10 blocks (prioritizing the player commander if wounded), restoring 6.0 HP (3 hearts) and granting Regeneration II for 5s with heart VFX, chime audio, and an action bar confirmation message (6s cooldown; fallback self-heal below 40% HP). |
+| **`BUILDER`** | Blue (`§9`) | Construction & Logistics | Pickaxes, Axes, Shovels | Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts tools, shares blocks via peer energy beams, and deploys supply depot chests. |
 
 ### 5 Tactical Squad Channels (`SquadGroup`)
 
@@ -239,19 +238,17 @@ When following the commander or holding waypoint stations, minions deploy into s
                                        │
                                    [Master]
                                        │
-                       [B2]   [B0]     │     [B1]   [B3]      ◄── Builder Support (-2.0 rear)
-                                       │
-                       [M2]   [M0]     │     [M1]   [M3]      ◄── Miner Logistics (-4.2 deep rear)
+                       [B2]   [B0]     │     [B1]   [B3]      ◄── Builder Rearguard (-2.0 rear)
 ```
 
 - **Straight Parallel Battle Ranks**: Every 4 units in a role share the exact same `forwardOffset`, eliminating curving arcs or wedges and presenting a disciplined military battle front.
 - **Frontline Lines (Warriors)**: $+4.0\text{D}$ forward (stepping back $2.0\text{D}$ per rank line), intercepting head-on threats with both melee swordsmen and archers.
-- **Midline Escort Lines (Sentinels)**: $+1.8\text{D}$ forward, providing an immediate defensive bulwark shielding the commander.
+- **Midline Escort Lines (Sentinels)**: $+1.8\text{D}$ forward, providing an immediate defensive bulwark shielding the commander within an expanded 128-block leash.
 - **Rearguard Support Lines (Builders)**: $-2.0\text{D}$ rear, staying tucked safely behind the commander.
-- **Logistics Lines (Miners)**: $-4.2\text{D}$ deep rear, maintaining clear operational buffer behind builders.
 - **Open Central Command Lane**: Inner units flank at $\pm 1.35\text{D}$ and outer units at $\pm 3.60\text{D}$, leaving an open central corridor for the commander to lead, aim scepters, and shoot without friendly obstruction.
 - **Movement Hysteresis Yaw Anchoring**: Formation heading locks during stationary camera sweeps ($\le 0.04\text{ blocks}^2$ displacement), preventing minions from orbiting dizzyingly when the player looks around.
-- **Universal Arcane Levitation Traversal & Obstacle Vaulting**: All minions possess 3D Arcane Levitation mobility. When navigating across extreme vertical terrain, descending off roofs/high cliffs ($\Delta Y < -1.5\text{D}$), ascending sheer bluffs ($\Delta Y > 1.25\text{D}$), or encountering pathfinding stalls ($\ge 4$ ticks), thralls smoothly levitate in 3D with purple and cyan particle spirals (`PORTAL` + `ENCHANT`) and glide directly to their destination, landing safely with zero fall damage. Unanchored thralls also retain automatic 14-tick obstacle vaulting when bumping into fences or 1-block steps. Builders retain dedicated 3D hover station calculation for multiblock assembly.
+- **Formation Anti-Jitter & Mutual Push Suppression**: Minions suppress mutual physical collision shoving (`pushAwayFrom`) between allied minions when idle, guarding, or standing in formation, preventing units from jostling each other out of alignment. Consistent `walkableY` resolution and arrival velocity zeroing eliminate station-hunting oscillations.
+- **Universal Arcane Levitation Traversal & Anti-Skyrocket Safety**: All minions possess 3D Arcane Levitation mobility for navigating vertical terrain, descending cliffs ($\Delta Y < -1.5\text{D}$), ascending bluffs ($\Delta Y > 1.25\text{D}$), and vaulting obstacle stalls. Upward lift is ceiling-restricted to above-target vectors ($\Delta Y > 0.5\text{D}$) or short obstacle hops, non-builder thralls are capped at 40 levitation ticks with auto-landing over solid ground, and melee warriors immediately ground themselves when engaging ground combat targets to prevent launching into the stratosphere.
 
 ### Automatic Waypoint Combat Formations & Auto-Deselect Flow
 
@@ -260,7 +257,7 @@ When the commander drops a ground waypoint ping, selected minions automatically 
 - **Automatic Selection Clearance**: Selected minions dispatched to the waypoint are immediately deselected (`setSelected(false)`). Their overhead star and squad glowing outlines extinguish as they lock into stationary guard attention at the destination coordinates.
 - **Warriors**: Form straight battle lines ahead of the objective.
 - **Sentinels**: Form protective bulwark lines behind the vanguard.
-- **Builders & Miners**: Form disciplined support and logistics lines to the rear.
+- **Builders**: Form disciplined support and logistics lines to the rear.
 - **Safe Surface & Headroom Detection**: Evaluates vertical column to ensure stations land on solid ground with 2 blocks of clear headroom.
 - **Elevation Gliding**: If the designated waypoint is elevated on a ledge or down in a ravine ($\Delta Y > 1.25\text{D}$ or $\Delta Y < -1.5\text{D}$), minions engage Arcane Levitation to glide smoothly to their designated formation slots.
 
@@ -330,13 +327,13 @@ Opened via **Shift + Right-Click** with the scepter or pressing the **`V`** key.
 |                                 |  [ < Prev ]       [ Next > ]    |
 +---------------------------------+---------------------------------+
 |  MASS ARCHETYPES:                                                 |
-|  [⚔ Warrior]    [🛡 Sentinel]    [🏗 Builder]    [⛏ Miner]        |
+|  [⚔ Warrior]        [🛡 Sentinel]        [🔨 Builder]             |
 +-------------------------------------------------------------------+
 |  [Execute]     [Teleport All]     [§c✖ Destroy All]      [Close]   |
 +-------------------------------------------------------------------+
 ```
 
-- **4-Button Mass Archetype Bar ($y = 232$)**: 
+- **3-Button Mass Archetype Bar ($y = 232$)**: 
   - **Direct Batch Conversion**: Clicking an archetype immediately dispatches a `MassRolePayload` converting all selected minions (or all minions within the active squad channel) within a **64-block radius** (`CommandScepterItem.MINION_COMMAND_RADIUS = 64.0D`) into the chosen role. If no minions are currently selected, it falls back to batch-assigning all owned minions within the 64-block radius matching the active squad filter.
   - **Stateful Toggle & Transfiguration Priming**: Buttons operate as stateful toggle controls. Clicking an unselected role primes it as the scepter's active `TARGET_ROLE` (displaying a colored active indicator bar beneath the button and updating the modal title to `[Role] (Rally Transform)`). Clicking the already-selected role toggles it off. When primed, releasing a Banner of Courage rally ring in the world will automatically transfigure all gathered minions into this role.
   - **Contextual Tooltips**: Hovering over each button displays rich contextual tooltips explaining current selection state, role abilities, and rally transfiguration behavior.
@@ -388,19 +385,30 @@ Server-authoritative engine orchestrating automated multiblock building and demo
 - **Task Queue & Topological Ordering**: Breaks blueprints into discrete block placement tasks sorted bottom-up.
 - **Task Leasing**: Minions claim leases on available tasks. If a builder runs out of materials or stalls, the lease releases for other workers.
 - **Dual Economics**:
-  - **Creative Mode**: Zero-cost instant block placement.
-  - **Survival Mode**: Consumes blocks from minion backpacks or scavenges nearby chests within 12 blocks.
+  - **Creative Mode**: Zero-cost instant block placement. Automatically pre-clears any existing blocks (grass, flowers, snow, dirt) with zero dropped items, eliminating all clutter.
+  - **Survival Mode Multi-Stage Logistics**:
+    1. *9-Slot Minion Backpack*: Consumes blocks currently carried in inventory.
+    2. *Nearby Container Scavenging*: Searches chests, barrels, and shulkers within 12 blocks for missing materials.
+    3. *Peer-to-Peer Allied Sharing (`MinionLogisticsHelper`)*: Scans allied minions within 24m, transferring required blocks via green energy beams and pickup audio.
+    4. *Autonomous Quarrying & Agro-Forestry (`MinionHarvestingHelper`)*: Autonomously quarries natural stone, deepslate, and earth. For timber, fells trees or plants saplings and accelerates maturity with bone meal.
+    5. *Tool Self-Crafting*: Synthesizes wooden or stone tools (pickaxes, axes, shovels) from timber and stone when tools break or are missing.
+    6. *Strict Build Protection*: Never breaks player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
+    7. *Hazard Avoidance*: Inspects all 6 orthogonal directions and refuses to break blocks adjacent to lava.
+    8. *Autonomous Supply Depots*: When bags are full of surplus non-blueprint materials, deposits excess into nearby chests or crafts an 8-plank Chest (pairing into a Double Chest if adjacent).
 
 ### Arcane Builder Levitation & Universal 3D Levitation Traversal (`MinionBuildGoal`, `MinionEntity`, `WaypointHoldGoal`, `MinionFormationFollowGoal`, `SentinelGuardGoal`)
 
-- **Universal 3D Arcane Levitation Traversal**: All minion thralls (Builders, Warriors, Sentinels, Miners, and Rangers) utilize 3D Arcane Levitation to seamlessly traverse extreme vertical terrain and multiblock structures:
+- **Universal 3D Arcane Levitation Traversal & Safety Ceilings**: All minion thralls (Builders, Warriors, Sentinels) utilize 3D Arcane Levitation to seamlessly traverse extreme vertical terrain and multiblock structures:
   - **High Cliff & Rooftop Descent**: When stationed on high cliffs, rooftops, or newly completed buildings, minions smoothly glide off high structures ($\Delta Y < -1.5\text{D}$) down to the ground or their target post without taking fall damage or getting trapped on roofs.
   - **Elevated Cliff & Building Ascent**: When navigating towards elevated waypoints, cliffs, or commanders perched on structures ($\Delta Y > 1.25\text{D}$), minions automatically engage 3D levitation flight to ascend sheer vertical walls and land safely at their destination.
-  - **Obstacle & Navigation Stall Recovery**: If ground navigation stalls or hits horizontal obstructions for $\ge 4$ ticks, minions engage Arcane Levitation flight in 3D to bypass the barrier.
+  - **Obstacle & Navigation Stall Recovery**: Responsive 2-tick obstacle stall sensitivity: if navigation stalls or hits horizontal obstructions for $\ge 2$ ticks while actively moving towards a goal, minions engage Arcane Levitation flight in 3D to bypass the barrier.
+  - **Unconstrained Dynamic Obstacle Climbing**: Minions can scale barriers of any height (3, 5, 10, or 20+ blocks high) without artificial altitude limits or premature timers. Traversal raycasts ahead measure `obstacleTopClearanceY` to lift minions cleanly over obstacles with sustained upward velocity ($v_y \ge 0.30\text{D} \to 0.38\text{D}$) and full horizontal drive ($v_x, v_z$).
+  - **Immediate Solid Ground Landing Rule**: The root cause of endless levitation (minions refusing to land because of elevation mismatch or wall collisions) is permanently solved: the instant a minion's feet reach solid ground (`isOnGround() || belowState.isSolidBlock()`) without a higher obstacle ahead, levitation deactivates immediately, restoring normal ground walking and step height (1.0625D). In mid-air, downward glide ($v_y \le -0.22\text{D}$) carries airborne minions smoothly to earth until solid ground is reached.
+  - **Combat Grounding**: Minions fighting ground targets remain firmly grounded and never launch into the air from entity collisions. If elevated above a ground enemy, melee warriors immediately descend ($v_y = -0.35\text{D}$) to engage within weapon reach.
   - **Hierarchical Destination Resolution**: `resolveActiveTargetDestination()` dynamically reconciles explicit goal traversal stations, active combat targets, waypoint/guard anchors, commander positions, and navigation waypoints.
   - **Safe Arrival & Landing Fanfare**: Upon reaching their destination within tolerance (horizontal $\le 2\text{D}$, vertical $\le 1.5\text{D}$), minions float smoothly to solid ground, deactivate levitation, restore gravity, and burst into arcane purple and cyan runes (`PORTAL` and `ENCHANT`).
 
-- **Arcane Builder Levitation**: Elevated multiblock construction completely transcends temporary scaffolding generation and block climbing. When assigned an elevated task ($\Delta Y > 1$), builders activate Arcane Levitation:
+- **Arcane Builder Levitation**: Elevated multiblock construction completely transcends temporary scaffolding generation and block climbing. Builders maintain permanent 3D Arcane Levitation throughout construction:
   - **Dynamic 3D Hover Station**: The minion calculates an optimal 3D air station adjacent to the target block ($1.4\text{D} \to 1.8\text{D}$ horizontally away, with unobstructed headroom) and smoothly glides to it at $0.35\text{D}$ velocity.
   - **Arcane Runes & Safe Hovering**: Emits purple and cyan portal/enchant particles (`PORTAL` and `ENCHANT`) around the builder's boots while hovering. Gravity is suppressed and fall damage is 100% neutralized.
   - **Elevated Task Chaining**: Upon placing or dismantling a block, the builder immediately leases the next topological task in the sequence and glides directly to the next block station without descending to the ground.
@@ -439,7 +447,7 @@ Guarantees minions never break bedrock, barrier blocks, or world boundaries:
 
 ## 8. Combat Sappers & Ephemeral Scaffolding
 
-The **`MinionSapperGoal`** empowers **non-builder** minions (Warriors, Sentinels, Miners) to autonomously bridge chasms and scale cliffs:
+The **`MinionSapperGoal`** empowers **non-builder** combat minions (Warriors, Sentinels) to autonomously bridge chasms and scale cliffs:
 
 - **Builder Exclusion**: Builders never self-deploy sapper scaffolding blocks. They use Arcane Levitation and Universal Obstacle Vaulting for all terrain traversal. Builders may still respond to squad sapper signal-assist requests from allies who need a builder to place bridging blocks at an obstacle.
 - **Levitation Suppression**: Any minion currently levitating (Arcane Levitation or mid-vault) is excluded from sapper scaffolding deployment.
@@ -519,14 +527,18 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 - **Max Stack Size**: `1`
 - **Cooldown**: 10 ticks (0.5s) anti-spam delay
 - **Action**: Right-clicking launches an aerodynamic cryogenic projectile with custom throwing audio (`ENTITY_SNOWBALL_THROW` and `BLOCK_POWDER_SNOW_STEP`).
-- **In-Game Tooltip**: Color-coded tactical summary detailing fluid conversion, powder snow perimeter, and freezing debuffs.
+- **In-Game Tooltip**: Color-coded tactical summary detailing block transmutation, fluid conversion, powder snow perimeter, and freezing debuffs.
 
 ### Frost Grenade Projectile (`FrostGrenadeEntity`)
 
 - **Identifier**: `modid-mmcli-agent-modding:frost_projectile`
 - **Flight Physics**: Arcing thrown item physics leaving client-side snowflake (`SNOWFLAKE`) and snowball (`ITEM_SNOWBALL`) particle trails.
 - **Direct Impact (`onEntityHit`)**: Deals $3.0\text{F}$ direct cold/blunt damage on entity impact (+5.0 bonus damage against fire-elemental mobs like Blazes and Magma Cubes).
-- **Zero Block Destruction**: Causes no explosive block damage, preserving player structures, redstone, and terrain.
+- **Zero Explosive Destruction**: Causes no destructive blast damage, safely transmuting the landscape without destroying blocks.
+- **Block Transmutation to Snow ($r = 3.5\text{D}$)**:
+  - **Solid Snow Block Transmutation**: Converts destructible solid blocks (grass blocks, dirt, stone, cobblestone, wood logs, planks, leaves, sand, gravel, terracotta, etc.) directly into solid Snow Blocks (`Blocks.SNOW_BLOCK`).
+  - **Snow Layer Surface Coating**: Automatically blankets exposed ground, surfaces, and air/replaceable vegetation above solid blocks with Snow layers (`Blocks.SNOW`).
+  - **Bedrock & Container Immunity**: Unbreakable blocks (bedrock, barrier) and block entities/containers (chests, furnaces, barrels, spawners) are strictly protected and never modified.
 - **Fluid & Fire Transmutation ($r = 3.5\text{D}$)**:
   - **Water Flash-Freeze**: Both still and flowing water blocks instantly crystallize into solid ice (`Blocks.ICE`).
   - **Lava Crystallization**: Still lava pools turn into obsidian (`Blocks.OBSIDIAN`), and flowing lava converts to cobblestone (`Blocks.COBBLESTONE`) accompanied by `BLOCK_LAVA_EXTINGUISH` audio.
@@ -577,7 +589,7 @@ The commander's active game mode dynamically dictates minion logistics, resource
 
 | Subsystem | Survival Mode (`/gamemode survival`) | Creative Mode (`/gamemode creative`) |
 | :--- | :--- | :--- |
-| **Structure Building (`BUILD`)** | **Resource-Constrained**: Builders consume blocks from their 9-slot backpack. If depleted, they autonomously search containers within 12 blocks. If missing, construction halts with actionbar alerts. | **Zero-Cost Free Placement**: Builders place blocks freely and continuously without consuming items or requiring container inventories. |
+| **Structure Building (`BUILD`)** | **Autonomous Logistics & Harvesting**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. They self-craft replacement tools and deposit excess materials into newly crafted/placed supply depot chests. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Pre-Clearing**: Builders place blocks freely and continuously without consuming items or requiring container inventories. Existing terrain (grass, flowers, snow, dirt) is automatically pre-cleared with zero dropped items, eliminating clutter. |
 | **Area Mining (`MINE`)** | **Full Resource Recovery**: Excavated blocks drop as collectible world item entities for player salvage. | **Zero-Drop Demolition**: Blocks are cleared without entity drops, preventing world and inventory clutter during large excavations. |
 | **Minion Taming** | Consumes **1 Gold Ingot** from player hand when binding an untamed minion. | Tames the minion instantly **without consuming** the held Gold Ingot. |
 | **Feeding & Healing** | Consumes **1 food or gold item** per healing interaction from the player's hand. | Restores health to full **without consuming** held food or gold items. |

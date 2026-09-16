@@ -25,7 +25,7 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | **Gold Ingot Right-Click**         | Untamed Minion           | **Bind / Tame**: Binds the minion permanently to your will (consumes 1 Gold Ingot in Survival).                                                                 |
 | **Food / Gold Right-Click**        | Wounded Minion           | **Heal**: Restores minion health (consumes food/gold in Survival; infinite in Creative).                                                                        |
 | **Right-Click** _(TNT Stick)_      | Open Air / Blocks        | **Throw Explosive Stick**: Launches projectile detonating on impact with 4.0F blast (5-tick cooldown).                                                          |
-| **Right-Click** _(Frost Grenade)_  | Open Air / Blocks        | **Throw Frost Grenade**: Launches cryogenic grenade flash-freezing fluids, placing powder snow ring, and freezing enemies (10-tick cooldown).                   |
+| **Right-Click** _(Frost Grenade)_  | Open Air / Blocks        | **Throw Frost Grenade**: Launches cryogenic grenade turning blocks into snow, flash-freezing fluids, placing powder snow ring, and freezing enemies (10-tick cooldown). |
 
 ---
 
@@ -89,7 +89,7 @@ You can divide your army into **5 distinct tactical channels**:
 - **`ALL`** (White / Wildcard): Commands every minion you own regardless of assignment.
 - **`ALPHA`** (Red): Primary vanguard strike force.
 - **`BRAVO`** (Blue): Flankers and archers.
-- **`CHARLIE`** (Green): Logistics, builders, and miners.
+- **`CHARLIE`** (Green): Logistics, builders, and resource harvesters.
 - **`DELTA`** (Purple): Heavy bulwark defenders and sentinels.
 
 To switch squads:
@@ -106,7 +106,7 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 
 - **Squad Tabs**: Filter orders by `ALL`, `ALPHA`, `BRAVO`, `CHARLIE`, or `DELTA`.
 - **Mode Bar**: Direct buttons for `FOLLOW`, `STAY`, `MINE`, `BUILD`, and `RECRUIT`.
-- **Archetype Toggles**: Select an active role (`WARRIOR`, `SENTINEL`, `BUILDER`, `MINER`). When primed, your next **Banner of Courage** rally transfigures all gathered minions into this archetype!
+- **Archetype Toggles**: Select an active role (`WARRIOR`, `SENTINEL`, `BUILDER`). When primed, your next **Banner of Courage** rally transfigures all gathered minions into this archetype!
 - **Blueprint Browser**: Browse multiblock structure blueprints, view required resources, and project 3D wireframe holograms.
 - **Deconstruction Mode**: Toggle between construction and reverse top-down deconstruction.
 
@@ -117,9 +117,8 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 | Archetype      | Preferred Weapon / Gear                    | Formation Position | Tactical Role                                                                                            |
 | :------------- | :----------------------------------------- | :----------------- | :------------------------------------------------------------------------------------------------------- |
 | **`WARRIOR`**  | Swords, Axes, Maces **OR** Bows, Crossbows | Frontline Rank 1   | **Versatile Combatant**: Fights as a frontline swordsman or as a ranged archer based on equipped weapon. |
-| **`SENTINEL`** | Shield, Mace + Heavy Armor                 | Bulwark Rank 2     | **Defensive Guardian & Combat Medic**: Absorbs damage, holds fortified posts, and channels the **Aegis of Restoration** to heal wounded allies under 70% HP. |
-| **`BUILDER`**  | Pickaxe, Hammer + Toolset                  | Support Rank 3     | **Arcane Engineer**: 3D levitation flight to construct or dismantle multiblocks at any height.           |
-| **`MINER`**    | Pickaxe + Torch                            | Support Rank 3     | **Resource Gatherer**: Autonomous excavation, tunneling, and quarry operations.                          |
+| **`SENTINEL`** | Shield, Mace + Heavy Armor                 | Bulwark Rank 2     | **Defensive Guardian & Combat Medic**: Absorbs damage, holds fortified posts within an expanded 128-block leash, and channels the **Aegis of Restoration** to heal wounded players (commander priority) and allied minions under 70% HP. |
+| **`BUILDER`**  | Pickaxes, Axes, Shovels + Toolset          | Rearguard Rank 3   | **Architect, Excavator & Supply Specialist**: 3D levitation flight to construct or dismantle multiblocks at any height. Autonomously quarries natural stone, harvests timber via agro-forestry (using bone meal for rapid growth), self-crafts tools, shares blocks via peer energy beams, and deploys supply depot chests. |
 
 ---
 
@@ -130,9 +129,17 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 3. **Right-Click** to cycle the active blueprint.
 4. **Shift + Left-Click** to rotate the structure (0°, 90°, 180°, 270°).
 5. **Right-Click** on the ground block to anchor the construction session.
-6. Assigned **Builder** minions will activate **Arcane Levitation**, flying up to each layer and completing the structure bottom-to-top:
-   - **Creative Mode**: Builders place blocks freely at zero material cost. Construction proceeds continuously with zero resource limitations.
-   - **Survival Mode**: Builders consume blocks from their 9-slot backpack. If empty, they autonomously scavenge nearby chests/containers within 12 blocks. If materials are missing, they pause with an actionbar alert (`"Minion needs [item] to continue building!"`).
+6. Assigned **Builder** minions will activate **3D Arcane Levitation**, flying up to each layer and completing the structure bottom-to-top:
+   - **Creative Mode**: Builders place blocks freely at zero material cost. Any existing blocks (grass, flowers, snow, dirt) are automatically pre-cleared with zero dropped items, eliminating all clutter.
+   - **Survival Mode**: Builders resolve construction materials through a multi-stage logistics pipeline:
+     1. *9-Slot Backpack*: Consumes blocks already carried.
+     2. *Nearby Containers*: Scavenges chests, barrels, and shulkers within 12 blocks.
+     3. *Peer-to-Peer Allied Sharing*: Transmits required materials from nearby allied minions within 24m via green energy particle beams and pickup audio.
+     4. *Autonomous Quarrying & Agro-Forestry*: Quarries natural stone, deepslate, and earth. For timber, fells trees or plants saplings and rapidly accelerates maturity with bone meal.
+     5. *Tool Self-Crafting*: Synthesizes wooden or stone pickaxes, axes, and shovels on demand from harvested timber and stone.
+     6. *Strict Build Protection*: Never harvests player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
+     7. *Hazard Avoidance*: Checks all 6 directions and strictly refuses to break blocks adjacent to lava.
+     8. *Autonomous Supply Depots*: When bags are full of surplus materials, deposits excess into nearby chests, or crafts an 8-plank Chest (pairing into a Double Chest if adjacent) on site.
 
 ---
 
@@ -141,9 +148,9 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 1. Select **`MINE`** mode (**Shift + Right-Click** or press **`V`**).
 2. Look at the block or ground area you want to clear to see a **Fiery Orange/Red 3D Wireframe Preview** anchored directly on the clicked block.
 3. **Right-Click** to initiate the mining/deconstruction session.
-4. Assigned **Miner** (and Builder) minions immediately mobilize:
-   - **Full Selected Area Clearance**: Miners mine **every** solid, destructible block within the selected volume from the highest Y level down to the lowest Y level.
-   - **Zero Air-Mining Guarantee**: Miners strictly never claim, navigate to, or swing pickaxes at air blocks. If a block was destroyed or already air, minions instantly advance to the next real block without swinging or vocalizing.
+4. Assigned **Builder** minions immediately mobilize:
+   - **Full Selected Area Clearance**: Builders mine **every** solid, destructible block within the selected volume from the highest Y level down to the lowest Y level.
+   - **Zero Air-Mining Guarantee**: Builders strictly never claim, navigate to, or swing pickaxes at air blocks. If a block was destroyed or already air, minions instantly advance to the next real block without swinging or vocalizing.
    - **Bedrock & Indestructible Immunity**: Bedrock and indestructible blocks (negative hardness) are strictly protected and never targeted.
    - **Survival Drops vs. Creative Demolition**: In Survival mode, broken blocks drop as collectible items for full resource recovery. In Creative mode, blocks are cleared cleanly without entity drops to avoid clutter.
    - **Automatic Wireframe Dismissal**: The moment the entire selected area is cleared (all blocks in the volume become air or indestructible), the session finishes with celebratory particles and sound, and the highlighted wireframe **immediately disappears**!
@@ -152,12 +159,13 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 
 ## 🧙‍♂️ 8. Arcane Levitation & Obstacle Vaulting
 
-- **Builders**: Enjoy permanent 3D flight during construction tasks, hovering adjacent to work blocks at any height without scaffolding.
-- **All Minion Types (Warriors, Sentinels, Miners)**:
-  - When following or charging, if minions encounter walls, fences, cliffs, or ledges they cannot walk over:
-  - They automatically perform an **Arcane Obstacle Vault**, levitating smoothly over the barrier with purple particle trails, and landing immediately on the other side!
-
----
+- **Builders**: Maintain permanent 3D flight throughout construction tasks, hovering adjacent to work blocks at any height without scaffolding.
+- **All Minion Types (Warriors, Sentinels, Builders)**:
+  - Responsive 2-tick obstacle stall sensitivity: when encountering walls, fences, cliffs, or ledges they cannot walk over, they instantly perform an **Arcane Obstacle Vault**, gliding smoothly over barriers with purple portal trails and landing safely on the far side.
+- **Dynamic Obstacle Clearance & Solid Ground Landing**: Minions can scale obstacles of any height (3, 5, 10, or 20+ blocks high) without artificial altitude caps or premature timers. Upward lift carries minions cleanly over barriers, and the instant a minion's feet reach solid ground without a taller obstacle ahead (e.g. stepping atop a 3-block ledge or reaching the other side), levitation deactivates immediately and restores normal ground walking and step height. In mid-air, downward glide carries minions to earth. Melee warriors in ground combat never launch into the air.
+- **Formation Follow Anti-Jitter**: Allied minions suppress mutual physical collision shoving (`pushAwayFrom`) when idle, guarding, or standing in formation ranks. Consistent walkable ground elevation checks and arrival velocity zeroing eliminate endless station-hunting jitter.
+- **Operational Leash Freedom**: Stationed and held minions enjoy an expanded **128-block leash**, while unselected free workers have simulation-chunk freedom without snap-teleporting to players while working on active construction sessions.
+- **Panic Retreat (`R` key)**: Instantly dismisses all 3D holographic wireframes, cancels active construction sessions for the commander, clears combat targets, and recalls all minions to formation.
 
 ## 🔔 9. Tactical Panic Retreat (Keybind `R`)
 
@@ -177,7 +185,7 @@ The commander's active game mode directly affects how minions handle resources, 
 
 | Gameplay Mechanic                      | Survival Mode (`/gamemode survival`)                                                                                                                                                                                                                          | Creative Mode (`/gamemode creative`)                                                                                                                                                                 |
 | :------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Structure Construction (`BUILD`)**   | **Resource-Constrained**: Builders consume blocks from their 9-slot backpack. If empty, they automatically scavenge nearby chests/containers within 12 blocks. If materials are exhausted, building pauses with an actionbar alert (`"Minion needs [item]"`). | **Zero-Cost Free Placement**: Builders construct instantly and infinitely at zero material cost without needing blocks in their inventory or nearby chests. Building never pauses for missing items. |
+| **Structure Construction (`BUILD`)**   | **Autonomous Logistics & Harvesting**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. They self-craft replacement tools and deposit excess materials into newly crafted/placed supply depot chests. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Pre-Clearing**: Builders construct instantly and infinitely at zero material cost without needing blocks in their inventory or nearby chests. Existing terrain (grass, flowers, snow, dirt) is automatically pre-cleared with zero dropped items, eliminating clutter. |
 | **Area Mining & Dismantling (`MINE`)** | **Resource Harvesting**: Broken blocks drop as real collectible items in the world for full resource recovery.                                                                                                                                                | **Zero-Drop Demolition**: Blocks are cleared cleanly without spawning entity drops, preventing world and inventory clutter during large excavations.                                                 |
 | **Minion Taming**                      | Consumes **1 Gold Ingot** from player hand when binding an untamed minion.                                                                                                                                                                                    | Tames the minion instantly **without consuming** the Gold Ingot.                                                                                                                                     |
 | **Minion Feeding & Healing**           | Consumes **1 food or gold item** per healing interaction.                                                                                                                                                                                                     | Restores minion health **without consuming** any items from the player's inventory.                                                                                                                  |
@@ -200,7 +208,11 @@ In addition to squad command, commanders have access to throwable tactical ordna
 - **Type**: Single-stack throwable cryogenic stick (`Rarity.RARE`).
 - **Cooldown**: 10 ticks (0.5s) anti-spam delay.
 - **Flight & VFX**: Leaves trailing snowflakes and snowball debris in flight.
-- **Zero Block Destruction**: Preserves player structures, redstone, and terrain completely.
+- **Zero Explosive Destruction**: Causes zero destructive block breakage while transmuting the environment into a winter wonderland.
+- **Block Transmutation to Snow ($r = 3.5\text{D}$)**:
+  - **Snow Block Conversion**: Transmutes destructible solid blocks (dirt, grass, stone, cobblestone, wood, leaves, sand, etc.) directly into solid Snow Blocks (`Blocks.SNOW_BLOCK`).
+  - **Snow Layer Coating**: Coats exposed ground and surfaces with delicate snow layers (`Blocks.SNOW`).
+  - **Indestructible & Container Protection**: Unbreakable blocks (bedrock, barrier) and block entities/containers (chests, furnaces, barrels) are strictly protected.
 - **Fluid & Fire Conversion ($r = 3.5\text{D}$)**:
   - **Water Flash-Freeze**: Converts still and flowing water into solid ice (`Blocks.ICE`).
   - **Lava Crystallization**: Converts still lava into obsidian (`Blocks.OBSIDIAN`) and flowing lava into cobblestone (`Blocks.COBBLESTONE`).

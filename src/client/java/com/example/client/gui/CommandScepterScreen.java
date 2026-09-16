@@ -134,9 +134,9 @@ public class CommandScepterScreen extends Screen {
 			this.addDrawableChild(btn);
 		}
 
-		// Interactive Mass Role Assignment Bar (Warrior / Sentinel / Builder / Miner)
+		// Interactive Mass Role Assignment Bar (Warrior / Sentinel / Builder)
 		MinionRole[] roles = MinionRole.values();
-		int roleBtnWidth = 72;
+		int roleBtnWidth = 98;
 		int roleGap = 6;
 		int roleStartX = startX + 17;
 		int roleY = startY + 80;
