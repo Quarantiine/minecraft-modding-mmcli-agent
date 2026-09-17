@@ -47,7 +47,7 @@ public class StructureBlueprint {
 		this(id, name, description, sizeX, sizeY, sizeZ, blocks, requiredItems, boundingBox, BlockRotation.NONE);
 	}
 
-	private StructureBlueprint(
+	public StructureBlueprint(
 		String id,
 		String name,
 		String description,

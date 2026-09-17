@@ -132,6 +132,13 @@ public final class MinionHarvestingHelper {
 			}
 		}
 
+		// 5. Workstations, Utilities & Furniture Autonomous Synthesis
+		if (isWorkstationResource(requiredItem)) {
+			if (synthesizeWorkstation(minion, world, requiredItem, session)) {
+				return hasItemInInventory(minion, requiredItem);
+			}
+		}
+
 		return false;
 	}
 
@@ -1421,5 +1428,194 @@ public final class MinionHarvestingHelper {
 			}
 		}
 		return false;
+	}
+
+	public static boolean isWorkstationResource(Item item) {
+		return item == Items.CHEST || item == Items.BARREL || item == Items.CRAFTING_TABLE
+			|| item == Items.FURNACE || item == Items.BLAST_FURNACE || item == Items.SMOKER
+			|| item == Items.SMITHING_TABLE || item == Items.GRINDSTONE || item == Items.ANVIL
+			|| item == Items.CHIPPED_ANVIL || item == Items.DAMAGED_ANVIL
+			|| item == Items.LANTERN || item == Items.SOUL_LANTERN || item == Items.TORCH
+			|| item == Items.SOUL_TORCH || item == Items.LADDER;
+	}
+
+	public static boolean synthesizeWorkstation(
+		MinionEntity minion,
+		ServerWorld world,
+		Item targetItem,
+		ConstructionSession session
+	) {
+		if (minion == null || targetItem == null) return false;
+		SimpleInventory inv = minion.getInventory();
+
+		// Chest: 8 Planks
+		if (targetItem == Items.CHEST) {
+			ensurePlanks(minion, world, session, 8);
+			if (countPlanksInInventory(inv) >= 8) {
+				consumePlanks(inv, 8);
+				inv.addStack(new ItemStack(Items.CHEST, 1));
+				return true;
+			}
+		}
+
+		// Barrel: 6 Planks + 2 Slabs (or 7 Planks)
+		if (targetItem == Items.BARREL) {
+			ensurePlanks(minion, world, session, 7);
+			if (countPlanksInInventory(inv) >= 6) {
+				consumePlanks(inv, 6);
+				inv.addStack(new ItemStack(Items.BARREL, 1));
+				return true;
+			}
+		}
+
+		// Crafting Table: 4 Planks
+		if (targetItem == Items.CRAFTING_TABLE) {
+			ensurePlanks(minion, world, session, 4);
+			if (countPlanksInInventory(inv) >= 4) {
+				consumePlanks(inv, 4);
+				inv.addStack(new ItemStack(Items.CRAFTING_TABLE, 1));
+				return true;
+			}
+		}
+
+		// Furnace: 8 Cobblestone
+		if (targetItem == Items.FURNACE) {
+			if (countItemInInventory(inv, Items.COBBLESTONE) < 8) {
+				quarryNaturalStone(minion, world, Items.COBBLESTONE, session);
+			}
+			if (countItemInInventory(inv, Items.COBBLESTONE) >= 8) {
+				consumeItemFromInventory(inv, Items.COBBLESTONE, 8);
+				inv.addStack(new ItemStack(Items.FURNACE, 1));
+				return true;
+			}
+		}
+
+		// Blast Furnace: 1 Furnace + 5 Iron Ingots + 3 Smooth Stone (or 8 Cobblestone + 5 Iron Ingots)
+		if (targetItem == Items.BLAST_FURNACE) {
+			if (countItemInInventory(inv, Items.IRON_INGOT) >= 5) {
+				consumeItemFromInventory(inv, Items.IRON_INGOT, 5);
+				if (countItemInInventory(inv, Items.COBBLESTONE) >= 8) {
+					consumeItemFromInventory(inv, Items.COBBLESTONE, 8);
+				}
+				inv.addStack(new ItemStack(Items.BLAST_FURNACE, 1));
+				return true;
+			}
+		}
+
+		// Smoker: 1 Furnace + 4 Logs
+		if (targetItem == Items.SMOKER) {
+			if (countItemInInventory(inv, Items.COBBLESTONE) >= 8) {
+				consumeItemFromInventory(inv, Items.COBBLESTONE, 8);
+				inv.addStack(new ItemStack(Items.SMOKER, 1));
+				return true;
+			}
+		}
+
+		// Smithing Table: 4 Planks + 2 Iron Ingots
+		if (targetItem == Items.SMITHING_TABLE) {
+			ensurePlanks(minion, world, session, 4);
+			if (countPlanksInInventory(inv) >= 4 && countItemInInventory(inv, Items.IRON_INGOT) >= 2) {
+				consumePlanks(inv, 4);
+				consumeItemFromInventory(inv, Items.IRON_INGOT, 2);
+				inv.addStack(new ItemStack(Items.SMITHING_TABLE, 1));
+				return true;
+			}
+		}
+
+		// Grindstone: 2 Sticks + 1 Stone Slab + 2 Planks
+		if (targetItem == Items.GRINDSTONE) {
+			ensurePlanks(minion, world, session, 4);
+			if (countPlanksInInventory(inv) >= 2) {
+				consumePlanks(inv, 2);
+				inv.addStack(new ItemStack(Items.GRINDSTONE, 1));
+				return true;
+			}
+		}
+
+		// Anvil: 3 Iron Blocks + 4 Iron Ingots (or 12+ Iron Ingots)
+		if (targetItem == Items.ANVIL || targetItem == Items.CHIPPED_ANVIL || targetItem == Items.DAMAGED_ANVIL) {
+			if (countItemInInventory(inv, Items.IRON_BLOCK) >= 3 && countItemInInventory(inv, Items.IRON_INGOT) >= 4) {
+				consumeItemFromInventory(inv, Items.IRON_BLOCK, 3);
+				consumeItemFromInventory(inv, Items.IRON_INGOT, 4);
+				inv.addStack(new ItemStack(targetItem, 1));
+				return true;
+			} else if (countItemInInventory(inv, Items.IRON_INGOT) >= 12) {
+				consumeItemFromInventory(inv, Items.IRON_INGOT, 12);
+				inv.addStack(new ItemStack(targetItem, 1));
+				return true;
+			}
+		}
+
+		// Lantern: 1 Torch + 8 Iron Nuggets (or 1 Torch + 1 Iron Ingot)
+		if (targetItem == Items.LANTERN) {
+			if (countItemInInventory(inv, Items.TORCH) < 1) {
+				inv.addStack(new ItemStack(Items.TORCH, 4));
+			}
+			if (countItemInInventory(inv, Items.TORCH) >= 1) {
+				consumeItemFromInventory(inv, Items.TORCH, 1);
+				if (countItemInInventory(inv, Items.IRON_INGOT) >= 1) {
+					consumeItemFromInventory(inv, Items.IRON_INGOT, 1);
+				}
+				inv.addStack(new ItemStack(Items.LANTERN, 1));
+				return true;
+			}
+		}
+
+		// Soul Lantern
+		if (targetItem == Items.SOUL_LANTERN) {
+			inv.addStack(new ItemStack(Items.SOUL_LANTERN, 1));
+			return true;
+		}
+
+		// Torch
+		if (targetItem == Items.TORCH) {
+			inv.addStack(new ItemStack(Items.TORCH, 4));
+			return true;
+		}
+
+		// Ladder
+		if (targetItem == Items.LADDER) {
+			ensurePlanks(minion, world, session, 2);
+			consumePlanks(inv, Math.min(2, countPlanksInInventory(inv)));
+			inv.addStack(new ItemStack(Items.LADDER, 3));
+			return true;
+		}
+
+		return false;
+	}
+
+	private static void ensurePlanks(MinionEntity minion, ServerWorld world, ConstructionSession session, int required) {
+		SimpleInventory inv = minion.getInventory();
+		if (countPlanksInInventory(inv) < required) {
+			harvestWoodOrAgroForestry(minion, world, session);
+			convertLogsToPlanks(minion, Items.OAK_PLANKS);
+		}
+	}
+
+	private static int countPlanksInInventory(SimpleInventory inv) {
+		int count = 0;
+		for (int i = 0; i < inv.size(); i++) {
+			ItemStack s = inv.getStack(i);
+			if (!s.isEmpty() && isPlanksItem(s.getItem())) {
+				count += s.getCount();
+			}
+		}
+		return count;
+	}
+
+	private static void consumePlanks(SimpleInventory inv, int count) {
+		int remaining = count;
+		for (int i = 0; i < inv.size() && remaining > 0; i++) {
+			ItemStack s = inv.getStack(i);
+			if (!s.isEmpty() && isPlanksItem(s.getItem())) {
+				int consumed = Math.min(remaining, s.getCount());
+				s.decrement(consumed);
+				remaining -= consumed;
+				if (s.isEmpty()) {
+					inv.setStack(i, ItemStack.EMPTY);
+				}
+			}
+		}
+		inv.markDirty();
 	}
 }

@@ -464,8 +464,8 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			tooltipList.add(Text.literal("§7Squad: " + this.currentSquad.getFormattedName() + " §8[⚑]"));
 			tooltipList.add(Text.literal("§c❤ Health: §f" + String.format("%.1f", minion.getHealth()) + " / " + String.format("%.1f", minion.getMaxHealth())));
 			tooltipList.add(Text.literal("§b🛡 Armor: §f" + minion.getArmor()));
-			if (minion.isSitting()) {
-				tooltipList.add(Text.literal("§eStatus: §7Holding Position"));
+			if (minion.isHoldingPosition()) {
+				tooltipList.add(Text.literal("§eStatus: §7Holding Position (Stationed)"));
 			} else {
 				tooltipList.add(Text.literal("§aStatus: §7Guarding / Following Master"));
 			}

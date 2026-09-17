@@ -50,6 +50,29 @@ public class ModClientNetworking {
 		ClientPlayNetworking.send(payload);
 	}
 
+	public static void sendUpdateScepter(
+		CommandMode mode,
+		String blueprintId,
+		SquadGroup targetSquad,
+		int rotation,
+		Optional<MinionRole> targetRole,
+		boolean executeDirective,
+		com.example.blueprint.ArchitectureStyle style,
+		int buildingSize
+	) {
+		UpdateScepterPayload payload = new UpdateScepterPayload(
+			mode,
+			blueprintId,
+			targetSquad,
+			rotation,
+			targetRole,
+			executeDirective,
+			style,
+			buildingSize
+		);
+		ClientPlayNetworking.send(payload);
+	}
+
 	/**
 	 * Dispatches an {@link UpdateScepterPayload} with nullable target archetype role.
 	 *
@@ -183,5 +206,17 @@ public class ModClientNetworking {
 	 */
 	public static void sendRetreat() {
 		sendRetreat(SquadGroup.ALL);
+	}
+
+	/**
+	 * Dispatches an {@link com.example.network.AnchorConstructionPayload} to anchor a construction or dismantle session.
+	 *
+	 * @param clickedPos  The targeted block position.
+	 * @param side        The targeted block face side.
+	 * @param isDismantle True if this should start a dismantle session.
+	 */
+	public static void sendAnchorConstruction(net.minecraft.util.math.BlockPos clickedPos, net.minecraft.util.math.Direction side, boolean isDismantle) {
+		com.example.network.AnchorConstructionPayload payload = new com.example.network.AnchorConstructionPayload(clickedPos, side, isDismantle);
+		ClientPlayNetworking.send(payload);
 	}
 }

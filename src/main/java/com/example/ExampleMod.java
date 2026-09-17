@@ -47,11 +47,10 @@ public class ExampleMod implements ModInitializer {
 
 		// Register sneak + left-click attack block callback:
 		// In BUILD mode: cycles rotation
-		// In other modes: deselects all minions
+		// Register attack block callback for the Command Scepter:
+		// In BUILD mode: cycles blueprint rotation
+		// In other modes: sneak + left-click deselects all minions
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
-			if (!player.isSneaking()) {
-				return ActionResult.PASS;
-			}
 			ItemStack stack = CommandScepterItem.getHeldScepter(player);
 			if (!stack.isEmpty()) {
 				CommandMode mode = CommandScepterItem.getMode(stack);
@@ -60,7 +59,7 @@ public class ExampleMod implements ModInitializer {
 						CommandScepterItem.cycleRotation(stack, player);
 					}
 					return ActionResult.SUCCESS;
-				} else {
+				} else if (player.isSneaking()) {
 					if (!world.isClient()) {
 						CommandScepterItem.deselectAllMinions(player, world);
 					}
@@ -72,29 +71,28 @@ public class ExampleMod implements ModInitializer {
 
 		// Register attack entity callback:
 		// 1. Prevents damaging owned minions with the Command Scepter, toggling selection instead.
-		// 2. Handles sneak + left-click deselecting / rotation cycling when clicking entities.
+		// 2. In BUILD mode: cycles rotation when left-clicking non-owned entities.
+		// 3. In other modes: handles sneak + left-click deselecting.
 		AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
 			ItemStack stack = CommandScepterItem.getHeldScepter(player);
 			if (!stack.isEmpty()) {
-				if (player.isSneaking()) {
-					CommandMode mode = CommandScepterItem.getMode(stack);
-					if (mode == CommandMode.BUILD) {
-						if (!world.isClient()) {
-							CommandScepterItem.cycleRotation(stack, player);
-						}
-						return ActionResult.SUCCESS;
-					} else {
-						if (!world.isClient()) {
-							CommandScepterItem.deselectAllMinions(player, world);
-						}
-						return ActionResult.SUCCESS;
-					}
-				}
-
 				// Friendly-fire prevention: left-clicking an owned minion toggles its selection
 				if (entity instanceof MinionEntity minion && minion.isOwner(player)) {
 					if (!world.isClient()) {
 						CommandScepterItem.toggleMinionSelection(player, minion);
+					}
+					return ActionResult.SUCCESS;
+				}
+
+				CommandMode mode = CommandScepterItem.getMode(stack);
+				if (mode == CommandMode.BUILD) {
+					if (!world.isClient()) {
+						CommandScepterItem.cycleRotation(stack, player);
+					}
+					return ActionResult.SUCCESS;
+				} else if (player.isSneaking()) {
+					if (!world.isClient()) {
+						CommandScepterItem.deselectAllMinions(player, world);
 					}
 					return ActionResult.SUCCESS;
 				}

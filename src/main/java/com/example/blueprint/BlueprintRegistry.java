@@ -3,6 +3,7 @@ package com.example.blueprint;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import net.minecraft.block.Blocks;
@@ -26,15 +27,39 @@ public class BlueprintRegistry {
 	public static final String WATCHTOWER_ID = "watchtower";
 	public static final String OBELISK_ID = "obelisk";
 	public static final String BARRICADE_ID = "barricade";
+	public static final String HOME_ID = "home";
+	public static final String WORKSHOP_ID = "workshop";
+	public static final String SUPPLY_DEPOT_ID = "supply_depot";
 
 	public static final StructureBlueprint WATCHTOWER;
 	public static final StructureBlueprint OBELISK;
 	public static final StructureBlueprint BARRICADE;
+	public static final StructureBlueprint HOME;
+	public static final StructureBlueprint WORKSHOP;
+	public static final StructureBlueprint SUPPLY_DEPOT;
 
 	static {
 		WATCHTOWER = register(createOverlordWatchtower());
 		OBELISK = register(createArcaneObelisk());
 		BARRICADE = register(createDefensiveBarricade());
+		HOME = register(BuildingCategory.HOME.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L));
+		WORKSHOP = register(BuildingCategory.WORKSHOP.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L));
+		SUPPLY_DEPOT = register(BuildingCategory.SUPPLY_DEPOT.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L));
+
+		// Register canonical category names so "home", "workshop", "supply_depot" resolve directly
+		REGISTRY.put(HOME_ID, HOME);
+		REGISTRY.put(WORKSHOP_ID, WORKSHOP);
+		REGISTRY.put(SUPPLY_DEPOT_ID, SUPPLY_DEPOT);
+
+		// Register all size variants for every category so getOrDefault never falls back to Watchtower
+		for (BuildingCategory cat : BuildingCategory.values()) {
+			StructureBlueprint small = cat.createBlueprint(BuildingCategory.SIZE_SMALL, 42L);
+			StructureBlueprint med = cat.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L);
+			StructureBlueprint grand = cat.createBlueprint(BuildingCategory.SIZE_GRAND, 42L);
+			register(small);
+			register(med);
+			register(grand);
+		}
 	}
 
 	/**
@@ -49,7 +74,7 @@ public class BlueprintRegistry {
 	}
 
 	/**
-	 * Looks up a blueprint by case-insensitive identifier.
+	 * Looks up a blueprint by case-insensitive identifier or category.
 	 *
 	 * @param id The blueprint identifier.
 	 * @return Optional containing the blueprint if found.
@@ -58,7 +83,35 @@ public class BlueprintRegistry {
 		if (id == null) {
 			return Optional.empty();
 		}
-		return Optional.ofNullable(REGISTRY.get(id.toLowerCase()));
+		String cleanId = id.toLowerCase().trim();
+		StructureBlueprint direct = REGISTRY.get(cleanId);
+		if (direct != null) {
+			return Optional.of(direct);
+		}
+
+		// 1. Direct Category match (e.g. "barricade", "home", "watchtower", "workshop", "supply_depot", "obelisk")
+		for (BuildingCategory cat : BuildingCategory.values()) {
+			if (cat.getId().equalsIgnoreCase(cleanId)) {
+				return Optional.of(cat.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L));
+			}
+		}
+
+		// 2. Category + Size prefix/suffix match: handles IDs like "barricade_small", "barricade_grand",
+		// "home_small", "home_grand", "workshop_5", "workshop_7", "workshop_9", "depot_5", "depot_7", "depot_9", etc.
+		for (BuildingCategory cat : BuildingCategory.values()) {
+			String catId = cat.getId().toLowerCase();
+			if (cleanId.startsWith(catId) || (cat == BuildingCategory.SUPPLY_DEPOT && cleanId.startsWith("depot"))) {
+				int size = BuildingCategory.SIZE_MEDIUM;
+				if (cleanId.contains("small") || cleanId.endsWith("_5") || cleanId.endsWith("_3")) {
+					size = BuildingCategory.SIZE_SMALL;
+				} else if (cleanId.contains("grand") || cleanId.endsWith("_9") || (cleanId.endsWith("_7") && cat == BuildingCategory.OBELISK)) {
+					size = BuildingCategory.SIZE_GRAND;
+				}
+				return Optional.of(cat.createBlueprint(size, 42L));
+			}
+		}
+
+		return Optional.empty();
 	}
 
 	/**
@@ -72,28 +125,56 @@ public class BlueprintRegistry {
 	}
 
 	/**
+	 * Resolves a blueprint dynamically based on category, size, and seed.
+	 * If the identifier matches a registered category, generates a procedural blueprint for that size.
+	 * Otherwise returns the standard registered blueprint.
+	 *
+	 * @param id   The blueprint identifier or category name.
+	 * @param size The size preset (0 = Small, 1 = Medium, 2 = Grand, 3 = Random).
+	 * @param seed The generation seed for procedural randomness.
+	 * @return The resolved StructureBlueprint.
+	 */
+	public static StructureBlueprint resolveCategoryBlueprint(String id, int size, long seed) {
+		if (id == null) {
+			return WATCHTOWER;
+		}
+		String cleanId = id.toLowerCase().trim();
+		for (BuildingCategory cat : BuildingCategory.values()) {
+			if (cat.getId().equalsIgnoreCase(cleanId) || cleanId.startsWith(cat.getId().toLowerCase())
+					|| (cat == BuildingCategory.SUPPLY_DEPOT && cleanId.startsWith("depot"))) {
+				return cat.createBlueprint(size, seed);
+			}
+		}
+		return getOrDefault(id);
+	}
+
+	/**
+	 * Primary curated category blueprints in canonical progression.
+	 */
+	public static final List<StructureBlueprint> PRIMARY_CATALOG = List.of(
+		WATCHTOWER, OBELISK, BARRICADE, HOME, WORKSHOP, SUPPLY_DEPOT
+	);
+
+	/**
 	 * Cycles to the next blueprint in the registered catalog.
-	 * Follows the sequence: WATCHTOWER -> OBELISK -> BARRICADE -> WATCHTOWER.
+	 * Follows the sequence: WATCHTOWER -> OBELISK -> BARRICADE -> HOME -> WORKSHOP -> SUPPLY_DEPOT.
 	 *
 	 * @param currentId The current active blueprint identifier.
 	 * @return The next StructureBlueprint in sequence.
 	 */
 	public static StructureBlueprint getNext(String currentId) {
-		StructureBlueprint[] array = REGISTRY.values().toArray(new StructureBlueprint[0]);
-		if (array.length == 0) {
+		if (currentId == null) {
 			return WATCHTOWER;
 		}
-
-		int currentIndex = 0;
-		for (int i = 0; i < array.length; i++) {
-			if (array[i].getId().equalsIgnoreCase(currentId)) {
-				currentIndex = i;
-				break;
+		String cleanId = currentId.toLowerCase().trim();
+		for (int i = 0; i < PRIMARY_CATALOG.size(); i++) {
+			StructureBlueprint bp = PRIMARY_CATALOG.get(i);
+			if (bp.getId().equalsIgnoreCase(cleanId) || cleanId.startsWith(bp.getId().toLowerCase())
+					|| (bp == SUPPLY_DEPOT && cleanId.startsWith("depot"))) {
+				return PRIMARY_CATALOG.get((i + 1) % PRIMARY_CATALOG.size());
 			}
 		}
-
-		int nextIndex = (currentIndex + 1) % array.length;
-		return array[nextIndex];
+		return WATCHTOWER;
 	}
 
 	/**

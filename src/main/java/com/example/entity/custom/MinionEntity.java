@@ -82,6 +82,7 @@ import net.minecraft.particle.ParticleTypes;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.server.world.ServerWorld;
@@ -111,6 +112,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	private static final TrackedData<Boolean> SELECTED = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 	private static final TrackedData<Boolean> GUARDING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 	private static final TrackedData<Boolean> PREVIEW_GLOWING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
+	private static final TrackedData<Boolean> PHASING_BLOCKS = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 
 	private LivingEntity lastCombatTarget;
 	private int outOfCombatTicks = 0;
@@ -123,6 +125,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	private final List<LivingEntity> assaultTargets = new ArrayList<>();
 	private Vec3d activeTraversalDestination = null;
 	private boolean activelyBuilding = false;
+	private boolean exitingBuilding = false;
+	private Vec3d structureExitVec = null;
+	private BlockBox lastStructureBox = null;
+	private int egressTicks = 0;
 	private int traversalStallTicks = 0;
 	private int arcaneLevitationTicks = 0;
 
@@ -159,6 +165,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		builder.add(SELECTED, false);
 		builder.add(GUARDING, false);
 		builder.add(PREVIEW_GLOWING, false);
+		builder.add(PHASING_BLOCKS, false);
 	}
 
 	/**
@@ -253,6 +260,224 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void setActivelyBuilding(boolean activelyBuilding) {
 		this.activelyBuilding = activelyBuilding;
+	}
+
+	/**
+	 * @return true if this builder minion is actively phasing out of a completed or cancelled structure.
+	 */
+	public boolean isExitingBuilding() {
+		return this.exitingBuilding;
+	}
+
+	/**
+	 * Sets the building egress state for this minion.
+	 *
+	 * @param exitingBuilding true if actively moving out of the structure boundaries.
+	 */
+	public void setExitingBuilding(boolean exitingBuilding) {
+		this.exitingBuilding = exitingBuilding;
+	}
+
+	/**
+	 * Builder minions are able to pass through blocks (noClip = true) ONLY while actively building
+	 * and immediately after they finish building until they have completely evacuated the structure.
+	 *
+	 * @return true if block phasing is currently active for this builder minion.
+	 */
+	public boolean isPhasingBlocks() {
+		if (this.getWorld().isClient()) {
+			return this.dataTracker.get(PHASING_BLOCKS);
+		}
+		return this.isAlive() && this.getRole() == MinionRole.BUILDER && (this.activelyBuilding || this.exitingBuilding);
+	}
+
+	/**
+	 * Initiates post-construction or post-dismantle evacuation from the structure.
+	 * Builder minion retains block phasing (noClip) and levitation until reaching an exterior
+	 * safe coordinate outside the structure bounding box with clear headroom.
+	 *
+	 * @param box            The structure's bounding box.
+	 * @param anchorPos      The building anchor position.
+	 * @param targetWaypoint Optional exterior waypoint to navigate toward, or null for auto-exterior scan.
+	 */
+	public void startEgressFromStructure(BlockBox box, BlockPos anchorPos, Vec3d targetWaypoint) {
+		if (!this.isAlive() || this.getRole() != MinionRole.BUILDER) {
+			return;
+		}
+		this.lastStructureBox = box;
+		this.exitingBuilding = true;
+		this.egressTicks = 0;
+		this.activelyBuilding = false;
+		this.setArcaneLevitating(true);
+		this.setNoGravity(true);
+		this.noClip = true;
+		if (!this.getWorld().isClient()) {
+			this.dataTracker.set(PHASING_BLOCKS, true);
+		}
+
+		if (targetWaypoint != null) {
+			this.structureExitVec = targetWaypoint;
+		} else {
+			this.structureExitVec = findExteriorExitPosition(this.getWorld(), box, anchorPos);
+		}
+	}
+
+	/**
+	 * Ticks the building egress state machine, steering the builder minion through walls/floors
+	 * toward the exterior perimeter waypoint until clear of the structure.
+	 */
+	public void tickBuildingEgress() {
+		if (!this.exitingBuilding || !(this.getWorld() instanceof ServerWorld serverWorld)) {
+			return;
+		}
+		this.egressTicks++;
+		this.noClip = true;
+		this.setNoGravity(true);
+		this.fallDistance = 0.0F;
+
+		// Spawn magical egress phasing particles
+		if (this.age % 2 == 0) {
+			serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.2D, this.getZ(), 3, 0.2D, 0.1D, 0.2D, 0.02D);
+			serverWorld.spawnParticles(ParticleTypes.ENCHANT, this.getX(), this.getY() + 0.3D, this.getZ(), 2, 0.25D, 0.15D, 0.25D, 0.05D);
+		}
+
+		Vec3d dest = this.structureExitVec;
+		if (dest == null) {
+			dest = findExteriorExitPosition(serverWorld, this.lastStructureBox, this.getBlockPos());
+			this.structureExitVec = dest;
+		}
+
+		if (dest != null) {
+			Vec3d toDest = dest.subtract(this.getPos());
+			double dist = toDest.length();
+			double speed = Math.min(0.35D, Math.max(0.14D, dist * 0.45D));
+			Vec3d vel = toDest.normalize().multiply(speed);
+			this.setVelocity(vel);
+			this.velocityModified = true;
+
+			// Check if outside structure and in safe open space
+			boolean outside = this.lastStructureBox == null || !isInsideStructure(this.lastStructureBox);
+			BlockPos footPos = this.getBlockPos();
+			BlockState footState = serverWorld.getBlockState(footPos);
+			BlockState headState = serverWorld.getBlockState(footPos.up());
+			boolean clearHeadroom = !footState.isSolidBlock(serverWorld, footPos) && !headState.isSolidBlock(serverWorld, footPos.up());
+
+			if ((outside && clearHeadroom && (dist < 1.2D || this.egressTicks > 60)) || this.egressTicks > 140) {
+				finishBuildingEgress(serverWorld);
+			}
+		} else {
+			finishBuildingEgress(serverWorld);
+		}
+	}
+
+	/**
+	 * Completes the post-construction structure egress, disabling block phasing and settling
+	 * the builder minion onto safe ground outside the building.
+	 *
+	 * @param serverWorld The server world.
+	 */
+	public void finishBuildingEgress(ServerWorld serverWorld) {
+		this.exitingBuilding = false;
+		this.lastStructureBox = null;
+		this.egressTicks = 0;
+		this.noClip = false;
+		this.setNoGravity(false);
+		this.setArcaneLevitating(false);
+		this.dataTracker.set(PHASING_BLOCKS, false);
+		this.setVelocity(0.0D, 0.0D, 0.0D);
+		this.velocityModified = true;
+
+		BlockPos footPos = this.getBlockPos();
+		BlockState footState = serverWorld.getBlockState(footPos);
+		BlockState headState = serverWorld.getBlockState(footPos.up());
+		// Failsafe: if minion ended up inside solid blocks, nudge to structureExitVec or highest open ground
+		if (footState.isSolidBlock(serverWorld, footPos) || headState.isSolidBlock(serverWorld, footPos.up())) {
+			if (this.structureExitVec != null) {
+				this.requestTeleport(this.structureExitVec.x, this.structureExitVec.y, this.structureExitVec.z);
+			}
+		}
+		this.structureExitVec = null;
+
+		serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, this.getX(), this.getY() + 0.5D, this.getZ(), 10, 0.3D, 0.3D, 0.3D, 0.05D);
+		serverWorld.spawnParticles(ParticleTypes.END_ROD, this.getX(), this.getY() + 0.2D, this.getZ(), 6, 0.2D, 0.2D, 0.2D, 0.02D);
+	}
+
+	/**
+	 * @param box The bounding box to check.
+	 * @return true if the minion is within or directly adjacent to the structure bounding box.
+	 */
+	public boolean isInsideStructure(BlockBox box) {
+		if (box == null) {
+			return false;
+		}
+		double x = this.getX();
+		double y = this.getY();
+		double z = this.getZ();
+		return x >= box.getMinX() - 0.2D && x <= box.getMaxX() + 1.2D &&
+		       y >= box.getMinY() - 0.2D && y <= box.getMaxY() + 1.5D &&
+		       z >= box.getMinZ() - 0.2D && z <= box.getMaxZ() + 1.2D;
+	}
+
+	/**
+	 * Scans the outer perimeter around a structure bounding box to find a safe, open exterior
+	 * position with solid footing and clear headroom for builder egress.
+	 *
+	 * @param world     The world.
+	 * @param box       The structure bounding box.
+	 * @param anchorPos The reference anchor or doorway location.
+	 * @return A safe 3D exterior exit position.
+	 */
+	public static Vec3d findExteriorExitPosition(World world, BlockBox box, BlockPos anchorPos) {
+		if (box == null) {
+			return anchorPos != null ? Vec3d.ofBottomCenter(anchorPos) : null;
+		}
+
+		int minX = box.getMinX();
+		int maxX = box.getMaxX();
+		int minY = box.getMinY();
+		int minZ = box.getMinZ();
+		int maxZ = box.getMaxZ();
+		int groundY = minY;
+
+		List<BlockPos> candidates = new ArrayList<>();
+		// Front face (South / maxZ)
+		for (int x = minX; x <= maxX; x += 2) {
+			candidates.add(new BlockPos(x, groundY, maxZ + 2));
+		}
+		// Back face (North / minZ)
+		for (int x = minX; x <= maxX; x += 2) {
+			candidates.add(new BlockPos(x, groundY, minZ - 2));
+		}
+		// West face (minX)
+		for (int z = minZ; z <= maxZ; z += 2) {
+			candidates.add(new BlockPos(minX - 2, groundY, z));
+		}
+		// East face (maxX)
+		for (int z = minZ; z <= maxZ; z += 2) {
+			candidates.add(new BlockPos(maxX + 2, groundY, z));
+		}
+
+		// If anchorPos is specified, prioritize candidates closest to anchorPos
+		if (anchorPos != null) {
+			candidates.sort(Comparator.comparingDouble(p -> p.getSquaredDistance(anchorPos)));
+		}
+
+		for (BlockPos cand : candidates) {
+			for (int dy = 3; dy >= -3; dy--) {
+				BlockPos checkPos = cand.add(0, dy, 0);
+				BlockPos ground = checkPos.down();
+				if (world.getBlockState(ground).isSolidBlock(world, ground)
+						&& !world.getBlockState(checkPos).isSolidBlock(world, checkPos)
+						&& !world.getBlockState(checkPos.up()).isSolidBlock(world, checkPos.up())) {
+					return Vec3d.ofBottomCenter(checkPos);
+				}
+			}
+		}
+
+		if (anchorPos != null) {
+			return Vec3d.ofBottomCenter(anchorPos.add(0, 0, 2));
+		}
+		return Vec3d.ofBottomCenter(new BlockPos(maxX + 2, groundY, maxZ + 2));
 	}
 
 	/**
@@ -589,7 +814,22 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	public void tick() {
 		super.tick();
 
+		// Builder block phasing: allow passage through blocks only while actively building or exiting building
+		boolean phasing = this.isPhasingBlocks();
+		this.noClip = phasing;
+		if (phasing) {
+			this.setNoGravity(true);
+			this.fallDistance = 0.0F;
+		}
+
 		if (!this.getWorld().isClient()) {
+			this.dataTracker.set(PHASING_BLOCKS, phasing);
+
+			// Post-construction structure egress phasing
+			if (this.exitingBuilding) {
+				this.tickBuildingEgress();
+			}
+
 			LivingEntity currentTarget = this.getTarget();
 
 			// If current combat target died, was removed, or is absent, chain to next queued assault target
@@ -699,9 +939,18 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	@Override
 	public void pushAwayFrom(Entity entity) {
-		// Suppress mutual shoving between allied minions when holding station, resting, or sitting
+		// Suppress collisions and mutual shoving when phasing through blocks
+		if (this.isPhasingBlocks()) {
+			return;
+		}
+		if (entity instanceof MinionEntity other && other.isPhasingBlocks()) {
+			return;
+		}
+		// Suppress mutual shoving between allied minions when holding station, resting, sitting, or building/levitating
 		if (entity instanceof MinionEntity ally && ally.isOwner(this.getOwner())) {
-			if (this.isSitting() || this.getGuardAnchorPos() != null || (this.getNavigation().isIdle() && !this.getMoveControl().isMoving())) {
+			if (this.isSitting() || this.getGuardAnchorPos() != null || this.isArcaneLevitating() || this.isActivelyBuilding()
+					|| ally.isArcaneLevitating() || ally.isActivelyBuilding()
+					|| (this.getNavigation().isIdle() && !this.getMoveControl().isMoving())) {
 				return;
 			}
 		}
@@ -710,7 +959,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	@Override
 	public boolean isPushable() {
-		if (this.isSitting() || this.getGuardAnchorPos() != null) {
+		if (this.isPhasingBlocks() || this.isSitting() || this.getGuardAnchorPos() != null || this.isArcaneLevitating() || this.isActivelyBuilding()) {
 			return false;
 		}
 		return super.isPushable();
@@ -742,8 +991,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			return;
 		}
 
-		// Active building tasks in MinionBuildGoal handle their own hover station kinematics
-		if (this.activelyBuilding) {
+		// Active building tasks in MinionBuildGoal and egress handlers handle their own hover station kinematics
+		if (this.activelyBuilding || this.exitingBuilding) {
 			return;
 		}
 
@@ -843,12 +1092,16 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 		targetClearanceAltitude = Math.max(targetDest.y, obstacleTopClearanceY);
 
-		// Headroom ceiling check: if solid blocks exist directly above minion, clamp clearance to ceiling
+		// Headroom ceiling check: if solid blocks exist directly above minion, clamp clearance and velocity to ceiling
+		boolean solidCeilingDirectlyOverhead = false;
 		for (int cy = this.getBlockY() + 2; cy <= this.getBlockY() + 4; cy++) {
 			BlockPos ceilPos = new BlockPos(this.getBlockX(), cy, this.getBlockZ());
 			BlockState ceilState = serverWorld.getBlockState(ceilPos);
 			if (ceilState.isSolidBlock(serverWorld, ceilPos)) {
 				targetClearanceAltitude = Math.min(targetClearanceAltitude, cy - 1.9D);
+				if (cy <= this.getBlockY() + 2 || this.getY() >= cy - 1.9D) {
+					solidCeilingDirectlyOverhead = true;
+				}
 				break;
 			}
 		}
@@ -944,9 +1197,14 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				}
 			}
 
-			// If directly colliding horizontally and still below clearance altitude, maintain lift
-			if (this.horizontalCollision && this.getY() < targetClearanceAltitude - 0.05D) {
+			// If directly colliding horizontally and still below clearance altitude, maintain lift (unless blocked by ceiling)
+			if (this.horizontalCollision && this.getY() < targetClearanceAltitude - 0.05D && !solidCeilingDirectlyOverhead) {
 				vy = Math.max(vy, 0.38D);
+			}
+
+			// Vertical velocity ceiling clamping: strictly prevent upward velocity into solid overhead blocks
+			if (solidCeilingDirectlyOverhead && vy > 0.0D) {
+				vy = 0.0D;
 			}
 
 			this.setVelocity(vx, vy, vz);
@@ -1179,6 +1437,12 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	@Override
 	public void travel(Vec3d movementInput) {
+		if (this.isPhasingBlocks()) {
+			this.noClip = true;
+			this.fallDistance = 0.0F;
+			this.setNoGravity(true);
+		}
+
 		BlockState footState = this.getBlockStateAtPos();
 		boolean inScaffolding = footState.isOf(Blocks.SCAFFOLDING);
 		boolean ascendingScaffolding = this.isAlive()
@@ -1194,7 +1458,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 		super.travel(movementInput);
 
-		if (this.isAlive() && this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
+		if (this.isPhasingBlocks()) {
+			this.noClip = true;
+			this.fallDistance = 0.0F;
+		} else if (this.isAlive() && this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
 			this.fallDistance = 0.0F;
 			if (ascendingScaffolding) {
 				Vec3d currentVelocity = this.getVelocity();
@@ -1625,25 +1892,27 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			return ActionResult.success(world.isClient());
 		}
 
-		// 2. Empty Hand: toggle sit / stay
+		// 2. Empty Hand: toggle stationed / following
 		if (itemStack.isEmpty()) {
-			boolean newSitting = !this.isSitting();
-			this.setSitting(newSitting);
+			boolean currentlyStationed = this.isHoldingPosition() || this.isSitting() || this.getGuardAnchorPos() != null;
+			boolean newStationed = !currentlyStationed;
+			this.setSitting(newStationed);
 			this.jumping = false;
 			this.navigation.stop();
 			this.setTarget(null);
-			if (newSitting) {
+			if (newStationed) {
 				this.setSelected(false);
 				this.setGuardAnchorPos(this.getBlockPos());
 			} else {
 				this.setSelected(true);
 				this.setGuardAnchorPos(null);
+				this.getNavigation().startMovingTo(player, 1.35D);
 			}
 			if (!world.isClient()) {
-				String msg = newSitting ? "§e✦ Minion is now holding position (stationed).§r" : "§a✦ Minion is now selected and following you.§r";
+				String msg = newStationed ? "§e✦ Minion is now holding position (stationed).§r" : "§a✦ Minion is now selected and following you.§r";
 				player.sendMessage(Text.literal(msg), true);
 			}
-			this.playSound(newSitting ? SoundEvents.ENTITY_ITEM_FRAME_ROTATE_ITEM : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, 0.6F, 1.0F);
+			this.playSound(newStationed ? SoundEvents.ENTITY_ITEM_FRAME_ROTATE_ITEM : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, 0.6F, 1.0F);
 			return ActionResult.success(world.isClient());
 		}
 

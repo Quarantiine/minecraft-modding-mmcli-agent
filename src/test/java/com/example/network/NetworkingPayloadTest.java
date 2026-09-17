@@ -312,4 +312,31 @@ public class NetworkingPayloadTest {
 		Assertions.assertEquals(payload.hashCode(), copy.hashCode());
 		Assertions.assertNotEquals(payload, defaultPayload);
 	}
+
+	@Test
+	@DisplayName("Validate AnchorConstructionPayload fields, IDs, side direction, and packet codec")
+	void testAnchorConstructionPayload() {
+		net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(120, 64, -250);
+		AnchorConstructionPayload buildPayload = new AnchorConstructionPayload(pos, net.minecraft.util.math.Direction.UP, false);
+
+		Assertions.assertEquals(pos, buildPayload.clickedPos());
+		Assertions.assertEquals(net.minecraft.util.math.Direction.UP, buildPayload.side());
+		Assertions.assertFalse(buildPayload.isDismantle());
+		Assertions.assertEquals(AnchorConstructionPayload.ID, buildPayload.getId());
+		Assertions.assertEquals(ExampleMod.MOD_ID, buildPayload.getId().id().getNamespace());
+		Assertions.assertEquals("anchor_construction", buildPayload.getId().id().getPath());
+		Assertions.assertNotNull(AnchorConstructionPayload.PACKET_CODEC);
+
+		// Dismantle variant
+		AnchorConstructionPayload dismantlePayload = new AnchorConstructionPayload(pos, net.minecraft.util.math.Direction.NORTH, true);
+		Assertions.assertEquals(pos, dismantlePayload.clickedPos());
+		Assertions.assertEquals(net.minecraft.util.math.Direction.NORTH, dismantlePayload.side());
+		Assertions.assertTrue(dismantlePayload.isDismantle());
+
+		// Equality
+		AnchorConstructionPayload copy = new AnchorConstructionPayload(pos, net.minecraft.util.math.Direction.UP, false);
+		Assertions.assertEquals(buildPayload, copy);
+		Assertions.assertEquals(buildPayload.hashCode(), copy.hashCode());
+		Assertions.assertNotEquals(buildPayload, dismantlePayload);
+	}
 }

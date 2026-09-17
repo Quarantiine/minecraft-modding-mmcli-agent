@@ -13,18 +13,23 @@ The mod introduces strategic army management, autonomous AI companions, and stru
 - **Autonomous Minion Thralls**: Tameable, persistent companions with 3 versatile archetype roles:
   - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** (melee thrusts at $\le 5\text{D}$, thrown piercing javelins at $5\text{D}\text{--}20\text{D}$), thrown tactical ordnance (Frost Grenades, TNT Sticks), and accepts builder **Squad Material Procurement** hunting contracts.
   - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded players (commander priority) and allied minions within 10 blocks, maintaining an expanded 128-block operational leash.
-  - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, deposits surplus materials into autonomous supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived materials with in-inventory resource synthesis.
+  - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints with persistent zero-timeout execution, **Builder Block Phasing (`noClip`)** while working to seamlessly navigate through walls/ceilings, **Post-Construction Structure Egress** evacuating buildings before collision returns, automatic **Perimeter Waypoint Deployment & Stationing** on build completion, and Arcane Phase-Shift obstacle resolution. Also deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, deposits surplus materials into autonomous supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived materials with in-inventory resource synthesis.
   - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 100% zero-footprint 3D Arcane Levitation flight across all roles (with zero ephemeral block generation), and instant 2-tick obstacle-vaulting traversal.
 - **The Loki Command Scepter**: Handheld tactical relic enabling:
-  - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines with expanded 128-block operational leash freedom.
+  - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines with **Unified Stationing** (`holdingPosition`) and expanded 128-block operational leash freedom, allowing single-click toggling back to follow.
   - **Banner of Courage (90° Forward Sector)**: Hold right-click to project an expanding tactical cone; releasing launches a synchronized Mass Assault queue hunting down all enclosed hostiles.
   - **Command Hub GUI (`V` key)**: Interactive tactical hub for squad routing (Alpha through Delta), mode cycling, 3-role mass archetype assignment, and blueprint selection.
   - **Panic Retreat (`R` key)**: Instant emergency recall sounding a warning bell, immediately dismissing all 3D holographic wireframes, cancelling active construction sessions, clearing combat targets, and sprinting minions back into formation.
-- **Multiblock Construction & Deconstruction**:
-  - Live 3D holographic wireframe and ghost-block previews with 4-quadrant rotation (0°, 90°, 180°, 270°).
-  - Pre-engineered topological blueprints: *Overlord Watchtower* (7×7×9), *Arcane Obelisk* (5×5×8), and *Defensive Barricade* (9×3×3).
-  - Top-down area clearance and demolition engine with Bedrock and indestructible block protection.
-  - Zero-drop Creative Mode pre-clearing ensuring zero clutter item drops when building over existing terrain.
+- **Dynamic Organic Architecture & Procedural Construction**:
+  - **Free Survival Build Flight**: Unconstrained 3D vanilla flight in Survival mode when holding the Scepter in `BUILD` mode (Space to ascend, Shift to descend, full WASD navigation).
+  - **Water Flight Cancellation Safeguard**: Automatically cancels construction, revokes flight, and switches scepter mode to `FOLLOW` with extinguish SFX and warning cues if the player flies over or enters water in `BUILD` mode.
+  - **360° Perimeter Flank Spread**: Builders automatically encircle the finished build upon completion across all four flanks (Front, East, Back, West) with beacon beams and chime fanfare regardless of squad assignments.
+  - **Tactical RTS Build Camera (`H` Key or `Ctrl` + Scroll)**: Size-scaled elevated perspective with intelligent ceiling raycast clamping inside caves and low rooms.
+  - **Semantic Color-Coded Ghost Outlines**: Clear visual wireframes color-coded by element (Emerald Green doors, Amber Gold lights, Arcane Purple utilities/beds, Cyan walls, Ice Blue roof).
+  - **4 Architecture Styles & 4 Footprint Scales**: Contextual Command Hub GUI swapping between *Biome Native*, *Fortress Stone*, *Frontier Timber*, and *Arcane Nether*, with *Small (5x5)*, *Medium (7x7)*, *Grand (9x9)*, and *Random* size scaling.
+  - **Noise Weathering Engine**: Procedural 3D coordinate noise blends natural texture variations (cracked/mossy stone, andesite, stripped wood).
+  - **Villager Settlement Integration**: Procedural *Home* structures built with beds, doors, workstations, and lighting for natural village habitation.
+  - **Dynamic Foundation Slope Snapping & Nether Safety**: Generates stone retaining pillars or water stilts downward up to 8 blocks, and replaces beds with respawn anchors in the Nether to eliminate explosions.
 - **Tactical Ordnance & Thrown Arsenal**: Throwable TNT Sticks and cryogenic Frost Grenades (transmutes blocks into snow, flash-freezes water, turns lava to obsidian, summons a powder snow ring, and applies Slowness III), along with full Warrior thrown weapon support and Trident duality.
 
 > 📖 **In-Game Controls & Commands**: For the full controls cheat sheet and scepter input manual, see [**COMMANDS.md**](COMMANDS.md).
@@ -76,7 +81,7 @@ To test server-authoritative logic, multiplayer sync, or network packets:
 
 ### 5. Running Automated Unit Tests
 
-Run the automated test suite (241 unit tests across 22 suites covering AI, math, networking, logistics, ordnance, and safeguards):
+Run the automated test suite (294 unit tests across 34 suites covering AI, math, networking, logistics, ordnance, organic building, phasing, and safeguards):
 
 ```bash
 ./gradlew test

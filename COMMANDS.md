@@ -9,19 +9,27 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | Input                              | Target / Context         | Action                                                                                                                                                          |
 | :--------------------------------- | :----------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Right-Click** _(Quick Tap)_      | Hostile Mob              | **Focus-Fire Attack Ping**: Selected minions charge and attack this entity.                                                                                     |
-| **Right-Click** _(Quick Tap)_      | Ground Block (up to 64m) | **RTS Waypoint Ping**: Deploys minions into ranked army battle lines and auto-deselects them.                                   |
-| **Right-Click** _(Quick Tap)_      | Owned Minion             | **Individual Follow**: Toggles follow order on this specific minion (follow / stop following).                                                                  |
-| **Right-Click** _(Quick Tap)_      | In **BUILD** Mode        | **Cycle Blueprint**: Cycles to next structure preset (Watchtower, Cottage, etc.).                                                                               |
+| **Right-Click** _(Quick Tap)_      | Ground Block (up to 64m) | **RTS Waypoint Ping**: Deploys minions into ranked army battle lines and automatically puts them into a **Stationed** position (`holdingPosition`), auto-deselecting them. (In **BUILD** mode: anchors construction; in **MINE** mode: anchors dismantle session). |
+| **Right-Click** _(Quick Tap)_      | Owned Minion             | **Individual Follow**: Toggles follow order on this specific minion. If stationed (via waypoint or manual sit/guard), a **single click** immediately orders them to follow. |
+| **Right-Click** _(Quick Tap)_      | Ground in **BUILD** Mode | **Anchor Construction**: Places the selected blueprint at the targeted ground block (seamless from elevated tactical camera or ground up to 96m away). Builders construct persistently with zero timeout halts until 100% complete. |
+| **Right-Click** _(Quick Tap)_      | Sky in **BUILD** Mode    | **Cycle Blueprint**: Cycles to next structure preset (Watchtower, Cottage, etc.) when looking into open air or sky.                                            |
+| **Right-Click** _(Quick Tap)_      | Ground in **MINE** Mode  | **Anchor Dismantle**: Initiates structure deconstruction or area clearance at the targeted position (up to 96m away).                                          |
 | **Right-Click** _(Quick Tap)_      | Open Air / Sky           | **Broadcast Directive**: Broadcasts current mode directive to active squad.                                                                                     |
 | **Hold Right-Click** _(≥ 8 ticks)_ | Any Direction            | **Banner of Courage (90° Forward Sector)**: Real-time unit highlight; on release rallies/transfigures minions and launches **Mass Attack** on enclosed enemies. |
 | **Shift + Right-Click**            | In Air / On Block        | **Cycle Command Mode**: Cycles `FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT`.                                                                                |
-| **Shift + Right-Click**            | Owned Minion             | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots.                                                                                       |
-| **Left-Click**                     | Owned Minion             | **Toggle Selection**: Select/deselect minion without friendly-fire damage.                                                                                      |
-| **Shift + Left-Click**             | In **BUILD** Mode        | **Cycle Blueprint Rotation**: Rotates hologram 90° (North → East → South → West).                                                                               |
-| **Shift + Left-Click**             | Any Other Mode           | **Deselect All**: Instantly clears selection on all minions.                                                                                                    |
-| **Keybind `V`**                    | Anywhere (with Scepter)  | **Command Hub GUI**: Full tactical screen for squads, modes, blueprints, and roles.                                                                             |
-| **Keybind `R`**                    | Anywhere (with Scepter)  | **Panic Retreat / Regroup**: Disengages all minions from combat, sounds a warning bell, and recalls them into army lines.                                       |
-| **Empty Hand Right-Click**         | Owned Minion             | **Sit / Guard**: Toggles minion sitting / stationary guard anchor.                                                                                              |
+| **Keybind `R`**                    | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise (North → East → South → West).                                            |
+| **Keybind `R`**                    | Any Other Mode           | **Panic Retreat / Regroup**: Disengages all minions from combat, sounds a warning bell, and recalls them into army lines.       |
+| **Left-Click**                     | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise (on air, terrain, or block, without requiring Shift).                     |
+| **Left-Click**                     | Owned Minion             | **Toggle Selection**: Select/deselect minion without friendly-fire damage.                                                      |
+| **Shift + Left-Click**             | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise.                                                                           |
+| **Shift + Left-Click**             | Any Other Mode           | **Deselect All**: Instantly clears selection on all minions.                                                                    |
+| **Keybind `H`**                    | In **BUILD** Mode        | **Tactical Zoom**: Cycles tactical camera zoom presets (0.75x, 1.0x default, 1.5x, 2.0x).                                      |
+| **Arcane Build Flight**             | In **BUILD** Mode        | **Free Survival Build Flight**: Enjoy unconstrained 3D vanilla flight in Survival mode while holding the Scepter in **BUILD** mode (Space to ascend, Shift to descend, full WASD mobility). Flying over water automatically cancels construction and revokes flight! |
+| **Ctrl + Scroll**                  | In **BUILD** Mode        | **Smooth Camera Zoom**: Smoothly zooms tactical view in and out without hotbar cycling conflicts.                                 |
+| **Keybind `V`**                    | Anywhere (with Scepter)  | **Command Hub GUI**: Tactical screen for squads, modes, blueprints, roles, **Architecture Style**, **Size**, and **[↻ Rotate]**. |
+| **Shift + Right-Click**            | In Air / On Block        | **Open Command Hub GUI**: Instant access to Command Hub GUI (works while walking or in Arcane Build Flight).                    |
+| **Shift + Right-Click**            | Owned Minion             | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots.                                                       |
+| **Empty Hand Right-Click**         | Owned Minion             | **Unified Station / Follow**: Toggles minion stationing. If stationed (via waypoint or up-close guard), a **single click** immediately orders them to follow. If following, stations them in place. |
 | **Gold Ingot Right-Click**         | Untamed Minion           | **Bind / Tame**: Binds the minion permanently to your will (consumes 1 Gold Ingot in Survival).                                                                 |
 | **Food / Gold Right-Click**        | Wounded Minion           | **Heal**: Restores minion health (consumes food/gold in Survival; infinite in Creative).                                                                        |
 | **Right-Click** _(TNT Stick)_      | Open Air / Blocks        | **Throw Explosive Stick**: Launches projectile detonating on impact with 4.0F blast (5-tick cooldown).                                                          |
@@ -36,8 +44,8 @@ The **Command Scepter** is your primary instrument of tactical command. It opera
 ### A. Quick Tap (Right-Click < 8 ticks)
 
 - **Targeting an Enemy**: Commands all selected squad members to focus-fire that target. Plays a war drum sound and spawns angry villager & crit particles.
-- **Targeting the Ground (up to 64 blocks)**: Drops an RTS waypoint marker with a golden beacon beam. Minions march, levitate across cliffs/gaps if needed, and form up in **Ranked Army Lines** facing the objective, automatically deselecting so you can issue fresh commands without re-clicking.
-- **Targeting an Owned Minion**: Orders that individual minion to follow you immediately or stop following.
+- **Targeting the Ground (up to 64 blocks)**: Drops an RTS waypoint marker with a golden beacon beam. Minions march, levitate across cliffs/gaps if needed, form up in **Ranked Army Lines** facing the objective, and enter the **Unified Stationed** position (`guardAnchorPos` set, `holdingPosition == true`), automatically deselecting so you can issue fresh commands without re-clicking.
+- **Targeting an Owned Minion**: Orders that individual minion to toggle between stationed and following. If the minion was stationed (via waypoint ping or close-up right-click), a **single click** immediately orders them to follow without any extra clicks!
 - **Aiming into Open Air**: Broadcasts your current mode directive to your entire active squad.
 - **In BUILD Mode**: Cycles through your blueprint catalog (Watchtower, Cottage, Barracks, Workshop, etc.).
 
@@ -125,22 +133,65 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 ## 🏛️ 6. Building Structures (`BUILD` Mode)
 
 1. Select **`BUILD`** mode (**Shift + Right-Click** or press **`V`**).
-2. Look at the ground to see the **Neon Cyan 3D Hologram Preview**.
-3. **Right-Click** to cycle the active blueprint.
-4. **Shift + Left-Click** to rotate the structure (0°, 90°, 180°, 270°).
-5. **Right-Click** on the ground block to anchor the construction session.
-6. Assigned **Builder** minions will activate **3D Arcane Levitation**, flying up to each layer and completing the structure bottom-to-top:
-   - **Creative Mode**: Builders place blocks freely at zero material cost. Any existing blocks (grass, flowers, snow, dirt) are automatically pre-cleared with zero dropped items, eliminating all clutter.
-   - **Survival Mode**: Builders resolve construction materials through a multi-stage logistics pipeline:
-     1. *9-Slot Backpack*: Consumes blocks already carried.
-     2. *Nearby Containers*: Scavenges chests, barrels, and shulkers within 12 blocks.
-     3. *Peer-to-Peer Allied Sharing*: Transmits required materials from nearby allied minions within 24m via green energy particle beams and pickup audio.
-     4. *Autonomous Quarrying & Agro-Forestry*: Quarries natural stone, deepslate, and earth. For timber, fells trees or plants saplings and rapidly accelerates maturity with bone meal.
-     5. *Squad Material Procurement & Mob Hunting Contracts*: When mob-derived materials are required (wool, bones, slime, leather, ink, prismarine, etc.), builders scan for target mobs within 32m and commission an available allied Warrior thrall. The warrior receives the contract with a weaponsmith sound and energy beam, slays the target, synthesizes refined items (e.g. 4 String $\to$ 1 Wool, 1 Bone $\to$ 3 Bone Meal $\to$ Bone Block, 9 Slimeballs $\to$ Slime Block, 4 Prismarine Shards $\to$ Prismarine), and delivers them directly. (Falls back to solo builder hunt if no warrior is available).
-     6. *Strict Safety & Build Protection*: Strictly protects player pets, named mobs, villagers, iron golems, allays, and allied minions (`isSafeHuntTarget`). Never harvests player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
-     7. *Hazard Avoidance*: Checks all 6 directions and strictly refuses to break blocks adjacent to lava.
-     8. *Tool Self-Crafting*: Synthesizes wooden or stone pickaxes, axes, and shovels on demand from harvested timber and stone.
-     9. *Autonomous Supply Depots*: When bags are full of surplus materials, deposits excess into nearby chests, or crafts an 8-plank Chest (pairing into a Double Chest if adjacent) on site.
+2. **Arcane Build Flight (Free Survival Flight & Water Safety)**:
+   - When in `BUILD` mode, you automatically enter physical Arcane Flight in both Survival and Creative modes.
+   - **Free 3D Survival Flight**: Enjoy unconstrained, responsive 3D vanilla flight mechanics in Survival mode. Ascend with **`Space`**, descend with **`Shift`**, and glide freely in any direction with WASD without rigid altitude clamping or velocity locks.
+   - **Water Flight Cancellation Safeguard**: If you fly over water or submerge while in `BUILD` mode, the scepter instantly cancels all active construction sessions, switches mode automatically to **`FOLLOW`**, revokes flight abilities, plays an extinguishing hiss, emits splash particles, and displays a warning (`§c⚠ Construction cancelled: Flying over water is prohibited in BUILD mode!§r`).
+   - **Cave & Indoor Clearance**: Upward raycasts automatically detect overhead cavern or room ceilings to prevent clipping into low terrain.
+   - **Safe Descent**: Exiting `BUILD` mode, switching hotbar items, or descending to land gently restores normal ground physics with complete fall damage immunity.
+   - **Tactical Zoom**: Press **`H`** to cycle zoom presets (`0.75x`, `1.0x`, `1.5x`, `2.0x`) or hold **`Ctrl` + Scroll** for fine zooming without hotbar conflicts.
+3. **Real-Time Per-Block Ghost Dissolution & Wireframe Hologram**:
+   - As builder minions place each block into the structure, that specific wireframe box dissolves immediately from the hologram view.
+   - When the final block is placed, the ghost grid clears completely, triumphant fanfare particles play, and minions disengage flight to return to their commander or hold their post.
+   - Semantic color coding highlights components:
+     - **Doors**: 🟢 Emerald Green (`#00FF88`, full 2-block portal outline).
+     - **Lights & Torches**: 🟡 Amber Gold (`#FFCC00`).
+     - **Utilities & Beds**: 🟣 Arcane Purple (`#9933FF`).
+     - **Walls & Columns**: 🔵 Diamond Cyan (`#00D4FF`).
+     - **Roof Trim & Eaves**: ❄️ Ice Blue (`#70B8FF`).
+4. **Command Hub GUI Bar Swap (`V` Key)**:
+   - When **`BUILD`** mode is active, the 3-button Minion Archetype bar dynamically transforms into the **Architecture Style** bar:
+     - **`[🌍 Biome Native]`**: Vernacular construction adapting to indigenous materials (oak/birch for plains/forest, sandstone for deserts/badlands, spruce for taigas, mangrove/mud for swamps, deepslate for subterranean caverns, blackstone for nether, purpur/end stone for end).
+     - **`[🏰 Fortress Stone]`**: Heavy stone brick masonry, mossy & cracked cobblestone, polished andesite accents, deepslate, and iron fittings.
+     - **`[🌲 Frontier Timber]`**: Rustic log framing, horizontal plank walls, stripped wood corners, fences, and lanterns.
+     - **`[🔮 Arcane Nether]`**: Polished blackstone, basalt pillars, crimson/warped timbers, and soul fire illumination.
+   - **Footprint Size Selectors**:
+     - **`[ S ]` Small**: Compact 5x5 footprint.
+     - **`[ M ]` Medium**: Balanced 7x7 footprint (default).
+     - **`[ L ]` Grand**: Expansive 9x9 multi-room estate or fortified outpost.
+     - **`[ 🎲 ]` Random**: Dynamically rolls a randomized footprint size.
+5. **Procedural Building Categories**:
+   - **`🏡 Home`**: Villager-ready residence with POIs (beds, entry door, crafting table, furnace, lantern) for natural villager habitation.
+   - **`🗼 Watchtower`**: Elevated observation post with parapets and arrow slits.
+   - **`🛡 Barricade`**: Fortified defensive rampart with firing steps.
+   - **`⚒ Workshop`**: Blacksmith forge with furnaces, anvils, and tool stations.
+   - **`📦 Supply Depot`**: Storage warehouse with chests and logistics barrels.
+   - **`🔮 Obelisk`**: Mystical monument focusing arcane energy.
+6. **Organic Noise Weathering Engine**:
+   - Eliminates sterile, repetitive block patterns using 3D spatial coordinate noise, blending cracked bricks, mossy stones, andesite, and stripped logs organically (resembling natural cobblestone/dirt variance).
+   - Deterministic hashing guarantees that client holographic wireframes and server minion placement match 1:1 down to the individual block.
+7. **Dynamic Foundation Slope Snapping**:
+   - Automatically scans perimeter and floor blocks at the base level. If placing on a hillside, cliff, or over water, automatically extends stone retaining pillars or wooden stilts downward up to 8 blocks (`MAX_FOUNDATION_DEPTH`) until solid ground is reached, eliminating floating structures!
+8. **Dimension Bed Explosion Safeguard**:
+   - In the Nether, beds automatically convert to `Blocks.RESPAWN_ANCHOR`. In the End, beds convert to `Blocks.PURPUR_BLOCK`, completely preventing accidental or intentional bed explosions!
+9. **Rotate Blueprint (3 Ways)**:
+   - **Press `R`**: Directly rotates the hologram 90° clockwise (0° → 90° → 180° → 270°).
+   - **Left-Click** *(with Scepter in `BUILD` Mode)*: Directly rotates the hologram 90° clockwise (works aiming at air, terrain, or blocks, with or without Shift).
+   - **Command Hub GUI (`V`)**: Click the **`[ ↻ Rotate ]`** button inside the Command Hub screen.
+   - **Flight Altitude Control**: While hovering in Arcane Build Flight, hold **`Space`** to ascend or **`Shift`** to descend to your ideal vantage height.
+10. **Right-Click** on any ground block to anchor the construction session:
+    - **100% Pixel-Perfect Crosshair Alignment**: A camera-aligned raycast ensures the hologram and placement anchor match exactly where your screen crosshair points on the terrain, even from high-altitude bird's-eye views (up to 96m reach).
+    - **One-Click Aerial Placement**: Instantly transmits placement packets to the server so you can drop foundations without descending to the ground.
+    - **Sky Tap to Cycle**: Right-clicking into empty air or open sky cycles to the next blueprint in your catalog.
+11. Assigned **Builder** minions will activate **3D Arcane Levitation**, flying up to each layer and completing the structure bottom-to-top:
+    - **Builder Block Phasing (`noClip = true`) & Zero Drift**: Builders can pass through blocks **strictly and only** while actively building or evacuating a finished structure. They fly directly through floors, walls, and ceilings in 3D straight to their work stations without getting trapped indoors or drifting towards exterior exits.
+    - **Persistent Zero-Timeout Execution**: Builders never halt, give up, or freeze near the end of a build. The artificial 400-tick timeout loop and failure pauses have been completely eliminated. Builders poll tasks continuously and work without interruption until 100% of the structure is finished.
+    - **Arcane Phase-Shift Resolution**: If interior detail blocks (like anvils, grindstones, blast furnaces, chests, or hanging lanterns) are enclosed by newly constructed walls or ceilings, builders do not get stuck. After 40 ticks (~2 seconds) of obstacle obstruction, they perform an **Arcane Phase-Shift**—teleporting directly to their work station with purple portal runes and SFX to place the block cleanly.
+    - **Post-Construction Structure Egress**: Upon finishing a building, builders do NOT get trapped inside. They retain block phasing (`noClip = true`) and fly smoothly out of the building to the exterior perimeter. Normal collision physics are only restored once the builder is safely outside with clear headroom.
+    - **360° Perimeter Waypoints & Guaranteed Flank Spread**: When construction completes, golden beacon beams (`END_ROD` + `GLOW`) and chime audio rise around the finished build, distributed evenly across all flanks (South/Front, East Flank, North/Back, West Flank) so minions completely encircle the structure instead of stacking in one spot. Builders are teleported directly to their assigned flank station, safely positioned outside the structure, and stationed on guard at attention (`isSitting = true`, `guardAnchor` set) regardless of squad assignment.
+    - **Autonomous Stationed Mobilization**: When you place a new blueprint down nearby (within 64 blocks), stationed builder minions automatically wake up (`setSitting = false`) and mobilize to build immediately without requiring you to walk over and re-select them! A single right-click on any stationed builder still commands them to follow if desired.
+    - **Creative Mode**: Builders place blocks freely at zero material cost. Any existing blocks (grass, flowers, snow, dirt) are automatically pre-cleared with zero dropped items, eliminating all clutter.
+    - **Survival Mode**: Builders resolve construction materials through a multi-stage logistics pipeline (Backpack → Local Containers → Peer Sharing → Autonomous Quarrying/Timber → Mob Hunting Contracts).
 
 ---
 

@@ -1,5 +1,6 @@
 package com.example.client;
 
+import com.example.client.camera.TacticalBuildCameraController;
 import com.example.client.gui.CommandScepterScreen;
 import com.example.client.gui.MinionScreen;
 import com.example.client.network.ModClientNetworking;
@@ -11,18 +12,24 @@ import com.example.entity.ModEntities;
 import com.example.item.ModItems;
 import com.example.item.custom.CommandScepterItem;
 import com.example.screen.ModScreenHandlers;
+import java.util.Optional;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreens;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.render.entity.FlyingItemEntityRenderer;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
+import net.minecraft.util.TypedActionResult;
+import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -37,6 +44,7 @@ public class ExampleModClient implements ClientModInitializer {
 
 	public static KeyBinding commandHubKey;
 	public static KeyBinding retreatKey;
+	public static KeyBinding tacticalCameraKey;
 
 	@Override
 	public void onInitializeClient() {
@@ -65,6 +73,67 @@ public class ExampleModClient implements ClientModInitializer {
 			MinecraftClient.getInstance().setScreen(new CommandScepterScreen(hand, stack));
 		};
 
+		// Hook client-side camera raycast target resolver into CommandScepterItem
+		CommandScepterItem.CLIENT_TARGET_RESOLVER = (player) ->
+			TacticalBuildCameraController.getCameraTargetedBlock(MinecraftClient.getInstance(), 96.0F);
+
+		// Intercept right-clicks with the Command Scepter in BUILD or MINE mode
+		UseItemCallback.EVENT.register((player, world, hand) -> {
+			if (!world.isClient()) {
+				return TypedActionResult.pass(player.getStackInHand(hand));
+			}
+
+			ItemStack stack = player.getStackInHand(hand);
+			if (!stack.isOf(ModItems.COMMAND_SCEPTER)) {
+				return TypedActionResult.pass(stack);
+			}
+
+			// Sneak-right-click is reserved for Command Hub GUI (checks physical sneak key to work in flight)
+			boolean isSneakDown = player.isSneaking() || MinecraftClient.getInstance().options.sneakKey.isPressed();
+			if (isSneakDown) {
+				MinecraftClient.getInstance().setScreen(new CommandScepterScreen(hand, stack));
+				return TypedActionResult.success(stack);
+			}
+
+			if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
+				return TypedActionResult.pass(stack);
+			}
+
+			CommandMode mode = CommandScepterItem.getMode(stack);
+			if (mode == CommandMode.BUILD || mode == CommandMode.MINE) {
+				MinecraftClient client = MinecraftClient.getInstance();
+				BlockHitResult hit = TacticalBuildCameraController.getCameraTargetedBlock(client, 96.0F);
+				if (hit != null && hit.getType() == HitResult.Type.BLOCK) {
+					boolean isDismantle = (mode == CommandMode.MINE);
+					ModClientNetworking.sendAnchorConstruction(hit.getBlockPos(), hit.getSide(), isDismantle);
+					player.getItemCooldownManager().set(stack.getItem(), 10);
+					player.swingHand(hand);
+					if (client.world != null) {
+						client.world.playSound(player, hit.getBlockPos(), SoundEvents.BLOCK_STONE_PLACE, SoundCategory.BLOCKS, 1.0F, 1.0F);
+					}
+					return TypedActionResult.success(stack);
+				} else if (mode == CommandMode.BUILD) {
+					// Aiming at sky in BUILD mode: quick-tap cycles blueprint
+					CommandScepterItem.cycleBlueprint(stack, player, world);
+					player.getItemCooldownManager().set(stack.getItem(), 4);
+					ModClientNetworking.sendUpdateScepter(
+						mode,
+						CommandScepterItem.getBlueprintId(stack),
+						CommandScepterItem.getTargetSquad(stack),
+						CommandScepterItem.getRotationIndex(stack),
+						Optional.empty(),
+						false,
+						CommandScepterItem.getArchitectureStyle(stack),
+						CommandScepterItem.getBuildingSize(stack)
+					);
+					player.swingHand(hand);
+					return TypedActionResult.success(stack);
+				}
+			}
+
+			return TypedActionResult.pass(stack);
+		});
+
 		// Register keybind V to open Command Hub GUI
 		commandHubKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 			"key.modid-mmcli-agent-modding.command_hub",
@@ -73,7 +142,7 @@ public class ExampleModClient implements ClientModInitializer {
 			"category.modid-mmcli-agent-modding.general"
 		));
 
-		// Register keybind R for Tactical Retreat / Regroup
+		// Register keybind R for Panic Retreat / Regroup (or Blueprint Rotation in BUILD mode)
 		retreatKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 			"key.modid-mmcli-agent-modding.retreat",
 			InputUtil.Type.KEYSYM,
@@ -81,14 +150,47 @@ public class ExampleModClient implements ClientModInitializer {
 			"category.modid-mmcli-agent-modding.general"
 		));
 
-		// Tick handler for the keybind
+		// Register keybind H for Tactical Camera Zoom & Toggle
+		tacticalCameraKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+			"key.modid-mmcli-agent-modding.tactical_camera",
+			InputUtil.Type.KEYSYM,
+			GLFW.GLFW_KEY_H,
+			"category.modid-mmcli-agent-modding.general"
+		));
+
+		// Tick handler for flight and keybinds
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			BuildFlightManager.tick(client);
+
+			while (tacticalCameraKey.wasPressed()) {
+				com.example.client.camera.TacticalBuildCameraController.cycleZoomPreset();
+				if (client.player != null) {
+					boolean on = com.example.client.camera.TacticalBuildCameraController.isEnabled();
+					client.player.sendMessage(
+						Text.literal("§b📷 Tactical Camera: " + (on ? "§aACTIVE" : "§cDISABLED")),
+						true
+					);
+				}
+			}
+
 			while (retreatKey.wasPressed()) {
 				if (client.player != null) {
 					ItemStack heldScepter = CommandScepterItem.getHeldScepter(client.player);
-					com.example.component.SquadGroup squad = !heldScepter.isEmpty() ? CommandScepterItem.getTargetSquad(heldScepter) : com.example.component.SquadGroup.ALL;
-					ModClientNetworking.sendRetreat(squad);
-					com.example.client.renderer.ClientConstructionTracker.clear();
+					if (!heldScepter.isEmpty() && CommandScepterItem.getMode(heldScepter) == CommandMode.BUILD) {
+						// In BUILD mode: pressing R rotates the blueprint 90° clockwise!
+						CommandScepterItem.cycleRotation(heldScepter, client.player);
+						ModClientNetworking.sendUpdateScepter(
+							CommandMode.BUILD,
+							CommandScepterItem.getBlueprintId(heldScepter),
+							CommandScepterItem.getTargetSquad(heldScepter),
+							CommandScepterItem.getRotationIndex(heldScepter),
+							false
+						);
+					} else {
+						com.example.component.SquadGroup squad = !heldScepter.isEmpty() ? CommandScepterItem.getTargetSquad(heldScepter) : com.example.component.SquadGroup.ALL;
+						ModClientNetworking.sendRetreat(squad);
+						com.example.client.renderer.ClientConstructionTracker.clear();
+					}
 				}
 			}
 
@@ -121,26 +223,32 @@ public class ExampleModClient implements ClientModInitializer {
 				}
 			}
 
-			// Open-air sneak + left-click shortcut:
-			// In BUILD mode: cycle rotation locally, play chime sound/actionbar, and dispatch network update
-			// In other modes: deselect all minions
+			// Left-click / Attack key handling:
+			// In BUILD mode: any left-click (with or without Shift, looking at air, block, or ground from any distance)
+			// cycles rotation, unless directly clicking an owned minion (which toggles minion selection).
+			// In other modes: Shift + left-click deselects all minions.
 			if (client.player != null && client.options.attackKey.wasPressed()) {
 				ItemStack heldScepter = CommandScepterItem.getHeldScepter(client.player);
-				if (client.player.isSneaking() && !heldScepter.isEmpty()) {
-					if (client.crosshairTarget == null || client.crosshairTarget.getType() == HitResult.Type.MISS) {
-						CommandMode mode = CommandScepterItem.getMode(heldScepter);
-						if (mode == CommandMode.BUILD) {
+				if (!heldScepter.isEmpty()) {
+					CommandMode heldMode = CommandScepterItem.getMode(heldScepter);
+					boolean physicalSneak = client.options.sneakKey.isPressed() || client.player.isSneaking();
+
+					if (heldMode == CommandMode.BUILD) {
+						// Don't cycle rotation if targeting an owned minion to toggle selection
+						boolean isTargetingOwnedMinion = client.targetedEntity instanceof com.example.entity.custom.MinionEntity minion
+							&& minion.isOwner(client.player);
+						if (!isTargetingOwnedMinion) {
 							CommandScepterItem.cycleRotation(heldScepter, client.player);
 							ModClientNetworking.sendUpdateScepter(
-								mode,
+								heldMode,
 								CommandScepterItem.getBlueprintId(heldScepter),
 								CommandScepterItem.getTargetSquad(heldScepter),
 								CommandScepterItem.getRotationIndex(heldScepter),
 								false
 							);
-						} else {
-							ModClientNetworking.sendDeselectAllMinions();
 						}
+					} else if (physicalSneak) {
+						ModClientNetworking.sendDeselectAllMinions();
 					}
 				}
 			}

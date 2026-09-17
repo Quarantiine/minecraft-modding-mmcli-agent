@@ -41,6 +41,7 @@ public class ModNetworking {
 		PayloadTypeRegistry.playC2S().register(DeselectMinionsPayload.ID, DeselectMinionsPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(MassRolePayload.ID, MassRolePayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(RetreatPayload.ID, RetreatPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(AnchorConstructionPayload.ID, AnchorConstructionPayload.PACKET_CODEC);
 
 		// S2C Payloads for active blueprint wireframe synchronization
 		PayloadTypeRegistry.playS2C().register(SyncConstructionSessionPayload.ID, SyncConstructionSessionPayload.PACKET_CODEC);
@@ -52,6 +53,10 @@ public class ModNetworking {
 	 */
 	public static void registerServerReceivers() {
 		ExampleMod.LOGGER.info("Registering server network packet receivers for {}", ExampleMod.MOD_ID);
+		ServerPlayNetworking.registerGlobalReceiver(AnchorConstructionPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleAnchorConstruction(player, payload));
+		});
 		ServerPlayNetworking.registerGlobalReceiver(UpdateScepterPayload.ID, (payload, context) -> {
 			ServerPlayerEntity player = context.player();
 			context.server().execute(() -> handleUpdateScepter(player, payload));
@@ -135,6 +140,16 @@ public class ModNetworking {
 		// Apply target role archetype if provided in payload
 		if (payload.targetRole() != null) {
 			CommandScepterItem.setTargetRole(scepterStack, payload.targetRole().orElse(null));
+		}
+
+		// Apply architectural style if provided in payload
+		if (payload.architectureStyle() != null && payload.architectureStyle().isPresent()) {
+			CommandScepterItem.setArchitectureStyle(scepterStack, payload.architectureStyle().get());
+		}
+
+		// Apply building size if provided in payload
+		if (payload.buildingSize() != null && payload.buildingSize().isPresent()) {
+			CommandScepterItem.setBuildingSize(scepterStack, payload.buildingSize().get());
 		}
 
 		// 3. Audio & actionbar feedback
@@ -293,9 +308,9 @@ public class ModNetworking {
 
 			for (MinionEntity minion : nearbyMinions) {
 				if (minion.teleportToPlayer(player)) {
-					if (minion.isSitting()) {
-						minion.setSitting(false);
-					}
+					minion.setSitting(false);
+					minion.setGuardAnchorPos(null);
+					minion.setSelected(true);
 					teleportedCount++;
 				}
 			}
@@ -316,9 +331,9 @@ public class ModNetworking {
 			Entity entity = world.getEntityById(payload.minionId());
 			if (entity instanceof MinionEntity minion && minion.isOwner(player)) {
 				if (minion.teleportToPlayer(player)) {
-					if (minion.isSitting()) {
-						minion.setSitting(false);
-					}
+					minion.setSitting(false);
+					minion.setGuardAnchorPos(null);
+					minion.setSelected(true);
 					player.sendMessage(
 						Text.translatable("message.modid-mmcli-agent-modding.minion_teleported"),
 						true
@@ -414,5 +429,40 @@ public class ModNetworking {
 			return;
 		}
 		CommandScepterItem.executeRetreat(player, player.getServerWorld(), payload.targetSquad());
+	}
+
+	/**
+	 * Handles long-range or tactical build anchor construction and dismantle directives dispatched from the client.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The anchor construction payload.
+	 */
+	private static void handleAnchorConstruction(ServerPlayerEntity player, AnchorConstructionPayload payload) {
+		if (player == null || payload == null) {
+			return;
+		}
+
+		ItemStack scepterStack = CommandScepterItem.getHeldScepter(player);
+		if (scepterStack.isEmpty()) {
+			return;
+		}
+
+		if (player.getItemCooldownManager().isCoolingDown(scepterStack.getItem())) {
+			return;
+		}
+
+		// Security: verify within reasonable tactical command range (128 blocks)
+		net.minecraft.util.math.BlockPos clickedPos = payload.clickedPos();
+		if (player.squaredDistanceTo(clickedPos.toCenterPos()) > 128.0D * 128.0D) {
+			return;
+		}
+
+		ServerWorld world = player.getServerWorld();
+		CommandMode mode = CommandScepterItem.getMode(scepterStack);
+		if (mode == CommandMode.BUILD) {
+			CommandScepterItem.executeBuildPlacement(world, player, scepterStack, clickedPos, payload.side(), payload.isDismantle());
+		} else if (mode == CommandMode.MINE) {
+			CommandScepterItem.executeMinePlacement(world, player, scepterStack, clickedPos);
+		}
 	}
 }

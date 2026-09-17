@@ -18,7 +18,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.block.DoorBlock;
+import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.InventoryOwner;
@@ -85,6 +87,13 @@ public class CommandScepterItem extends Item {
 	}
 
 	public static ScreenOpener SCREEN_OPENER = null;
+
+	@FunctionalInterface
+	public interface ClientTargetResolver {
+		BlockHitResult getTarget(PlayerEntity player);
+	}
+
+	public static ClientTargetResolver CLIENT_TARGET_RESOLVER = null;
 
 	public CommandScepterItem(Settings settings) {
 		super(settings);
@@ -325,6 +334,56 @@ public class CommandScepterItem extends Item {
 	public static void setRotationIndex(ItemStack stack, int rotationIndex) {
 		if (stack != null && !stack.isEmpty()) {
 			stack.set(ModDataComponents.STRUCTURE_ROTATION, Math.floorMod(rotationIndex, 4));
+		}
+	}
+
+	/**
+	 * Resolves the active architectural design style stored on the item stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The active ArchitectureStyle, defaulting to {@link com.example.blueprint.ArchitectureStyle#BIOME_NATIVE}.
+	 */
+	public static com.example.blueprint.ArchitectureStyle getArchitectureStyle(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) {
+			return com.example.blueprint.ArchitectureStyle.BIOME_NATIVE;
+		}
+		return stack.getOrDefault(ModDataComponents.ARCHITECTURE_STYLE, com.example.blueprint.ArchitectureStyle.BIOME_NATIVE);
+	}
+
+	/**
+	 * Sets the active architectural design style on the item stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param style The ArchitectureStyle to set.
+	 */
+	public static void setArchitectureStyle(ItemStack stack, com.example.blueprint.ArchitectureStyle style) {
+		if (stack != null && !stack.isEmpty()) {
+			stack.set(ModDataComponents.ARCHITECTURE_STYLE, style != null ? style : com.example.blueprint.ArchitectureStyle.BIOME_NATIVE);
+		}
+	}
+
+	/**
+	 * Resolves the active procedural building size index (0: Small, 1: Medium, 2: Grand, 3: Random).
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The size index.
+	 */
+	public static int getBuildingSize(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) {
+			return com.example.blueprint.BuildingCategory.SIZE_MEDIUM;
+		}
+		return Math.floorMod(stack.getOrDefault(ModDataComponents.BUILDING_SIZE, com.example.blueprint.BuildingCategory.SIZE_MEDIUM), 4);
+	}
+
+	/**
+	 * Sets the active procedural building size index on the item stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param size  The size index (0-3).
+	 */
+	public static void setBuildingSize(ItemStack stack, int size) {
+		if (stack != null && !stack.isEmpty()) {
+			stack.set(ModDataComponents.BUILDING_SIZE, Math.floorMod(size, 4));
 		}
 	}
 
@@ -632,8 +691,11 @@ public class CommandScepterItem extends Item {
 				return;
 			}
 
-			// 2. Block Hit: Long-range RTS ground waypoint ping (up to 64 blocks)
+			// 2. Block Hit: Long-range RTS ground waypoint ping (up to 64 blocks) or MINE dismantle
 			if (hit instanceof BlockHitResult blockHit && blockHit.getType() == HitResult.Type.BLOCK) {
+				if (mode == CommandMode.MINE) {
+					return;
+				}
 				BlockPos hitPos = blockHit.getBlockPos();
 				Direction hitSide = blockHit.getSide();
 				BlockPos waypointPos = world.getBlockState(hitPos).isReplaceable() ? hitPos : hitPos.offset(hitSide);
@@ -829,14 +891,94 @@ public class CommandScepterItem extends Item {
 	// CLIENT INVENTORY TICK: BLUEPRINT PREVIEW PARTICLES & ACTION-BAR READOUT
 	// -----------------------------------------------------------------------------------------
 
+	/**
+	 * Checks if the player is currently touching water or flying directly above water.
+	 *
+	 * @param world  The world instance.
+	 * @param player The player entity.
+	 * @return true if player is touching water or the terrain/fluid surface directly below is water.
+	 */
+	public static boolean isPlayerOverWater(World world, PlayerEntity player) {
+		if (player == null || world == null) {
+			return false;
+		}
+		if (player.isTouchingWater() || player.isSubmergedInWater()) {
+			return true;
+		}
+		// Scan vertical column beneath player down to the highest terrain surface
+		BlockPos.Mutable mut = player.getBlockPos().mutableCopy();
+		int bottomY = world.getBottomY();
+		while (mut.getY() > bottomY) {
+			BlockState state = world.getBlockState(mut);
+			if (state.getFluidState().isIn(FluidTags.WATER) || state.isOf(Blocks.WATER)) {
+				return true;
+			}
+			if (state.isSolidBlock(world, mut)) {
+				return false;
+			}
+			mut.move(0, -1, 0);
+		}
+		return false;
+	}
+
+	private static final java.util.Set<java.util.UUID> ACTIVE_SERVER_BUILD_FLIERS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
 	@Override
 	public void inventoryTick(ItemStack stack, World world, Entity entity, int slot, boolean selected) {
-		if (!world.isClient() || !(entity instanceof PlayerEntity player)) {
+		if (!(entity instanceof PlayerEntity player)) {
+			return;
+		}
+
+		boolean isHeld = selected || player.getOffHandStack() == stack;
+		boolean isBuildMode = isHeld && getMode(stack) == CommandMode.BUILD;
+
+		if (entity instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
+			java.util.UUID uuid = serverPlayer.getUuid();
+			if (isBuildMode) {
+				// Water Flight Check: If player is flying or hovering over water in BUILD mode, cancel build & exit BUILD mode
+				if (isPlayerOverWater(world, serverPlayer)) {
+					com.example.construction.ConstructionManager.getInstance().cancelActiveSessionsForOwner(uuid, serverPlayer.getServerWorld());
+					setMode(stack, CommandMode.FOLLOW);
+
+					if (!serverPlayer.isCreative() && !serverPlayer.isSpectator()) {
+						serverPlayer.getAbilities().flying = false;
+						serverPlayer.getAbilities().allowFlying = false;
+						serverPlayer.sendAbilitiesUpdate();
+					}
+					ACTIVE_SERVER_BUILD_FLIERS.remove(uuid);
+
+					serverPlayer.sendMessage(Text.literal("§c⚠ Construction cancelled: Flying over water is prohibited in BUILD mode!§r"), true);
+					serverPlayer.getServerWorld().playSound(null, serverPlayer.getBlockPos(), SoundEvents.ENTITY_GENERIC_EXTINGUISH_FIRE, SoundCategory.PLAYERS, 1.0F, 1.0F);
+					serverPlayer.getServerWorld().spawnParticles(ParticleTypes.SPLASH, serverPlayer.getX(), serverPlayer.getY(), serverPlayer.getZ(), 20, 0.4D, 0.2D, 0.4D, 0.1D);
+					return;
+				}
+
+				if (!serverPlayer.getAbilities().allowFlying || !serverPlayer.getAbilities().flying) {
+					serverPlayer.getAbilities().allowFlying = true;
+					serverPlayer.getAbilities().flying = true;
+					serverPlayer.sendAbilitiesUpdate();
+				}
+				serverPlayer.fallDistance = 0.0F;
+				ACTIVE_SERVER_BUILD_FLIERS.add(uuid);
+			} else if (ACTIVE_SERVER_BUILD_FLIERS.contains(uuid)) {
+				if (!serverPlayer.isCreative() && !serverPlayer.isSpectator()) {
+					serverPlayer.getAbilities().flying = false;
+					serverPlayer.getAbilities().allowFlying = false;
+					serverPlayer.sendAbilitiesUpdate();
+				}
+				serverPlayer.fallDistance = 0.0F;
+				if (serverPlayer.isOnGround()) {
+					ACTIVE_SERVER_BUILD_FLIERS.remove(uuid);
+				}
+			}
+			return;
+		}
+
+		if (!world.isClient()) {
 			return;
 		}
 
 		// Active only when the scepter is held in main hand or off hand
-		boolean isHeld = selected || player.getOffHandStack() == stack;
 		if (!isHeld) {
 			return;
 		}
@@ -873,9 +1015,6 @@ public class CommandScepterItem extends Item {
 		// Render perimeter ground bounding particles
 		renderPerimeterParticles(world, anchorPos, rotatedBlueprint);
 
-		// Render door sparkle beams or front guide particles
-		renderDoorParticles(world, anchorPos, rotatedBlueprint, rotation);
-
 		// Project real-time HUD action-bar readout
 		int angle = getRotationIndex(stack) * 90;
 		String doorDir = resolveDoorDirection(rotatedBlueprint, rotation);
@@ -900,54 +1039,6 @@ public class CommandScepterItem extends Item {
 		for (double z = minZ; z <= maxZ; z += 1.0D) {
 			world.addParticle(ParticleTypes.WAX_ON, minX, minY, z, 0.0D, 0.01D, 0.0D);
 			world.addParticle(ParticleTypes.WAX_ON, maxX, minY, z, 0.0D, 0.01D, 0.0D);
-		}
-	}
-
-	private static void renderDoorParticles(World world, BlockPos anchorPos, StructureBlueprint blueprint, BlockRotation rotation) {
-		List<BlockPos> doorOffsets = blueprint.getDoorOffsets();
-		if (doorOffsets != null && !doorOffsets.isEmpty()) {
-			for (BlockPos offset : doorOffsets) {
-				double doorX = anchorPos.getX() + offset.getX() + 0.5D;
-				double baseDoorY = anchorPos.getY() + offset.getY();
-				double doorZ = anchorPos.getZ() + offset.getZ() + 0.5D;
-
-				for (double dy = 0.2D; dy <= 2.2D; dy += 0.5D) {
-					world.addParticle(ParticleTypes.HAPPY_VILLAGER, doorX, baseDoorY + dy, doorZ, 0.0D, 0.02D, 0.0D);
-					world.addParticle(ParticleTypes.END_ROD, doorX, baseDoorY + dy, doorZ, 0.0D, 0.04D, 0.0D);
-				}
-			}
-		} else {
-			BlockBox box = blueprint.getBoundingBox();
-			double minX = anchorPos.getX() + box.getMinX();
-			double maxX = anchorPos.getX() + box.getMaxX() + 1.0D;
-			double minZ = anchorPos.getZ() + box.getMinZ();
-			double maxZ = anchorPos.getZ() + box.getMaxZ() + 1.0D;
-
-			double guideX;
-			double guideZ;
-			switch (rotation) {
-				case CLOCKWISE_90 -> {
-					guideX = minX;
-					guideZ = (minZ + maxZ) / 2.0D;
-				}
-				case CLOCKWISE_180 -> {
-					guideX = (minX + maxX) / 2.0D;
-					guideZ = minZ;
-				}
-				case COUNTERCLOCKWISE_90 -> {
-					guideX = maxX;
-					guideZ = (minZ + maxZ) / 2.0D;
-				}
-				default -> {
-					guideX = (minX + maxX) / 2.0D;
-					guideZ = maxZ;
-				}
-			}
-			double guideBaseY = anchorPos.getY() + box.getMinY();
-			for (double dy = 0.2D; dy <= 1.8D; dy += 0.4D) {
-				world.addParticle(ParticleTypes.HAPPY_VILLAGER, guideX, guideBaseY + dy, guideZ, 0.0D, 0.02D, 0.0D);
-				world.addParticle(ParticleTypes.END_ROD, guideX, guideBaseY + dy, guideZ, 0.0D, 0.03D, 0.0D);
-			}
 		}
 	}
 
@@ -1023,43 +1114,22 @@ public class CommandScepterItem extends Item {
 
 		// BUILD Mode: Anchor construction session at clicked block face (or deconstruction if sneaking)
 		if (mode == CommandMode.BUILD) {
+			if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
+				return ActionResult.success(world.isClient());
+			}
 			if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-				BlockPos anchorPos = world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
-				String bpId = getBlueprintId(stack);
-				StructureBlueprint blueprint = BlueprintRegistry.getOrDefault(bpId);
-				if (blueprint != null) {
-					blueprint = blueprint.rotate(getRotation(stack));
-				}
-				if (player.isSneaking()) {
-					ConstructionManager.getInstance().startDismantleSession(serverWorld, anchorPos, blueprint, player);
-				} else {
-					ConstructionManager.getInstance().startSession(serverWorld, anchorPos, blueprint, player);
-				}
+				executeBuildPlacement(serverWorld, player, stack, clickedPos, side, player.isSneaking());
 			}
 			return ActionResult.success(world.isClient());
 		}
 
 		// MINE Mode: Anchor deconstruction session at clicked block or structure
 		if (mode == CommandMode.MINE) {
+			if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
+				return ActionResult.success(world.isClient());
+			}
 			if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-				// Anchor directly at clickedPos (not offset into the sky above) so the clicked ground/block is included
-				BlockPos anchorPos = clickedPos;
-				Optional<ConstructionSession> existing = ConstructionManager.getInstance().getSessionAt(anchorPos);
-				if (existing.isEmpty()) {
-					for (ConstructionSession s : ConstructionManager.getInstance().getSessionsForOwner(player.getUuid())) {
-						if (s.isActive() && s.getWorldBoundingBox().contains(clickedPos)) {
-							existing = Optional.of(s);
-							break;
-						}
-					}
-				}
-				String bpId = getBlueprintId(stack);
-				StructureBlueprint blueprint = existing.map(ConstructionSession::getBlueprint).orElseGet(() -> {
-					StructureBlueprint raw = BlueprintRegistry.getOrDefault(bpId);
-					return raw != null ? raw.rotate(getRotation(stack)) : null;
-				});
-				BlockPos targetAnchor = existing.map(ConstructionSession::getAnchorPos).orElse(anchorPos);
-				ConstructionManager.getInstance().startDismantleSession(serverWorld, targetAnchor, blueprint, player);
+				executeMinePlacement(serverWorld, player, stack, clickedPos);
 			}
 			return ActionResult.success(world.isClient());
 		}
@@ -1070,6 +1140,94 @@ public class CommandScepterItem extends Item {
 		BlockPos waypointPos = world.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
 		executeGroundWaypointPing(player, world, waypointPos, squad);
 		return ActionResult.success(world.isClient());
+	}
+
+	/**
+	 * Anchors a construction or dismantle session on the server at the specified clicked position and face.
+	 * Resolves category blueprints, procedural seeds, rotations, dynamic organic weathering, and foundation snapping.
+	 */
+	public static boolean executeBuildPlacement(
+		ServerWorld serverWorld,
+		PlayerEntity player,
+		ItemStack stack,
+		BlockPos clickedPos,
+		Direction side,
+		boolean isDismantle
+	) {
+		if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
+			return false;
+		}
+		player.getItemCooldownManager().set(stack.getItem(), 10);
+
+		BlockPos anchorPos = serverWorld.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
+		String bpId = getBlueprintId(stack);
+		int size = getBuildingSize(stack);
+		com.example.blueprint.ArchitectureStyle style = getArchitectureStyle(stack);
+
+		// 1. Resolve category or registered blueprint
+		com.example.blueprint.BuildingCategory cat = null;
+		for (com.example.blueprint.BuildingCategory c : com.example.blueprint.BuildingCategory.values()) {
+			if (c.getId().equalsIgnoreCase(bpId) || bpId.toLowerCase().startsWith(c.getId().toLowerCase())) {
+				cat = c;
+				break;
+			}
+		}
+
+		StructureBlueprint blueprint;
+		long seed = anchorPos.asLong() ^ (long) bpId.hashCode() ^ (long) style.ordinal();
+		if (cat != null) {
+			blueprint = cat.createBlueprint(size, seed);
+		} else {
+			blueprint = com.example.blueprint.BlueprintRegistry.getOrDefault(bpId);
+		}
+
+		// 2. Rotate to commander's orientation
+		if (blueprint != null) {
+			blueprint = blueprint.rotate(getRotation(stack));
+			// 3. Organically weather, adapt to biome/style, and snap dynamic foundations
+			blueprint = com.example.blueprint.DynamicBuildingResolver.resolve(blueprint, serverWorld, anchorPos, style);
+		}
+
+		if (isDismantle) {
+			ConstructionManager.getInstance().startDismantleSession(serverWorld, anchorPos, blueprint, player);
+		} else {
+			ConstructionManager.getInstance().startSession(serverWorld, anchorPos, blueprint, player);
+		}
+		return true;
+	}
+
+	/**
+	 * Anchors a dismantle session on the server at the specified clicked position.
+	 */
+	public static boolean executeMinePlacement(
+		ServerWorld serverWorld,
+		PlayerEntity player,
+		ItemStack stack,
+		BlockPos clickedPos
+	) {
+		if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
+			return false;
+		}
+		player.getItemCooldownManager().set(stack.getItem(), 10);
+
+		BlockPos anchorPos = clickedPos;
+		Optional<ConstructionSession> existing = ConstructionManager.getInstance().getSessionAt(anchorPos);
+		if (existing.isEmpty()) {
+			for (ConstructionSession s : ConstructionManager.getInstance().getSessionsForOwner(player.getUuid())) {
+				if (s.isActive() && s.getWorldBoundingBox().contains(clickedPos)) {
+					existing = Optional.of(s);
+					break;
+				}
+			}
+		}
+		String bpId = getBlueprintId(stack);
+		StructureBlueprint blueprint = existing.map(ConstructionSession::getBlueprint).orElseGet(() -> {
+			StructureBlueprint raw = BlueprintRegistry.getOrDefault(bpId);
+			return raw != null ? raw.rotate(getRotation(stack)) : null;
+		});
+		BlockPos targetAnchor = existing.map(ConstructionSession::getAnchorPos).orElse(anchorPos);
+		ConstructionManager.getInstance().startDismantleSession(serverWorld, targetAnchor, blueprint, player);
+		return true;
 	}
 
 	// -----------------------------------------------------------------------------------------
@@ -1331,12 +1489,19 @@ public class CommandScepterItem extends Item {
 
 	/**
 	 * Raycasts ground, structures, and blocks along the player's crosshair up to {@code range} blocks.
+	 * In client contexts, respects the active camera position and orientation if available.
 	 *
 	 * @param player The commanding player.
 	 * @param range  Maximum raycast distance (typically {@link #MINION_COMMAND_RADIUS}).
 	 * @return BlockHitResult representing block contact or miss.
 	 */
 	public static BlockHitResult raycastBlockTarget(PlayerEntity player, double range) {
+		if (player.getWorld().isClient() && CLIENT_TARGET_RESOLVER != null) {
+			BlockHitResult clientHit = CLIENT_TARGET_RESOLVER.getTarget(player);
+			if (clientHit != null) {
+				return clientHit;
+			}
+		}
 		Vec3d start = player.getCameraPosVec(1.0F);
 		Vec3d rotation = player.getRotationVec(1.0F);
 		Vec3d end = start.add(rotation.multiply(range));

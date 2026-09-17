@@ -6,6 +6,7 @@ import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.util.math.Vec3d;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import com.example.network.SyncConstructionSessionPayload;
 import com.example.network.EndConstructionSessionPayload;
@@ -27,6 +29,7 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.world.World;
 
 /**
@@ -179,11 +182,31 @@ public class ConstructionManager {
 
 		BlockPos immutableAnchor = anchorPos.toImmutable();
 
-		// Check if an active session already exists at this exact anchor
+		// Check if an active session already exists at this exact anchor or overlapping bounding box
 		ConstructionSession existing = this.sessionsByAnchor.get(immutableAnchor);
 		if (existing != null && existing.isActive()) {
 			existing.cancel();
 			removeSession(existing);
+			EndConstructionSessionPayload endPayload = new EndConstructionSessionPayload(existing.getId());
+			for (ServerPlayerEntity p : world.getPlayers()) {
+				ServerPlayNetworking.send(p, endPayload);
+			}
+		}
+
+		// Cancel any previous session from the same owner that overlaps the new blueprint bounds
+		BlockBox newBox = blueprint.getBoundingBox().offset(immutableAnchor.getX(), immutableAnchor.getY(), immutableAnchor.getZ());
+		List<ConstructionSession> ownerSessions = this.sessionsByOwner.get(owner.getUuid());
+		if (ownerSessions != null) {
+			for (ConstructionSession s : new ArrayList<>(ownerSessions)) {
+				if (s.isActive() && (s.getAnchorPos().equals(immutableAnchor) || s.getWorldBoundingBox().intersects(newBox))) {
+					s.cancel();
+					removeSession(s);
+					EndConstructionSessionPayload endPayload = new EndConstructionSessionPayload(s.getId());
+					for (ServerPlayerEntity p : world.getPlayers()) {
+						ServerPlayNetworking.send(p, endPayload);
+					}
+				}
+			}
 		}
 
 		boolean creative = owner.getAbilities().creativeMode;
@@ -288,6 +311,23 @@ public class ConstructionManager {
 			);
 		}
 
+		// Mobilize nearby stationed builder minions within 64 blocks of the new construction/deconstruction blueprint
+		Box mobilizationBox = new Box(
+			immutableAnchor.getX() - 64.0D, immutableAnchor.getY() - 32.0D, immutableAnchor.getZ() - 64.0D,
+			immutableAnchor.getX() + 64.0D, immutableAnchor.getY() + 32.0D, immutableAnchor.getZ() + 64.0D
+		);
+		List<com.example.entity.custom.MinionEntity> stationedBuilders = world.getEntitiesByClass(
+			com.example.entity.custom.MinionEntity.class,
+			mobilizationBox,
+			m -> m.isAlive() && m.isTamed() && owner.getUuid().equals(m.getOwnerUuid()) && m.getRole() == com.example.entity.custom.MinionRole.BUILDER
+		);
+		for (com.example.entity.custom.MinionEntity builder : stationedBuilders) {
+			if (builder.isSitting() || builder.getGuardAnchorPos() != null) {
+				builder.setSitting(false);
+				builder.setGuardAnchorPos(null);
+			}
+		}
+
 		return session;
 	}
 
@@ -354,6 +394,101 @@ public class ConstructionManager {
 			0.3
 		);
 
+		// Signal all builder minions working nearby to complete, station at perimeter waypoints, and egress structure
+		Box searchBox = new Box(box.getMinX() - 12, box.getMinY() - 6, box.getMinZ() - 12, box.getMaxX() + 12, box.getMaxY() + 10, box.getMaxZ() + 12);
+		List<com.example.entity.custom.MinionEntity> nearbyMinions = world.getEntitiesByClass(
+			com.example.entity.custom.MinionEntity.class,
+			searchBox,
+			m -> m.isAlive() && (session.getOwnerUuid() == null || session.getOwnerUuid().equals(m.getOwnerUuid()))
+		);
+
+		List<BlockPos> perimeterWaypoints = new ArrayList<>();
+		if (!session.isDismantle()) {
+			int minX = box.getMinX();
+			int maxX = box.getMaxX();
+			int minZ = box.getMinZ();
+			int maxZ = box.getMaxZ();
+			int baseY = box.getMinY();
+
+			// 1. South perimeter (Front / maxZ + 2): West to East
+			for (int x = minX; x <= maxX; x++) {
+				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(x, baseY, maxZ + 2)));
+			}
+			// 2. East flank (maxX + 2): South to North
+			for (int z = maxZ + 1; z >= minZ - 1; z--) {
+				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(maxX + 2, baseY, z)));
+			}
+			// 3. North perimeter (Back / minZ - 2): East to West
+			for (int x = maxX; x >= minX; x--) {
+				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(x, baseY, minZ - 2)));
+			}
+			// 4. West flank (minX - 2): North to South
+			for (int z = minZ - 1; z <= maxZ + 1; z++) {
+				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(minX - 2, baseY, z)));
+			}
+		}
+
+		int startIdx = 0;
+		if (!perimeterWaypoints.isEmpty()) {
+			double bestDistSq = Double.MAX_VALUE;
+			for (int i = 0; i < perimeterWaypoints.size(); i++) {
+				double d = perimeterWaypoints.get(i).getSquaredDistance(anchor);
+				if (d < bestDistSq) {
+					bestDistSq = d;
+					startIdx = i;
+				}
+			}
+		}
+
+		java.util.Set<BlockPos> assignedWaypoints = new java.util.HashSet<>();
+		int totalMinions = nearbyMinions.size();
+		int minionIdx = 0;
+
+		for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
+			minion.setActivelyBuilding(false);
+
+			if (!session.isDismantle() && !perimeterWaypoints.isEmpty()) {
+				int ringSize = perimeterWaypoints.size();
+				int targetIdx = (startIdx + (int) Math.round(minionIdx * ((double) ringSize / (double) Math.max(1, totalMinions)))) % ringSize;
+				int probe = 0;
+				BlockPos waypoint = perimeterWaypoints.get(targetIdx);
+				while (assignedWaypoints.contains(waypoint) && probe < ringSize) {
+					probe++;
+					targetIdx = (targetIdx + 1) % ringSize;
+					waypoint = perimeterWaypoints.get(targetIdx);
+				}
+				assignedWaypoints.add(waypoint);
+				minionIdx++;
+
+				// Golden beacon beam at perimeter waypoint
+				double wx = waypoint.getX() + 0.5D;
+				double wz = waypoint.getZ() + 0.5D;
+				for (int y = 0; y <= 5; y++) {
+					double wy = waypoint.getY() + 0.2D + (y * 0.75D);
+					world.spawnParticles(ParticleTypes.END_ROD, wx, wy, wz, 3, 0.08, 0.1, 0.08, 0.01);
+					world.spawnParticles(ParticleTypes.GLOW, wx, wy, wz, 4, 0.12, 0.15, 0.12, 0.02);
+				}
+				world.playSound(null, wx, waypoint.getY(), wz, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.3F);
+
+				// Station minion at this perimeter waypoint
+				minion.requestTeleport(wx, waypoint.getY(), wz);
+				minion.setSelected(false);
+				minion.setSitting(true);
+				minion.setGuardAnchorPos(waypoint);
+				minion.startEgressFromStructure(box, anchor, Vec3d.ofBottomCenter(waypoint));
+				minion.finishBuildingEgress(world);
+			} else {
+				if (minion.isInsideStructure(box)) {
+					minion.startEgressFromStructure(box, anchor, null);
+				} else {
+					if (minion.isArcaneLevitating()) {
+						minion.setArcaneLevitating(false);
+					}
+					minion.getNavigation().stop();
+				}
+			}
+		}
+
 		// Notify owner player if online
 		ServerPlayerEntity player = world.getServer().getPlayerManager().getPlayer(session.getOwnerUuid());
 		if (player != null) {
@@ -371,6 +506,39 @@ public class ConstructionManager {
 					false
 				);
 				player.playSound(SoundEvents.ENTITY_PLAYER_LEVELUP, 1.0F, 1.2F);
+			}
+		}
+	}
+
+	private BlockPos findSafePerimeterGround(ServerWorld world, BlockPos pos) {
+		for (int dy = 3; dy >= -4; dy--) {
+			BlockPos check = pos.add(0, dy, 0);
+			BlockPos ground = check.down();
+			if (world.getBlockState(ground).isSolidBlock(world, ground)
+					&& !world.getBlockState(check).isSolidBlock(world, check)
+					&& !world.getBlockState(check.up()).isSolidBlock(world, check.up())) {
+				return check;
+			}
+		}
+		return pos;
+	}
+
+	/**
+	 * Cancels all active construction or deconstruction sessions belonging to the specified owner UUID.
+	 *
+	 * @param ownerUuid The UUID of the player.
+	 * @param world     The server world.
+	 */
+	public void cancelActiveSessionsForOwner(UUID ownerUuid, ServerWorld world) {
+		if (ownerUuid == null || world == null) {
+			return;
+		}
+		List<ConstructionSession> ownerSessions = this.sessionsByOwner.get(ownerUuid);
+		if (ownerSessions != null) {
+			for (ConstructionSession session : new ArrayList<>(ownerSessions)) {
+				if (session.isActive()) {
+					cancelSession(session.getId(), world);
+				}
 			}
 		}
 	}
@@ -393,6 +561,25 @@ public class ConstructionManager {
 			}
 
 			BlockPos anchor = session.getAnchorPos();
+			BlockBox box = session.getWorldBoundingBox();
+			Box searchBox = new Box(box.getMinX() - 12, box.getMinY() - 6, box.getMinZ() - 12, box.getMaxX() + 12, box.getMaxY() + 10, box.getMaxZ() + 12);
+			List<com.example.entity.custom.MinionEntity> nearbyMinions = world.getEntitiesByClass(
+				com.example.entity.custom.MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && (session.getOwnerUuid() == null || session.getOwnerUuid().equals(m.getOwnerUuid()))
+			);
+			for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
+				minion.setActivelyBuilding(false);
+				if (minion.isInsideStructure(box)) {
+					minion.startEgressFromStructure(box, anchor, null);
+				} else {
+					if (minion.isArcaneLevitating()) {
+						minion.setArcaneLevitating(false);
+					}
+					minion.getNavigation().stop();
+				}
+			}
+
 			world.playSound(
 				null,
 				anchor.getX() + 0.5,

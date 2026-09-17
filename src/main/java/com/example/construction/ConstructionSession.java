@@ -14,6 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.block.DoorBlock;
+import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.RegistryKey;
@@ -424,9 +426,7 @@ public class ConstructionSession {
 		// 1. Hanging blocks MUST have overhead solid support already in the world
 		if (bpBlock.isHanging()) {
 			BlockPos overhead = targetPos.up();
-			if (world.getBlockState(overhead).isAir()) {
-				return false;
-			}
+			return !world.getBlockState(overhead).isAir();
 		}
 
 		// 2. Base layer (effective Y <= 0) can always be placed
@@ -442,15 +442,42 @@ public class ConstructionSession {
 			}
 		}
 
-		// Check if any unfinished tasks exist at strictly lower effective Y offsets
+		// Check if any unfinished structural tasks exist at strictly lower effective Y offsets
 		int targetEffectiveY = bpBlock.getEffectiveY();
 		for (ConstructionTask other : this.tasks) {
 			if (other.getBlueprintBlock().getEffectiveY() < targetEffectiveY && !other.isCompleted()) {
+				// Non-structural interior furniture/decorations (e.g. Anvil, Grindstone, Chest) do not block structural layers
+				if (isNonStructuralDetail(other.getBlueprintBlock().state())) {
+					continue;
+				}
 				return false;
 			}
 		}
 
 		return true;
+	}
+
+	private static boolean isNonStructuralDetail(BlockState state) {
+		if (state == null) return false;
+		net.minecraft.block.Block b = state.getBlock();
+		return b instanceof net.minecraft.block.AnvilBlock
+			|| b instanceof net.minecraft.block.BlastFurnaceBlock
+			|| b instanceof net.minecraft.block.GrindstoneBlock
+			|| b instanceof net.minecraft.block.SmithingTableBlock
+			|| b instanceof net.minecraft.block.ChestBlock
+			|| b instanceof net.minecraft.block.BarrelBlock
+			|| b instanceof net.minecraft.block.BedBlock
+			|| b instanceof net.minecraft.block.CraftingTableBlock
+			|| b instanceof net.minecraft.block.FurnaceBlock
+			|| b instanceof net.minecraft.block.SmokerBlock
+			|| b instanceof net.minecraft.block.FletchingTableBlock
+			|| b instanceof net.minecraft.block.CartographyTableBlock
+			|| b instanceof net.minecraft.block.BrewingStandBlock
+			|| b instanceof net.minecraft.block.CauldronBlock
+			|| b instanceof net.minecraft.block.LanternBlock
+			|| b instanceof net.minecraft.block.TorchBlock
+			|| b instanceof net.minecraft.block.FlowerPotBlock
+			|| b instanceof net.minecraft.block.CampfireBlock;
 	}
 
 	/**
@@ -607,6 +634,22 @@ public class ConstructionSession {
 			task.complete();
 			this.completedCount++;
 			this.lastActivityTick = world.getTime();
+
+			// If completing the lower half of a door, auto-complete the corresponding upper half task
+			BlockState state = task.getBlueprintBlock().state();
+			if (this.mode == SessionMode.BUILD && state.getBlock() instanceof DoorBlock && state.contains(DoorBlock.HALF) && state.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+				BlockPos upperPos = task.getWorldPos().up();
+				for (ConstructionTask other : this.tasks) {
+					if (!other.isCompleted() && other.getWorldPos().equals(upperPos)) {
+						BlockState otherState = other.getBlueprintBlock().state();
+						if (otherState.getBlock() instanceof DoorBlock && otherState.contains(DoorBlock.HALF) && otherState.get(DoorBlock.HALF) == DoubleBlockHalf.UPPER) {
+							other.complete();
+							this.completedCount++;
+							break;
+						}
+					}
+				}
+			}
 
 			boolean allDone = this.completedCount >= this.tasks.size();
 			if (!allDone && this.mode == SessionMode.DISMANTLE) {

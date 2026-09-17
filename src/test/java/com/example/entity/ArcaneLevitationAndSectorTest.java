@@ -250,7 +250,7 @@ public class ArcaneLevitationAndSectorTest {
 
 		// Hover station motion
 		Assertions.assertTrue(
-			content.contains("Vec3d vel = delta.normalize().multiply(0.35D)"),
+			content.contains("Vec3d vel = delta.normalize().multiply(speed)") || content.contains("Vec3d vel = delta.normalize().multiply(0.35D)"),
 			"MinionBuildGoal must smoothly propel minion toward hover station"
 		);
 		Assertions.assertTrue(

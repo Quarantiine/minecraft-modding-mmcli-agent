@@ -78,6 +78,30 @@ public class ModDataComponents {
 	);
 
 	/**
+	 * Data component storing the active {@link com.example.blueprint.ArchitectureStyle} on an item (e.g. Command Scepter).
+	 */
+	public static final ComponentType<com.example.blueprint.ArchitectureStyle> ARCHITECTURE_STYLE = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "architecture_style"),
+		ComponentType.<com.example.blueprint.ArchitectureStyle>builder()
+			.codec(com.example.blueprint.ArchitectureStyle.CODEC)
+			.packetCodec(com.example.blueprint.ArchitectureStyle.PACKET_CODEC)
+			.build()
+	);
+
+	/**
+	 * Data component storing the active procedural building size index (0: Small, 1: Med, 2: Grand, 3: Random).
+	 */
+	public static final ComponentType<Integer> BUILDING_SIZE = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "building_size"),
+		ComponentType.<Integer>builder()
+			.codec(Codec.INT)
+			.packetCodec(PacketCodecs.INTEGER)
+			.build()
+	);
+
+	/**
 	 * Static initializer method invoked during mod initialization
 	 * to ensure all static component type registrations are registered.
 	 */

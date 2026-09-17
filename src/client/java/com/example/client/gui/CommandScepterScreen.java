@@ -1,5 +1,7 @@
 package com.example.client.gui;
 
+import com.example.blueprint.ArchitectureStyle;
+import com.example.blueprint.BuildingCategory;
 import com.example.blueprint.BlueprintRegistry;
 import com.example.blueprint.StructureBlueprint;
 import com.example.client.ExampleModClient;
@@ -22,6 +24,8 @@ import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockBox;
@@ -49,10 +53,17 @@ public class CommandScepterScreen extends Screen {
 	private int nearbySelectedThralls = 0;
 	private int blueprintPage = 0;
 
+	private ArchitectureStyle selectedStyle = ArchitectureStyle.BIOME_NATIVE;
+	private int selectedSize = BuildingCategory.SIZE_MEDIUM;
+	private int selectedRotation = 0;
+
 	private final List<ButtonWidget> squadButtons = new ArrayList<>();
 	private final List<ButtonWidget> roleButtons = new ArrayList<>();
+	private final List<ButtonWidget> architectureButtons = new ArrayList<>();
 	private final List<ButtonWidget> modeButtons = new ArrayList<>();
 	private final List<ButtonWidget> blueprintButtons = new ArrayList<>();
+	private final List<ButtonWidget> sizeButtons = new ArrayList<>();
+	private ButtonWidget rotateBtn;
 	private ButtonWidget prevPageBtn;
 	private ButtonWidget nextPageBtn;
 
@@ -69,12 +80,18 @@ public class CommandScepterScreen extends Screen {
 			this.selectedMode = CommandScepterItem.getMode(scepterStack);
 			this.selectedBlueprintId = CommandScepterItem.getBlueprintId(scepterStack);
 			this.selectedSquad = CommandScepterItem.getTargetSquad(scepterStack);
-			this.selectedRole = CommandScepterItem.getTargetRole(scepterStack);
+			this.selectedRole = null; // Archetypes must never be selected by default
+			this.selectedStyle = CommandScepterItem.getArchitectureStyle(scepterStack);
+			this.selectedSize = CommandScepterItem.getBuildingSize(scepterStack);
+			this.selectedRotation = CommandScepterItem.getRotationIndex(scepterStack);
 		} else {
 			this.selectedMode = CommandMode.FOLLOW;
 			this.selectedBlueprintId = "modid-mmcli-agent-modding:watchtower";
 			this.selectedSquad = SquadGroup.ALL;
 			this.selectedRole = null;
+			this.selectedStyle = ArchitectureStyle.BIOME_NATIVE;
+			this.selectedSize = BuildingCategory.SIZE_MEDIUM;
+			this.selectedRotation = 0;
 		}
 		this.shiftHeldOnOpen = isShiftOrSneakDown();
 	}
@@ -91,8 +108,10 @@ public class CommandScepterScreen extends Screen {
 		super.init();
 		this.squadButtons.clear();
 		this.roleButtons.clear();
+		this.architectureButtons.clear();
 		this.modeButtons.clear();
 		this.blueprintButtons.clear();
+		this.sizeButtons.clear();
 
 		// Detect physical sneak/shift state on initial opening with state guard
 		if (!this.initializedOpenState) {
@@ -155,6 +174,27 @@ public class CommandScepterScreen extends Screen {
 			this.addDrawableChild(btn);
 		}
 
+		// Interactive Architecture Style Bar (Biome Native / Fortress Stone / Frontier Timber / Arcane Nether)
+		ArchitectureStyle[] styles = ArchitectureStyle.values();
+		int styleBtnWidth = 72;
+		int styleGap = 6;
+		int styleStartX = startX + 17;
+		int styleY = startY + 80;
+		for (int i = 0; i < styles.length; i++) {
+			ArchitectureStyle style = styles[i];
+			int btnX = styleStartX + i * (styleBtnWidth + styleGap);
+			ButtonWidget btn = ButtonWidget.builder(
+				getStyleButtonText(style),
+				b -> selectStyle(style)
+			)
+			.dimensions(btnX, styleY, styleBtnWidth, 20)
+			.tooltip(getStyleTooltip(style))
+			.build();
+
+			this.architectureButtons.add(btn);
+			this.addDrawableChild(btn);
+		}
+
 		// 6 Command Mode Buttons in a 2-column grid
 		CommandMode[] modes = CommandMode.values();
 		for (int i = 0; i < modes.length; i++) {
@@ -208,10 +248,26 @@ public class CommandScepterScreen extends Screen {
 				updateBlueprintButtons();
 			}
 		})
-		.dimensions(startX + 165, pageControlsY, 36, 18)
+		.dimensions(startX + 165, pageControlsY, 20, 18)
 		.tooltip(Tooltip.of(Text.literal("Previous Page")))
 		.build();
 		this.addDrawableChild(this.prevPageBtn);
+
+		// Procedural Blueprint Size Selectors [ S ] [ M ] [ L ] [ 🎲 ]
+		for (int i = 0; i < 4; i++) {
+			final int sizeIdx = i;
+			int btnX = startX + 188 + i * 29;
+			ButtonWidget sizeBtn = ButtonWidget.builder(
+				getSizeButtonText(sizeIdx),
+				b -> selectSize(sizeIdx)
+			)
+			.dimensions(btnX, pageControlsY, 27, 18)
+			.tooltip(getSizeTooltip(sizeIdx))
+			.build();
+
+			this.sizeButtons.add(sizeBtn);
+			this.addDrawableChild(sizeBtn);
+		}
 
 		this.nextPageBtn = ButtonWidget.builder(Text.literal("▶"), b -> {
 			int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
@@ -220,12 +276,24 @@ public class CommandScepterScreen extends Screen {
 				updateBlueprintButtons();
 			}
 		})
-		.dimensions(startX + 289, pageControlsY, 36, 18)
+		.dimensions(startX + 305, pageControlsY, 20, 18)
 		.tooltip(Tooltip.of(Text.literal("Next Page")))
 		.build();
 		this.addDrawableChild(this.nextPageBtn);
 
+		// Blueprint Rotation Button (visible only in BUILD mode)
+		this.rotateBtn = ButtonWidget.builder(
+			getRotateButtonText(),
+			b -> cycleRotationGui()
+		)
+		.dimensions(startX + 18, startY + 214, 136, 20)
+		.tooltip(Tooltip.of(Text.literal("§6✦ Rotate Blueprint 90° Clockwise\n§7In-Game: Press [R] or Left-Click with Scepter.")))
+		.build();
+		this.rotateBtn.visible = this.selectedMode == CommandMode.BUILD;
+		this.addDrawableChild(this.rotateBtn);
+
 		updateBlueprintButtons();
+		updateControlsVisibility();
 
 		// Action Buttons: Execute Directive, Deselect All, Teleport Minions, Dismiss All Minions, & Close
 		int bottomY = startY + 250;
@@ -339,13 +407,55 @@ public class CommandScepterScreen extends Screen {
 
 	private Text getBlueprintButtonText(StructureBlueprint bp) {
 		boolean isSelected = bp.getId().equalsIgnoreCase(this.selectedBlueprintId);
-		BlockBox box = bp.getBoundingBox();
+		StructureBlueprint resolved = BlueprintRegistry.resolveCategoryBlueprint(bp.getId(), this.selectedSize, 0L);
+		if (resolved == null) {
+			resolved = bp;
+		}
+		BlockBox box = resolved.getBoundingBox();
 		int dimX = box.getBlockCountX();
 		int dimY = box.getBlockCountY();
 		int dimZ = box.getBlockCountZ();
 
 		String prefix = isSelected ? "§6✦ " : "§f";
-		return Text.literal(prefix + bp.getName() + "\n§8" + dimX + "x" + dimY + "x" + dimZ + " §8| §e" + bp.getBlockCount() + "b");
+		return Text.literal(prefix + bp.getName() + "\n§8" + dimX + "x" + dimY + "x" + dimZ + " §8| §e" + resolved.getBlockCount() + "b");
+	}
+
+	private Text getStyleButtonText(ArchitectureStyle style) {
+		boolean isSelected = style == this.selectedStyle;
+		String prefix = isSelected ? "§6▶ " : "";
+		return Text.literal(prefix + style.getDisplayName());
+	}
+
+	private Tooltip getStyleTooltip(ArchitectureStyle style) {
+		boolean isSelected = style == this.selectedStyle;
+		String desc = isSelected
+			? "§a[Active Selection] " + style.getDescription()
+			: "§7" + style.getDescription() + "\n§eClick to select this architecture style.";
+		return Tooltip.of(Text.literal("§6✦ Style: " + style.getFormattedName() + "\n" + desc));
+	}
+
+	private Text getSizeButtonText(int size) {
+		boolean isSelected = size == this.selectedSize;
+		String label = switch (size) {
+			case BuildingCategory.SIZE_SMALL -> "S";
+			case BuildingCategory.SIZE_MEDIUM -> "M";
+			case BuildingCategory.SIZE_GRAND -> "L";
+			default -> "🎲";
+		};
+		String color = isSelected ? "§6§l" : "§7";
+		return Text.literal(color + label);
+	}
+
+	private Tooltip getSizeTooltip(int size) {
+		String label = switch (size) {
+			case BuildingCategory.SIZE_SMALL -> "Small (5x5 footprint)";
+			case BuildingCategory.SIZE_MEDIUM -> "Medium (7x7 footprint)";
+			case BuildingCategory.SIZE_GRAND -> "Grand (9x9 footprint)";
+			default -> "Random Procedural Size";
+		};
+		boolean isSelected = size == this.selectedSize;
+		String status = isSelected ? "§a[Active Size]\n" : "§eClick to select size.\n";
+		return Tooltip.of(Text.literal("§b✦ Size: §f" + label + "\n" + status + "§7Scales procedural categories (Home, Tower, Barricade, etc.)"));
 	}
 
 	private void selectSquad(SquadGroup squad) {
@@ -400,11 +510,129 @@ public class CommandScepterScreen extends Screen {
 		return this.selectedRole;
 	}
 
+	public void selectStyle(ArchitectureStyle style) {
+		this.selectedStyle = style;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setArchitectureStyle(this.scepterStack, style);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	public ArchitectureStyle getSelectedStyle() {
+		return this.selectedStyle;
+	}
+
+	public void setSelectedStyle(ArchitectureStyle style) {
+		this.selectedStyle = style;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setArchitectureStyle(this.scepterStack, style);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	public void selectSize(int size) {
+		this.selectedSize = size;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setBuildingSize(this.scepterStack, size);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	public int getSelectedSize() {
+		return this.selectedSize;
+	}
+
+	public void setSelectedSize(int size) {
+		this.selectedSize = size;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setBuildingSize(this.scepterStack, size);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	public void updateControlsVisibility() {
+		boolean isBuild = this.selectedMode == CommandMode.BUILD;
+		for (ButtonWidget btn : this.roleButtons) {
+			btn.visible = !isBuild;
+		}
+		for (ButtonWidget btn : this.architectureButtons) {
+			btn.visible = isBuild;
+		}
+		for (ButtonWidget btn : this.sizeButtons) {
+			btn.visible = isBuild;
+		}
+		if (this.rotateBtn != null) {
+			this.rotateBtn.visible = isBuild;
+		}
+	}
+
+	public List<ButtonWidget> getArchitectureButtons() {
+		return this.architectureButtons;
+	}
+
+	public List<ButtonWidget> getSizeButtons() {
+		return this.sizeButtons;
+	}
+
+	public ButtonWidget getRotateButton() {
+		return this.rotateBtn;
+	}
+
+	public int getSelectedRotation() {
+		return this.selectedRotation;
+	}
+
+	public void setSelectedRotation(int rotation) {
+		this.selectedRotation = Math.floorMod(rotation, 4);
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setRotationIndex(this.scepterStack, this.selectedRotation);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	public void cycleRotationGui() {
+		this.selectedRotation = Math.floorMod(this.selectedRotation + 1, 4);
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setRotationIndex(this.scepterStack, this.selectedRotation);
+		}
+		if (this.client != null && this.client.world != null && this.client.player != null) {
+			this.client.world.playSound(
+				null,
+				this.client.player.getX(),
+				this.client.player.getY(),
+				this.client.player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_CHIME,
+				SoundCategory.PLAYERS,
+				0.8F,
+				1.0F + (this.selectedRotation * 0.15F)
+			);
+		}
+		syncToServer(false);
+		refreshButtonLabels();
+	}
+
+	private Text getRotateButtonText() {
+		int degrees = this.selectedRotation * 90;
+		String dir = switch (this.selectedRotation) {
+			case 1 -> "East";
+			case 2 -> "South";
+			case 3 -> "West";
+			default -> "North";
+		};
+		return Text.literal("§6↻ Rotate: §b" + degrees + "° §7(" + dir + ")");
+	}
+
 	private void selectMode(CommandMode mode) {
 		this.selectedMode = mode;
 		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
 			CommandScepterItem.setMode(this.scepterStack, mode);
 		}
+		updateControlsVisibility();
 		syncToServer(false);
 		refreshButtonLabels();
 	}
@@ -425,14 +653,16 @@ public class CommandScepterScreen extends Screen {
 
 	private void syncToServer(boolean executeDirective) {
 		try {
-			int rotation = CommandScepterItem.getRotationIndex(this.scepterStack);
+			int rotation = this.selectedRotation;
 			ModClientNetworking.sendUpdateScepter(
 				this.selectedMode,
 				this.selectedBlueprintId,
 				this.selectedSquad,
 				rotation,
 				Optional.ofNullable(this.selectedRole),
-				executeDirective
+				executeDirective,
+				this.selectedStyle,
+				this.selectedSize
 			);
 		} catch (Throwable ignored) {
 			// Graceful fallback in headless or uninitialized test environments
@@ -450,6 +680,21 @@ public class CommandScepterScreen extends Screen {
 		for (int i = 0; i < roles.length && i < this.roleButtons.size(); i++) {
 			this.roleButtons.get(i).setMessage(getRoleButtonText(roles[i]));
 			this.roleButtons.get(i).setTooltip(getRoleTooltip(roles[i]));
+		}
+
+		ArchitectureStyle[] styles = ArchitectureStyle.values();
+		for (int i = 0; i < styles.length && i < this.architectureButtons.size(); i++) {
+			this.architectureButtons.get(i).setMessage(getStyleButtonText(styles[i]));
+			this.architectureButtons.get(i).setTooltip(getStyleTooltip(styles[i]));
+		}
+
+		for (int i = 0; i < this.sizeButtons.size(); i++) {
+			this.sizeButtons.get(i).setMessage(getSizeButtonText(i));
+			this.sizeButtons.get(i).setTooltip(getSizeTooltip(i));
+		}
+
+		if (this.rotateBtn != null) {
+			this.rotateBtn.setMessage(getRotateButtonText());
 		}
 
 		CommandMode[] modes = CommandMode.values();
@@ -563,32 +808,58 @@ public class CommandScepterScreen extends Screen {
 			context.fill(indX, squadY + 20, indX + squadBtnWidth, squadY + 22, indicatorColor);
 		}
 
-		// Mass Role Archetype Bar label
-		String roleLabelSuffix = this.selectedRole != null
-			? " " + this.selectedRole.getFormattedName() + " §8(Rally Transform)"
-			: " §7[None]";
-		context.drawTextWithShadow(
-			this.textRenderer,
-			Text.literal("§eMass Role Archetype:" + roleLabelSuffix),
-			startX + 16,
-			startY + 69,
-			0xFFD700
-		);
+		if (this.selectedMode == CommandMode.BUILD) {
+			// Architecture Style Bar label
+			context.drawTextWithShadow(
+				this.textRenderer,
+				Text.literal("§bArchitecture Style: " + this.selectedStyle.getFormattedName()),
+				startX + 16,
+				startY + 69,
+				0x55FFFF
+			);
 
-		// Active role indicator underline
-		if (this.selectedRole != null) {
-			int selectedRoleIndex = this.selectedRole.ordinal();
-			MinionRole[] roles = MinionRole.values();
-			if (selectedRoleIndex >= 0 && selectedRoleIndex < roles.length) {
-				int roleStartX = startX + 17;
-				int roleBtnWidth = 72;
-				int roleGap = 6;
-				int roleY = startY + 80;
-				int indX = roleStartX + selectedRoleIndex * (roleBtnWidth + roleGap);
-				int indicatorColor = this.selectedRole.getFormatting().getColorValue() != null
-					? (0xFF000000 | this.selectedRole.getFormatting().getColorValue())
-					: 0xFFFFD700;
-				context.fill(indX, roleY + 20, indX + roleBtnWidth, roleY + 22, indicatorColor);
+			// Active style indicator underline
+			int selectedStyleIndex = this.selectedStyle.ordinal();
+			ArchitectureStyle[] styles = ArchitectureStyle.values();
+			if (selectedStyleIndex >= 0 && selectedStyleIndex < styles.length) {
+				int styleStartX = startX + 17;
+				int styleBtnWidth = 72;
+				int styleGap = 6;
+				int styleY = startY + 80;
+				int indX = styleStartX + selectedStyleIndex * (styleBtnWidth + styleGap);
+				int indicatorColor = this.selectedStyle.getFormatting().getColorValue() != null
+					? (0xFF000000 | this.selectedStyle.getFormatting().getColorValue())
+					: 0xFF55FFFF;
+				context.fill(indX, styleY + 20, indX + styleBtnWidth, styleY + 22, indicatorColor);
+			}
+		} else {
+			// Mass Role Archetype Bar label
+			String roleLabelSuffix = this.selectedRole != null
+				? " " + this.selectedRole.getFormattedName() + " §8(Rally Transform)"
+				: " §7[None]";
+			context.drawTextWithShadow(
+				this.textRenderer,
+				Text.literal("§eMass Role Archetype:" + roleLabelSuffix),
+				startX + 16,
+				startY + 69,
+				0xFFD700
+			);
+
+			// Active role indicator underline
+			if (this.selectedRole != null) {
+				int selectedRoleIndex = this.selectedRole.ordinal();
+				MinionRole[] roles = MinionRole.values();
+				if (selectedRoleIndex >= 0 && selectedRoleIndex < roles.length) {
+					int roleStartX = startX + 17;
+					int roleBtnWidth = 98;
+					int roleGap = 6;
+					int roleY = startY + 80;
+					int indX = roleStartX + selectedRoleIndex * (roleBtnWidth + roleGap);
+					int indicatorColor = this.selectedRole.getFormatting().getColorValue() != null
+						? (0xFF000000 | this.selectedRole.getFormatting().getColorValue())
+						: 0xFFFFD700;
+					context.fill(indX, roleY + 20, indX + roleBtnWidth, roleY + 22, indicatorColor);
+				}
 			}
 		}
 
@@ -609,15 +880,17 @@ public class CommandScepterScreen extends Screen {
 			0x55FFFF
 		);
 
-		// Blueprint pagination indicator
-		int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
-		context.drawCenteredTextWithShadow(
-			this.textRenderer,
-			Text.literal("§7Page §f" + (this.blueprintPage + 1) + "§7/§f" + totalPages),
-			startX + 245,
-			startY + 231,
-			0xAAAAAA
-		);
+		// Blueprint pagination indicator (only shown when not in BUILD mode, as size buttons occupy this space)
+		if (this.selectedMode != CommandMode.BUILD) {
+			int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
+			context.drawCenteredTextWithShadow(
+				this.textRenderer,
+				Text.literal("§7Page §f" + (this.blueprintPage + 1) + "§7/§f" + totalPages),
+				startX + 245,
+				startY + 231,
+				0xAAAAAA
+			);
+		}
 
 		// Mode Description Footer Box
 		int descY = startY + 194;
@@ -639,13 +912,15 @@ public class CommandScepterScreen extends Screen {
 			descY + 6,
 			0xFFFFFF
 		);
-		context.drawTextWithShadow(
-			this.textRenderer,
-			Text.literal(modeDesc),
-			startX + 18,
-			descY + 22,
-			0xCCCCCC
-		);
+		if (this.selectedMode != CommandMode.BUILD) {
+			context.drawTextWithShadow(
+				this.textRenderer,
+				Text.literal(modeDesc),
+				startX + 18,
+				descY + 22,
+				0xCCCCCC
+			);
+		}
 
 		super.render(context, mouseX, mouseY, delta);
 	}
