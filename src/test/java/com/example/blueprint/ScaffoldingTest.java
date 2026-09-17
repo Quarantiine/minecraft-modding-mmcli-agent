@@ -8,14 +8,14 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
-import net.minecraft.util.math.BlockPos;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests verifying that builder scaffolding logic has been completely retired
- * in favor of full 3D Arcane Builder Levitation.
+ * Comprehensive unit tests verifying that all builder scaffolding, combat sappers,
+ * and ephemeral climbing columns have been completely retired in favor of 100% Universal
+ * 3D Arcane Levitation and zero-footprint traversal.
  */
 public class ScaffoldingTest {
 
@@ -92,10 +92,31 @@ public class ScaffoldingTest {
 	}
 
 	@Test
+	@DisplayName("ExampleMod source code audit verifies TraversalScaffoldingManager is retired")
+	public void testExampleModScaffoldingManagerRetired() throws IOException {
+		Path modPath = Path.of("src/main/java/com/example/ExampleMod.java");
+		Assertions.assertTrue(Files.exists(modPath), "ExampleMod.java must exist");
+		String code = Files.readString(modPath);
+
+		Assertions.assertFalse(code.contains("TraversalScaffoldingManager"),
+			"ExampleMod must not reference or tick TraversalScaffoldingManager");
+	}
+
+	@Test
+	@DisplayName("MinionEntity source code audit verifies MinionSapperGoal is retired")
+	public void testMinionEntitySapperGoalRetired() throws IOException {
+		Path entityPath = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
+		Assertions.assertTrue(Files.exists(entityPath), "MinionEntity.java must exist");
+		String code = Files.readString(entityPath);
+
+		Assertions.assertFalse(code.contains("MinionSapperGoal"),
+			"MinionEntity must not reference or register MinionSapperGoal");
+	}
+
+	@Test
 	@DisplayName("Minion engagement check does not rely on scaffolding column claims")
 	public void testMinionEngagementWithoutScaffolding() {
 		UUID minionUuid = UUID.randomUUID();
-		// Test dummy ConstructionSession instance reflection or verification
 		Assertions.assertDoesNotThrow(() -> {
 			Method isEngaged = ConstructionSession.class.getDeclaredMethod("isMinionEngaged", UUID.class);
 			Assertions.assertNotNull(isEngaged);
@@ -106,5 +127,16 @@ public class ScaffoldingTest {
 	@DisplayName("MinionBuildGoal.isScaffoldBlock preserves safety compatibility for world query blocks")
 	public void testIsScaffoldBlockNullSafety() {
 		Assertions.assertFalse(MinionBuildGoal.isScaffoldBlock(null));
+	}
+
+	@Test
+	@DisplayName("Passive scaffolding support is retained in MinionPathNodeMaker for player structures")
+	public void testPassiveVanillaScaffoldingCompatibility() throws IOException {
+		Path pathNodeMakerPath = Path.of("src/main/java/com/example/entity/ai/pathing/MinionPathNodeMaker.java");
+		Assertions.assertTrue(Files.exists(pathNodeMakerPath), "MinionPathNodeMaker.java must exist");
+		String code = Files.readString(pathNodeMakerPath);
+
+		Assertions.assertTrue(code.contains("Blocks.SCAFFOLDING"),
+			"MinionPathNodeMaker must retain passive support for vanilla Blocks.SCAFFOLDING");
 	}
 }

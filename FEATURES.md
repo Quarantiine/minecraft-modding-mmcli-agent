@@ -13,12 +13,11 @@ This document provides a comprehensive technical breakdown of all gameplay featu
 5. [Interactive GUIs: Command Hub & Minion Management](#5-interactive-guis-command-hub--minion-management)
 6. [Multiblock Construction & Blueprint Engine](#6-multiblock-construction--blueprint-engine)
 7. [Structure Deconstruction, Mining Area Clearance & Bedrock Immunity](#7-structure-deconstruction-mining-area-clearance--bedrock-immunity)
-8. [Combat Sappers & Ephemeral Scaffolding](#8-combat-sappers--ephemeral-scaffolding)
-9. [Dedicated Construction Block Subsystem (`ConstructionBlock`)](#9-dedicated-construction-block-subsystem-constructionblock)
-10. [Advanced Mob Pathfinding Engine](#10-advanced-mob-pathfinding-engine)
-11. [Tactical Ordnance: TNT Stick & Frost Grenade Stick](#11-tactical-ordnance-tnt-stick--frost-grenade-stick)
-12. [Data Components & Network Protocol Architecture](#12-data-components--network-protocol-architecture)
-13. [Survival vs. Creative Mode Economy & Mechanics](#13-survival-vs-creative-mode-economy--mechanics)
+8. [100% Zero-Footprint Universal Arcane Levitation](#8-100-zero-footprint-universal-arcane-levitation)
+9. [Advanced Mob Pathfinding Engine](#9-advanced-mob-pathfinding-engine)
+10. [Tactical Ordnance: TNT Stick & Frost Grenade Stick](#10-tactical-ordnance-tnt-stick--frost-grenade-stick)
+11. [Data Components & Network Protocol Architecture](#11-data-components--network-protocol-architecture)
+12. [Survival vs. Creative Mode Economy & Mechanics](#12-survival-vs-creative-mode-economy--mechanics)
 
 ---
 
@@ -166,7 +165,7 @@ The **Minion Thrall** is an autonomous bipedal worker, builder, and combat entit
 ### Allied Friendly-Fire & Damage Gating
 
 - **Friendly-Fire Immunity**: Allied damage gating cancels incoming damage from the owner, allied minions, and stray friendly warrior arrows.
-- **In-Wall Suffocation Immunity**: Minions levitating, climbing, or standing within `ConstructionBlock` or terrain obstacles are completely immune to `DamageTypes.IN_WALL` suffocation damage.
+- **In-Wall Suffocation Immunity**: Minions levitating, climbing, or standing within terrain obstacles, structures, or blocks are completely immune to `DamageTypes.IN_WALL` suffocation damage.
 
 ### Post-Combat Regrouping & Assault Queue Chaining (`assaultTargets`)
 
@@ -413,7 +412,7 @@ Server-authoritative engine orchestrating automated multiblock building and demo
   - **Arcane Runes & Safe Hovering**: Emits purple and cyan portal/enchant particles (`PORTAL` and `ENCHANT`) around the builder's boots while hovering. Gravity is suppressed and fall damage is 100% neutralized.
   - **Elevated Task Chaining**: Upon placing or dismantling a block, the builder immediately leases the next topological task in the sequence and glides directly to the next block station without descending to the ground.
   - **Smooth Earthward Landing & Roof Exit**: When all tasks are completed or work is paused, the builder's `activelyBuilding` state releases, allowing universal levitation to carry the worker smoothly off the roof to the master or ground post.
-  - **Zero Scaffolding Clutter**: Permanently eliminates minion suffocation inside scaffolding blocks, wall-scraping friction, and leftover scaffolding clutter. (Combat sapper bridging via `MinionSapperGoal` remains intact for infantry chasm crossings).
+  - **Zero Scaffolding Clutter**: Permanently eliminates minion suffocation inside scaffolding blocks, wall-scraping friction, and leftover scaffolding clutter with 100% pure Universal Arcane Levitation.
 
 ---
 
@@ -445,51 +444,25 @@ Guarantees minions never break bedrock, barrier blocks, or world boundaries:
 
 ---
 
-## 8. Combat Sappers & Ephemeral Scaffolding
+## 8. 100% Zero-Footprint Universal Arcane Levitation
 
-The **`MinionSapperGoal`** empowers **non-builder** combat minions (Warriors, Sentinels) to autonomously bridge chasms and scale cliffs:
+All ephemeral scaffolding and combat sapper goals (`MinionSapperGoal`, `TraversalScaffoldingManager`) have been completely retired in favor of **100% Universal Arcane Levitation**:
 
-- **Builder Exclusion**: Builders never self-deploy sapper scaffolding blocks. They use Arcane Levitation and Universal Obstacle Vaulting for all terrain traversal. Builders may still respond to squad sapper signal-assist requests from allies who need a builder to place bridging blocks at an obstacle.
-- **Levitation Suppression**: Any minion currently levitating (Arcane Levitation or mid-vault) is excluded from sapper scaffolding deployment.
-- **Chasm & Ravine Bridging**: Detects drops $\ge 2$ blocks deep and deploys horizontal bridge spans up to 6 blocks wide.
-- **Cliff Climbing Columns**: Deploys vertical climbing columns up to 6 blocks high when facing sheer ledges.
-- **Ceiling Clearance & Headroom Avoidance**: Scans the climbing column for overhead ceilings and enforces 2 blocks of clear headroom at landing ledges and across bridges.
-- **Overhead Collision & Stall Sensors**: Aborts climbing immediately upon overhead ceiling contact (`up(2)`) or if vertical progress stalls ($< 0.02\text{D}$ for $> 20$ ticks).
-- **Ephemeral Decay Lifecycle (`TraversalScaffoldingManager`)**: Traversal scaffolding automatically decays after 400 ticks (20s).
-- **Occupancy Safety Delay**: Extends decay timer by +40 ticks whenever a minion or player is standing on or inside the scaffold.
-- **Multi-Minion Column Reservations**: Claims unique vertical columns to prevent thralls from crowding into the same climbing shaft.
+- **Zero World Footprint**: Minions traverse across ravines, scale cliffs, descend structures, and navigate steep terrain using pure arcane flight kinematics with zero ephemeral block generation or block clutter.
+- **Universal Role Support**: Warriors, Sentinels, Rangers, and Builders all share full 3D Arcane Levitation flight and 2-tick obstacle vaulting.
+- **Dynamic 3D Hover & Glide**: Minions automatically glide up vertical obstacles, across open gaps, and off rooftop perimeters, maintaining safe descent velocities and zero fall damage.
+- **Kinematic Safety Ceiling & Anti-Jitter**: Enforces smooth station positioning and collision-aware height ceilings to prevent skyrocketing or oscillation.
 
 ---
 
-## 9. Dedicated Construction Block Subsystem (`ConstructionBlock`)
+## 9. Advanced Mob Pathfinding Engine
 
-### Technical Specifications
+### Scaffolding Pathfinding Evaluation (`MinionPathNodeMaker`)
 
-- **Identifier**: `modid-mmcli-agent-modding:construction_block`
-- **Class**: `com.example.block.custom.ConstructionBlock`
-- **Registry Holder**: `ModBlocks.CONSTRUCTION_BLOCK`
-- **Creative Tab**: `ItemGroups.BUILDING_BLOCKS`
-- **Hardness**: `0.2F` (fragile, single-hit break)
-- **Drops**: None (`.dropsNothing()`)
+Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOCKED`, preventing mobs from climbing or traversing temporary platforms. The mod's custom path node maker re-evaluates vanilla scaffolding (`Blocks.SCAFFOLDING`):
 
-### Non-Suffocating Voxel Shapes & Kinematics
-
-- **Pass-Through Interior**: Overrides `getCollisionShape()` to return `VoxelShapes.empty()` when an entity is inside or descending, enabling friction-free climbing without vanilla scaffolding collision traps.
-- **Solid-Top Platform**: Projects a solid 2-pixel top platform (`TOP_OUTLINE_SHAPE`, $y = 14..16$) only when an entity is standing above (`context.isAbove(VoxelShapes.fullCube(), pos, true) && !context.isDescending()`).
-- **Suffocation Prevention**: Configured with `.suffocates((state, world, pos) -> false)` and `.blockVision((state, world, pos) -> false)`.
-- **In-Wall Damage Immunity**: `MinionEntity.damage` cancels `DamageTypes.IN_WALL` when touching or standing within construction blocks.
-- **Infinite Horizontal Span**: Eliminates vanilla scaffolding's 6-block collapse limit; spans ravines of arbitrary width.
-
----
-
-## 10. Advanced Mob Pathfinding Engine
-
-### Scaffolding & Construction Block Evaluation (`MinionPathNodeMaker`)
-
-Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOCKED`, preventing mobs from climbing or traversing temporary platforms. The mod's custom path node maker re-evaluates both vanilla scaffolding and `ModBlocks.CONSTRUCTION_BLOCK`:
-
-- **Column Navigation & Sapper Bridges**: Evaluates scaffolding and construction blocks as `PathNodeType.OPEN` (or `WALKABLE` when supported from below), allowing vertical ascent and horizontal span crossing across sapper bridges.
-- **Elevated Platforms**: Evaluates standing on top of scaffolding or construction blocks as `PathNodeType.WALKABLE`, enabling fluid ground navigation across high-altitude platforms.
+- **Player-Placed Scaffolding Awareness**: Evaluates player-placed vanilla scaffolding as `PathNodeType.OPEN` (or `WALKABLE` when supported from below), allowing vertical ascent and horizontal span crossing across elevated platforms.
+- **Elevated Platforms**: Evaluates standing on top of scaffolding as `PathNodeType.WALKABLE`, enabling fluid ground navigation across high-altitude platforms.
 
 ### Custom Navigation (`MinionNavigation`)
 
@@ -503,7 +476,7 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 
 ---
 
-## 11. Tactical Ordnance: TNT Stick & Frost Grenade Stick
+## 10. Tactical Ordnance: TNT Stick & Frost Grenade Stick
 
 ### TNT Stick (`TntStickItem`)
 
@@ -554,7 +527,7 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 
 ---
 
-## 12. Data Components & Network Protocol Architecture
+## 11. Data Components & Network Protocol Architecture
 
 ### Minecraft 1.21 Data Components (`ModDataComponents`)
 
@@ -583,7 +556,7 @@ Type-safe, immutable components attached to items such as the Loki Command Scept
 
 ---
 
-## 13. Survival vs. Creative Mode Economy & Mechanics
+## 12. Survival vs. Creative Mode Economy & Mechanics
 
 The commander's active game mode dynamically dictates minion logistics, resource consumption, and world interaction across building, mining, recruitment, and maintenance:
 
@@ -595,5 +568,5 @@ The commander's active game mode dynamically dictates minion logistics, resource
 | **Feeding & Healing** | Consumes **1 food or gold item** per healing interaction from the player's hand. | Restores health to full **without consuming** held food or gold items. |
 | **Spawn Egg Usage** | Consumes **1 spawn egg** per mob spawned from the item stack. | Spawns minions infinitely **without depleting** the held spawn egg stack. |
 | **Scepter Recruitment (`RECRUIT`)** | Transfigures target wild or enemy mobs into loyal minion thralls. | Transfigures target wild or enemy mobs into loyal minion thralls. |
-| **Combat Sapper Bridges** | Ephemeral `ConstructionBlock` has zero drops in both modes to prevent debris. Builders levitate and do not use scaffolding. | Zero drops in both modes. |
+| **Universal Arcane Traversal** | **100% Zero-Footprint Arcane Levitation**: All minion roles (Warriors, Sentinels, Builders) traverse chasms, scale cliffs, and descend structures using zero-footprint 3D flight with zero ephemeral block generation. | **100% Zero-Footprint Arcane Levitation**: Zero ephemeral blocks generated; fluid 3D flight and obstacle vaulting across all roles. |
 

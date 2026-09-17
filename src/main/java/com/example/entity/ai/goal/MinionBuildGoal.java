@@ -1,6 +1,5 @@
 package com.example.entity.ai.goal;
 
-import com.example.block.ModBlocks;
 import com.example.construction.ConstructionManager;
 import com.example.construction.ConstructionSession;
 import com.example.construction.ConstructionTask;
@@ -372,7 +371,7 @@ public class MinionBuildGoal extends Goal {
 		boolean alreadyPlaced = serverWorld.getBlockState(targetPos).equals(targetState);
 		boolean hasResources = false;
 
-		if (alreadyPlaced || this.currentSession.isCreative() || requiredItem == Items.SCAFFOLDING || requiredItem == ModBlocks.CONSTRUCTION_BLOCK.asItem()) {
+		if (alreadyPlaced || this.currentSession.isCreative() || requiredItem == Items.SCAFFOLDING) {
 			// Already in place, creative mode, or zero-cost scaffolding: free placement
 			hasResources = true;
 		} else {
@@ -865,17 +864,16 @@ public class MinionBuildGoal extends Goal {
 
 
 	/**
-	 * Checks whether the given block state represents a valid scaffolding or construction block.
-	 * Supports both vanilla scaffolding and ModBlocks.CONSTRUCTION_BLOCK.
+	 * Checks whether the given block state represents a valid scaffolding block.
 	 *
 	 * @param state The BlockState to inspect.
-	 * @return True if state is Blocks.SCAFFOLDING or ModBlocks.CONSTRUCTION_BLOCK.
+	 * @return True if state is Blocks.SCAFFOLDING.
 	 */
 	public static boolean isScaffoldBlock(BlockState state) {
 		if (state == null) {
 			return false;
 		}
-		return state.isOf(Blocks.SCAFFOLDING) || state.isOf(ModBlocks.CONSTRUCTION_BLOCK);
+		return state.isOf(Blocks.SCAFFOLDING);
 	}
 
 	/**

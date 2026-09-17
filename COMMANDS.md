@@ -157,9 +157,10 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 
 ---
 
-## 🧙‍♂️ 8. Arcane Levitation & Obstacle Vaulting
+## 🧙‍♂️ 8. 100% Universal Arcane Levitation & Obstacle Vaulting
 
-- **Builders**: Maintain permanent 3D flight throughout construction tasks, hovering adjacent to work blocks at any height without scaffolding.
+- **100% Zero-Footprint Traversal Across All Roles**: Warriors, Sentinels, and Builders traverse ravines, scale cliffs, navigate vertical terrain, and descend structures using zero-footprint 3D Arcane Levitation with zero ephemeral block generation.
+- **Builders**: Maintain permanent 3D flight throughout construction and deconstruction tasks, hovering adjacent to work blocks at any height without scaffolding or temporary blocks.
 - **All Minion Types (Warriors, Sentinels, Builders)**:
   - Responsive 2-tick obstacle stall sensitivity: when encountering walls, fences, cliffs, or ledges they cannot walk over, they instantly perform an **Arcane Obstacle Vault**, gliding smoothly over barriers with purple portal trails and landing safely on the far side.
 - **Dynamic Obstacle Clearance & Solid Ground Landing**: Minions can scale obstacles of any height (3, 5, 10, or 20+ blocks high) without artificial altitude caps or premature timers. Upward lift carries minions cleanly over barriers, and the instant a minion's feet reach solid ground without a taller obstacle ahead (e.g. stepping atop a 3-block ledge or reaching the other side), levitation deactivates immediately and restores normal ground walking and step height. In mid-air, downward glide carries minions to earth. Melee warriors in ground combat never launch into the air.
@@ -191,7 +192,7 @@ The commander's active game mode directly affects how minions handle resources, 
 | **Minion Feeding & Healing**           | Consumes **1 food or gold item** per healing interaction.                                                                                                                                                                                                     | Restores minion health **without consuming** any items from the player's inventory.                                                                                                                  |
 | **Minion Spawn Egg**                   | Consumes **1 spawn egg** per mob spawned.                                                                                                                                                                                                                     | Spawns minions infinitely **without depleting** the held egg stack.                                                                                                                                  |
 | **Scepter Recruitment (`RECRUIT`)**    | Transfigures wild mobs into minion thralls.                                                                                                                                                                                                                   | Transfigures wild mobs into minion thralls.                                                                                                                                                          |
-| **Sapper Bridges & Construction Blocks**  | Ephemeral `ConstructionBlock` placed during combat sapper bridging/scaling has zero drops in both modes to prevent debris. Builders levitate and do not use scaffolding. | Zero drops in both modes.                                                                                                                                                                            |
+| **Universal Arcane Traversal**        | 100% zero-footprint 3D Arcane Levitation across all roles. Zero ephemeral block clutter.                                                                                                                                                                     | 100% zero-footprint 3D Arcane Levitation across all roles. Zero ephemeral block clutter.                                                                                                             |
 
 ---
 

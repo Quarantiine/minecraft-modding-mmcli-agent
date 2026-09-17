@@ -1,16 +1,11 @@
 package com.example.block;
 
 import com.example.ExampleMod;
-import com.example.block.custom.ConstructionBlock;
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
-import net.minecraft.block.AbstractBlock;
 import net.minecraft.block.Block;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
-import net.minecraft.item.ItemGroups;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
-import net.minecraft.sound.BlockSoundGroup;
 import net.minecraft.util.Identifier;
 
 /**
@@ -18,23 +13,6 @@ import net.minecraft.util.Identifier;
  * Manages block initialization, associated block items, and creative tab placement.
  */
 public class ModBlocks {
-
-	/**
-	 * Solid-top, easily breakable, non-collapsing ephemeral construction block
-	 * with drop-nothing behavior for minion scaffolding and bridging.
-	 */
-	public static final Block CONSTRUCTION_BLOCK = registerBlock(
-		"construction_block",
-		new ConstructionBlock(
-			AbstractBlock.Settings.create()
-				.strength(0.2F, 0.2F)
-				.sounds(BlockSoundGroup.SCAFFOLDING)
-				.dropsNothing()
-				.nonOpaque()
-				.suffocates((state, world, pos) -> false)
-				.blockVision((state, world, pos) -> false)
-		)
-	);
 
 	/**
 	 * Helper method to register a block and its corresponding BlockItem in their respective registries.
@@ -69,10 +47,5 @@ public class ModBlocks {
 	 */
 	public static void registerModBlocks() {
 		ExampleMod.LOGGER.info("Registering Mod Blocks for {}", ExampleMod.MOD_ID);
-
-		// Add Construction Block to the Building Blocks creative inventory tab
-		ItemGroupEvents.modifyEntriesEvent(ItemGroups.BUILDING_BLOCKS).register(entries -> {
-			entries.add(CONSTRUCTION_BLOCK);
-		});
 	}
 }

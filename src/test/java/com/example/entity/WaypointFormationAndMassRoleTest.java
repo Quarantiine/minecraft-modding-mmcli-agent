@@ -2,7 +2,6 @@ package com.example.entity;
 
 import com.example.ExampleMod;
 import com.example.block.ModBlocks;
-import com.example.block.custom.ConstructionBlock;
 import com.example.blueprint.BlueprintBlock;
 import com.example.blueprint.StructureBlueprint;
 import com.example.client.renderer.ClientConstructionTracker;
@@ -34,7 +33,7 @@ import org.junit.jupiter.api.Test;
  * Comprehensive unit tests validating:
  * 1. Automatic Waypoint Ping parametric formation distribution and clearance.
  * 2. MassRolePayload networking definitions, codecs, and squad channels.
- * 3. ConstructionBlock non-suffocating voxel shape and block settings.
+ * 3. Custom ConstructionBlock retirement in favor of vanilla scaffolding.
  * 4. ClientConstructionTracker persistent wireframe lifecycle tracking.
  * 5. StructureBlueprint rotation index and state transformations.
  * 6. Channeled Banner of Courage mass select archetype transformation logic.
@@ -154,46 +153,26 @@ public class WaypointFormationAndMassRoleTest {
 	}
 
 	// =========================================================================
-	// 3. ConstructionBlock Suffocation & Collision Shape Invariants
+	// 3. Custom Construction Block Retirement & Vanilla Scaffolding Invariants
 	// =========================================================================
 
 	@Test
-	@DisplayName("ModBlocks and ConstructionBlock source code enforces non-suffocating and pass-through geometry")
-	void testConstructionBlockSourceInvariants() throws IOException {
+	@DisplayName("ModBlocks and codebase enforce complete retirement of custom construction block in favor of vanilla scaffolding")
+	void testConstructionBlockRetirementInvariants() throws IOException {
 		Path modBlocksPath = Path.of("src/main/java/com/example/block/ModBlocks.java");
 		Assertions.assertTrue(Files.exists(modBlocksPath), "ModBlocks.java must exist");
 		String modBlocksContent = Files.readString(modBlocksPath);
 
-		// Verify non-suffocating settings
-		Assertions.assertTrue(
-			modBlocksContent.contains(".suffocates((state, world, pos) -> false)"),
-			"ModBlocks must register CONSTRUCTION_BLOCK with .suffocates((state, world, pos) -> false)"
-		);
-		Assertions.assertTrue(
-			modBlocksContent.contains(".blockVision((state, world, pos) -> false)"),
-			"ModBlocks must register CONSTRUCTION_BLOCK with .blockVision((state, world, pos) -> false)"
+		// Verify custom CONSTRUCTION_BLOCK is no longer registered in ModBlocks
+		Assertions.assertFalse(
+			modBlocksContent.contains("CONSTRUCTION_BLOCK"),
+			"ModBlocks must not register custom CONSTRUCTION_BLOCK"
 		);
 
 		Path constructionBlockPath = Path.of("src/main/java/com/example/block/custom/ConstructionBlock.java");
-		Assertions.assertTrue(Files.exists(constructionBlockPath), "ConstructionBlock.java must exist");
-		String blockContent = Files.readString(constructionBlockPath);
-
-		// Verify getCollisionShape override and context.isAbove check
-		Assertions.assertTrue(
-			blockContent.contains("getCollisionShape"),
-			"ConstructionBlock must override getCollisionShape"
-		);
-		Assertions.assertTrue(
-			blockContent.contains("context.isAbove(VoxelShapes.fullCube(), pos, true)"),
-			"ConstructionBlock must check context.isAbove(VoxelShapes.fullCube(), pos, true)"
-		);
-		Assertions.assertTrue(
-			blockContent.contains("!context.isDescending()"),
-			"ConstructionBlock must check !context.isDescending()"
-		);
-		Assertions.assertTrue(
-			blockContent.contains("VoxelShapes.empty()"),
-			"ConstructionBlock must return VoxelShapes.empty() when inside or descending"
+		Assertions.assertFalse(
+			Files.exists(constructionBlockPath),
+			"ConstructionBlock.java must be deleted and no longer exist"
 		);
 	}
 

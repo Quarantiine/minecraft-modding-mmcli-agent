@@ -272,23 +272,27 @@ public class ArcaneLevitationAndSectorTest {
 	}
 
 	// =========================================================================
-	// 5. MinionPathNodeMaker Construction Block Traversal Support
+	// 5. MinionPathNodeMaker Scaffolding Traversal Support
 	// =========================================================================
 
 	@Test
-	@DisplayName("Validate MinionPathNodeMaker traversal support for ModBlocks.CONSTRUCTION_BLOCK")
-	void testMinionPathNodeMakerSupportsConstructionBlock() throws IOException {
+	@DisplayName("Validate MinionPathNodeMaker traversal support for Blocks.SCAFFOLDING")
+	void testMinionPathNodeMakerSupportsScaffolding() throws IOException {
 		Path nodeMakerPath = Path.of("src/main/java/com/example/entity/ai/pathing/MinionPathNodeMaker.java");
 		Assertions.assertTrue(Files.exists(nodeMakerPath), "MinionPathNodeMaker.java must exist");
 		String content = Files.readString(nodeMakerPath);
 
 		Assertions.assertTrue(
-			content.contains("ModBlocks.CONSTRUCTION_BLOCK"),
-			"MinionPathNodeMaker must reference ModBlocks.CONSTRUCTION_BLOCK"
+			content.contains("Blocks.SCAFFOLDING"),
+			"MinionPathNodeMaker must reference Blocks.SCAFFOLDING"
 		);
 		Assertions.assertTrue(
-			content.contains("isScaffoldOrConstruction"),
-			"MinionPathNodeMaker must inspect both scaffolding and construction blocks"
+			content.contains("isScaffold"),
+			"MinionPathNodeMaker must inspect scaffolding blocks"
+		);
+		Assertions.assertFalse(
+			content.contains("ModBlocks.CONSTRUCTION_BLOCK"),
+			"MinionPathNodeMaker must not reference retired ModBlocks.CONSTRUCTION_BLOCK"
 		);
 	}
 }

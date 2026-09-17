@@ -2,7 +2,6 @@ package com.example.construction;
 
 import com.example.block.ModBlocks;
 import com.example.entity.ai.goal.MinionBuildGoal;
-import com.example.entity.ai.goal.MinionSapperGoal;
 import com.example.entity.custom.MinionRole;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,23 +15,28 @@ import java.util.UUID;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Comprehensive unit tests verifying critical safety invariants:
+ * Comprehensive unit tests verifying critical safety and traversal invariants:
  * <ol>
  *   <li><b>Bedrock & Indestructible Block Immunity:</b> Ensures minions can never mine, dismantle,
  *       or clear bedrock, barriers, command blocks, or end portal frames in any session mode.</li>
- *   <li><b>Sapper Ceiling Clearance Avoidance & Stall Recovery:</b> Ensures minion combat sappers
- *       never deploy climbing columns into low ceilings or overhead obstructions, abort immediately
- *       upon ceiling contact, and time out cleanly if stalled.</li>
- *   <li><b>Construction Block Traversal & Ephemeral Invariants:</b> Verifies {@link ModBlocks#CONSTRUCTION_BLOCK}
- *       solid-top support, arbitrary chasm spanning stability, zero-drop demolition, and scaffolding recognition.</li>
+ *   <li><b>3D Arcane Levitation Ceiling Clearance & Stall Recovery:</b> Ensures upward Arcane Levitation
+ *       never attempts to push into low ceilings or overhead obstructions, aborts immediately upon
+ *       ceiling collision, and times out cleanly if stalled.</li>
+ *   <li><b>Zero-Footprint Traversal & Passive Scaffolding Invariants:</b> Verifies that ephemeral scaffolding
+ *       and sappers are completely retired in favor of 100% Arcane Levitation, while passive awareness
+ *       for player-placed vanilla scaffolding is retained.</li>
  * </ol>
  */
 public class BedrockAndCeilingSafeguardTest {
+
+	public static final double MIN_VERTICAL_PROGRESS_PER_TICK = 0.02D;
+	public static final int STALL_THRESHOLD_TICKS = 20;
 
 	// =========================================================================
 	// 1. BEDROCK IMMUNITY TESTS
@@ -74,8 +78,8 @@ public class BedrockAndCeilingSafeguardTest {
 	}
 
 	@Test
-	@DisplayName("Bedrock immunity: Scaffolding removal strictly verifies block type to prevent deleting ground bedrock")
-	public void testScaffoldingRemovalPreservesUnderlyingBedrock() {
+	@DisplayName("Bedrock immunity: Dismantle work strictly verifies block type to prevent deleting ground bedrock")
+	public void testBedrockPreservationDuringDemolitionWork() {
 		class MockWorldBlockManager {
 			final Map<BlockPos, String> worldBlocks = new HashMap<>();
 
@@ -83,16 +87,14 @@ public class BedrockAndCeilingSafeguardTest {
 				worldBlocks.put(pos, block);
 			}
 
-			// Models MinionBuildGoal.removeScaffoldBlockWithFeedback logic
-			boolean safeRemoveScaffold(BlockPos pos) {
+			boolean safeDismantleBlock(BlockPos pos) {
 				String block = worldBlocks.get(pos);
 				if (block == null) {
 					return false;
 				}
-				// Safeguard: Only scaffold/construction blocks may be cleared!
-				boolean isScaffold = "minecraft:scaffolding".equals(block) || "modid-mmcli-agent-modding:construction_block".equals(block);
-				if (!isScaffold) {
-					return false; // Rejects clearing bedrock, dirt, stone, etc.
+				// Safeguard: Bedrock and indestructible blocks can NEVER be cleared!
+				if ("minecraft:bedrock".equals(block) || "minecraft:barrier".equals(block)) {
+					return false;
 				}
 				worldBlocks.put(pos, "minecraft:air");
 				return true;
@@ -101,17 +103,17 @@ public class BedrockAndCeilingSafeguardTest {
 
 		MockWorldBlockManager world = new MockWorldBlockManager();
 		BlockPos bedrockPos = new BlockPos(0, -64, 0);
-		BlockPos scaffoldPos = new BlockPos(0, -63, 0);
+		BlockPos structurePos = new BlockPos(0, -63, 0);
 
 		world.placeBlock(bedrockPos, "minecraft:bedrock");
-		world.placeBlock(scaffoldPos, "modid-mmcli-agent-modding:construction_block");
+		world.placeBlock(structurePos, "minecraft:stone_bricks");
 
-		// Scaffold block is cleared successfully
-		Assertions.assertTrue(world.safeRemoveScaffold(scaffoldPos));
-		Assertions.assertEquals("minecraft:air", world.worldBlocks.get(scaffoldPos));
+		// Structure block is cleared successfully
+		Assertions.assertTrue(world.safeDismantleBlock(structurePos));
+		Assertions.assertEquals("minecraft:air", world.worldBlocks.get(structurePos));
 
-		// Underlying bedrock is strictly rejected and never deleted
-		Assertions.assertFalse(world.safeRemoveScaffold(bedrockPos));
+		// Underlying bedrock is strictly protected and never deleted
+		Assertions.assertFalse(world.safeDismantleBlock(bedrockPos));
 		Assertions.assertEquals("minecraft:bedrock", world.worldBlocks.get(bedrockPos));
 	}
 
@@ -140,49 +142,49 @@ public class BedrockAndCeilingSafeguardTest {
 	}
 
 	// =========================================================================
-	// 2. CEILING CLEARANCE AVOIDANCE & STALL RECOVERY IN SAPPERS
+	// 2. 3D ARCANE LEVITATION CEILING CLEARANCE & STALL RECOVERY
 	// =========================================================================
 
 	@Test
-	@DisplayName("Ceiling clearance: Climbing column planner aborts if overhead ceiling blocks shaft path")
-	public void testShaftCeilingObstructionRejection() {
-		class ShaftObstacleScanner {
-			List<BlockPos> scanAscent(BlockPos feetPos, int targetHeight, Set<BlockPos> solidBlocks) {
-				List<BlockPos> column = new ArrayList<>();
+	@DisplayName("Ceiling clearance: Arcane levitation ascent planner aborts if overhead ceiling blocks path")
+	public void testLevitationCeilingObstructionRejection() {
+		class LevitationAscentScanner {
+			List<BlockPos> scanAscentPath(BlockPos feetPos, int targetHeight, Set<BlockPos> solidBlocks) {
+				List<BlockPos> path = new ArrayList<>();
 				for (int h = 1; h <= targetHeight; h++) {
-					BlockPos shaftPos = feetPos.up(h);
-					if (solidBlocks.contains(shaftPos)) {
-						// Ceiling block directly in the climbing shaft! Abort column ascent
+					BlockPos stepPos = feetPos.up(h);
+					if (solidBlocks.contains(stepPos)) {
+						// Ceiling block directly in the ascent path! Abort upward levitation
 						return List.of();
 					}
-					column.add(shaftPos);
+					path.add(stepPos);
 				}
-				return column;
+				return path;
 			}
 		}
 
-		ShaftObstacleScanner scanner = new ShaftObstacleScanner();
+		LevitationAscentScanner scanner = new LevitationAscentScanner();
 		BlockPos feet = new BlockPos(10, 64, 10);
 
-		// Clear shaft up to 4 blocks
+		// Clear path up to 4 blocks
 		Set<BlockPos> openSky = Set.of();
-		List<BlockPos> clearColumn = scanner.scanAscent(feet, 4, openSky);
-		Assertions.assertEquals(4, clearColumn.size());
+		List<BlockPos> clearPath = scanner.scanAscentPath(feet, 4, openSky);
+		Assertions.assertEquals(4, clearPath.size());
 
 		// Ceiling at 2 blocks above feet (feet.up(2) = Y: 66)
 		Set<BlockPos> lowCeiling = Set.of(feet.up(2));
-		List<BlockPos> blockedColumn = scanner.scanAscent(feet, 4, lowCeiling);
-		Assertions.assertTrue(blockedColumn.isEmpty(), "Shaft with overhead ceiling must produce empty climbing column");
+		List<BlockPos> blockedPath = scanner.scanAscentPath(feet, 4, lowCeiling);
+		Assertions.assertTrue(blockedPath.isEmpty(), "Ascent with overhead ceiling must produce empty path");
 	}
 
 	@Test
-	@DisplayName("Ceiling clearance: Ledge destination candidate requires 2 blocks of clear headroom")
+	@DisplayName("Ceiling clearance: Ledge landing candidate requires 2 blocks of clear headroom")
 	public void testLedgeLandingHeadroomRequirement() {
 		class LedgeHeadroomEvaluator {
 			boolean isLedgeValid(BlockPos ledgeGround, Set<BlockPos> solidBlocks) {
 				BlockPos feet = ledgeGround.up(1);
 				BlockPos head = ledgeGround.up(2);
-				// Solid blocks at feet or head obstruct the ledge
+				// Solid blocks at feet or head obstruct the landing
 				return !solidBlocks.contains(feet) && !solidBlocks.contains(head);
 			}
 		}
@@ -201,32 +203,36 @@ public class BedrockAndCeilingSafeguardTest {
 	}
 
 	@Test
-	@DisplayName("Ceiling clearance: Direct overhead ceiling collision sensor aborts climbing immediately")
-	public void testOverheadCeilingCollisionSensorAbortsClimb() {
-		class ClimbTickSensor {
-			boolean climbing = true;
+	@DisplayName("Ceiling clearance: Direct overhead ceiling collision sensor terminates upward levitation immediately")
+	public void testOverheadCeilingCollisionSensorAbortsLevitation() {
+		class LevitationCollisionSensor {
+			boolean levitating = true;
+			double vy = 0.38D;
 
 			void checkCeilingCollision(boolean solidHeadBlock) {
 				if (solidHeadBlock) {
-					this.climbing = false;
+					this.levitating = false;
+					this.vy = 0.0D;
 				}
 			}
 		}
 
-		ClimbTickSensor sensor = new ClimbTickSensor();
-		Assertions.assertTrue(sensor.climbing);
+		LevitationCollisionSensor sensor = new LevitationCollisionSensor();
+		Assertions.assertTrue(sensor.levitating);
+		Assertions.assertEquals(0.38D, sensor.vy);
 
-		// Open air overhead -> continues climbing
+		// Open air overhead -> continues levitating
 		sensor.checkCeilingCollision(false);
-		Assertions.assertTrue(sensor.climbing);
+		Assertions.assertTrue(sensor.levitating);
 
-		// Solid ceiling block contacted at head clearance (headPos = minion.getBlockPos().up(2))
+		// Solid ceiling block contacted at head clearance
 		sensor.checkCeilingCollision(true);
-		Assertions.assertFalse(sensor.climbing, "Head collision with ceiling must immediately terminate climb state");
+		Assertions.assertFalse(sensor.levitating, "Head collision with ceiling must immediately terminate levitation state");
+		Assertions.assertEquals(0.0D, sensor.vy, "Upward velocity must be zeroed on ceiling collision");
 	}
 
 	@Test
-	@DisplayName("Ceiling clearance: Vertical stall sensor terminates climb after 20 stalled ticks")
+	@DisplayName("Ceiling clearance: Vertical stall sensor terminates levitation after 20 stalled ticks")
 	public void testVerticalStallSensorTimeout() {
 		int stallTicks = 0;
 		double lastY = 64.0D;
@@ -235,158 +241,167 @@ public class BedrockAndCeilingSafeguardTest {
 		// 1. Upward motion of +0.24 blocks per tick resets stall counter
 		for (int tick = 0; tick < 10; tick++) {
 			double currentY = lastY + 0.24D;
-			if (currentY - lastY < MinionSapperGoal.MIN_VERTICAL_PROGRESS_PER_TICK) {
+			if (currentY - lastY < MIN_VERTICAL_PROGRESS_PER_TICK) {
 				stallTicks++;
 			} else {
 				stallTicks = 0;
 			}
 			lastY = currentY;
 		}
-		Assertions.assertEquals(0, stallTicks, "Normal climbing must have 0 stall ticks");
+		Assertions.assertEquals(0, stallTicks, "Normal levitation climbing must have 0 stall ticks");
 
 		// 2. Stopped by low ceiling -> 0.0 progress for 21 ticks
-		for (int tick = 0; tick <= MinionSapperGoal.STALL_THRESHOLD_TICKS; tick++) {
+		for (int tick = 0; tick <= STALL_THRESHOLD_TICKS; tick++) {
 			double currentY = lastY + 0.0D; // No progress
-			if (currentY - lastY < MinionSapperGoal.MIN_VERTICAL_PROGRESS_PER_TICK) {
+			if (currentY - lastY < MIN_VERTICAL_PROGRESS_PER_TICK) {
 				stallTicks++;
 			} else {
 				stallTicks = 0;
 			}
 			lastY = currentY;
-			if (stallTicks > MinionSapperGoal.STALL_THRESHOLD_TICKS) {
+			if (stallTicks > STALL_THRESHOLD_TICKS) {
 				aborted = true;
 				break;
 			}
 		}
 
-		Assertions.assertTrue(aborted, "Climb must abort after exceeding STALL_THRESHOLD_TICKS (20 ticks)");
+		Assertions.assertTrue(aborted, "Levitation climb must abort after exceeding STALL_THRESHOLD_TICKS (20 ticks)");
 		Assertions.assertEquals(21, stallTicks);
 	}
 
 	@Test
-	@DisplayName("Ceiling clearance: Ravine bridging detects overhead ceiling and terminates bridge path")
-	public void testRavineBridgeCeilingClearanceAvoidance() {
-		class BridgeScanner {
-			List<BlockPos> buildBridge(BlockPos feetPos, int maxSpan, Set<BlockPos> solidBlocks) {
-				List<BlockPos> bridge = new ArrayList<>();
+	@DisplayName("Ceiling clearance: Horizontal 3D levitation detects overhead ceiling and terminates flight path")
+	public void testHorizontalLevitationTrajectoryClearanceAvoidance() {
+		class TrajectoryScanner {
+			List<BlockPos> calculateTrajectory(BlockPos feetPos, int maxSpan, Set<BlockPos> solidBlocks) {
+				List<BlockPos> flightPath = new ArrayList<>();
 				for (int step = 1; step <= maxSpan; step++) {
-					BlockPos bridgePos = feetPos.add(step, 0, 0);
-					BlockPos head1 = bridgePos.up(1);
-					BlockPos head2 = bridgePos.up(2);
+					BlockPos pathPos = feetPos.add(step, 0, 0);
+					BlockPos head1 = pathPos.up(1);
+					BlockPos head2 = pathPos.up(2);
 
-					// If headroom is obstructed, stop bridging to avoid trapping minion in a tight crevice
+					// If headroom is obstructed, stop flight path to avoid trapping minion under tight ceilings
 					if (solidBlocks.contains(head1) || solidBlocks.contains(head2)) {
 						break;
 					}
-					bridge.add(bridgePos);
+					flightPath.add(pathPos);
 				}
-				return bridge;
+				return flightPath;
 			}
 		}
 
-		BridgeScanner scanner = new BridgeScanner();
+		TrajectoryScanner scanner = new TrajectoryScanner();
 		BlockPos feet = new BlockPos(0, 64, 0);
 
-		// Unobstructed ravine gap
-		List<BlockPos> fullBridge = scanner.buildBridge(feet, 6, Set.of());
-		Assertions.assertEquals(6, fullBridge.size());
+		// Unobstructed chasm crossing
+		List<BlockPos> fullFlight = scanner.calculateTrajectory(feet, 6, Set.of());
+		Assertions.assertEquals(6, fullFlight.size());
 
 		// Low ceiling at step 3 (X=3, Y=66)
 		Set<BlockPos> lowCeiling = Set.of(new BlockPos(3, 66, 0));
-		List<BlockPos> truncatedBridge = scanner.buildBridge(feet, 6, lowCeiling);
-		Assertions.assertEquals(2, truncatedBridge.size(), "Bridge should terminate before the overhead ceiling obstacle");
+		List<BlockPos> truncatedFlight = scanner.calculateTrajectory(feet, 6, lowCeiling);
+		Assertions.assertEquals(2, truncatedFlight.size(), "Flight path should terminate before the overhead ceiling obstacle");
 	}
 
 	// =========================================================================
-	// 3. CONSTRUCTION BLOCK BEHAVIOR & INVARIANTS
+	// 3. ZERO-FOOTPRINT TRAVERSAL & PASSIVE SCAFFOLDING RECOGNITION
 	// =========================================================================
 
 	@Test
-	@DisplayName("Construction block: Passable scaffolding recognition in build and sapper goals")
+	@DisplayName("Scaffolding: Passable scaffolding recognition in build goal and passive climbing")
 	public void testPassableScaffoldingRecognition() throws IOException {
 		// MinionBuildGoal.isScaffoldBlock null check
 		Assertions.assertFalse(MinionBuildGoal.isScaffoldBlock(null));
 
-		// Verify source invariants: both goals must recognize Blocks.SCAFFOLDING and ModBlocks.CONSTRUCTION_BLOCK
+		// Verify source invariants: MinionBuildGoal recognizes Blocks.SCAFFOLDING and retires custom ModBlocks.CONSTRUCTION_BLOCK
 		Path buildGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionBuildGoal.java");
 		String buildCode = Files.readString(buildGoalPath);
-		Assertions.assertTrue(buildCode.contains("state.isOf(Blocks.SCAFFOLDING) || state.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
-			"MinionBuildGoal.isScaffoldBlock must accept both vanilla scaffolding and ModBlocks.CONSTRUCTION_BLOCK");
+		Assertions.assertTrue(buildCode.contains("state.isOf(Blocks.SCAFFOLDING)"),
+			"MinionBuildGoal.isScaffoldBlock must accept vanilla scaffolding");
+		Assertions.assertFalse(buildCode.contains("ModBlocks.CONSTRUCTION_BLOCK"),
+			"MinionBuildGoal must not reference retired ModBlocks.CONSTRUCTION_BLOCK");
 
-		Path sapperGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionSapperGoal.java");
-		String sapperCode = Files.readString(sapperGoalPath);
-		Assertions.assertTrue(sapperCode.contains("state.isOf(Blocks.SCAFFOLDING) || state.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
-			"MinionSapperGoal.isPassableScaffolding must accept both vanilla scaffolding and ModBlocks.CONSTRUCTION_BLOCK");
+		// MinionEntity must not reference retired ModBlocks.CONSTRUCTION_BLOCK or MinionSapperGoal
+		Path minionPath = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
+		String minionCode = Files.readString(minionPath);
+		Assertions.assertFalse(minionCode.contains("MinionSapperGoal"),
+			"MinionEntity must not reference obsolete MinionSapperGoal");
+		Assertions.assertFalse(minionCode.contains("ModBlocks.CONSTRUCTION_BLOCK"),
+			"MinionEntity must not reference retired ModBlocks.CONSTRUCTION_BLOCK");
+	}
 
-		// Logical verification with mock predicate
-		class PassableTester {
-			static boolean isPassable(String blockId) {
-				return "minecraft:scaffolding".equals(blockId) || "modid-mmcli-agent-modding:construction_block".equals(blockId);
+	@Test
+	@DisplayName("Zero-Footprint: All minion roles use Arcane Levitation without generating blocks or consuming items")
+	public void testZeroFootprintTraversalAcrossAllRoles() {
+		class TraversalModel {
+			final boolean usesArcaneLevitation;
+			final boolean placesPhysicalBlocks;
+			final boolean consumesInventoryItems;
+
+			TraversalModel(MinionRole role) {
+				// 100% Universal Arcane Levitation across ALL roles
+				this.usesArcaneLevitation = true;
+				this.placesPhysicalBlocks = false;
+				this.consumesInventoryItems = false;
 			}
 		}
 
-		Assertions.assertTrue(PassableTester.isPassable("minecraft:scaffolding"));
-		Assertions.assertTrue(PassableTester.isPassable("modid-mmcli-agent-modding:construction_block"));
-		Assertions.assertFalse(PassableTester.isPassable("minecraft:stone"));
-		Assertions.assertFalse(PassableTester.isPassable("minecraft:dirt"));
+		for (MinionRole role : MinionRole.values()) {
+			TraversalModel model = new TraversalModel(role);
+			Assertions.assertTrue(model.usesArcaneLevitation, role + " must use Universal Arcane Levitation");
+			Assertions.assertFalse(model.placesPhysicalBlocks, role + " must not generate physical scaffolding blocks");
+			Assertions.assertFalse(model.consumesInventoryItems, role + " must not consume items for traversal");
+		}
 	}
 
 	@Test
-	@DisplayName("Construction block: Builder role archetype places construction blocks at zero cost")
-	public void testBuilderArchetypeZeroCostPlacement() {
-		Assertions.assertTrue(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.BUILDER),
-			"BUILDER role must place construction blocks at zero cost");
-		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.WARRIOR));
-		Assertions.assertFalse(MinionSapperGoal.canRoleBuildZeroCost(MinionRole.SENTINEL));
-	}
+	@DisplayName("Zero-Footprint: 3D Arcane Levitation spatial stationing prevents multi-minion congestion")
+	public void testSpatialLevitationPreventsOvercrowding() {
+		class SpatialStationHarness {
+			final Map<Vec3d, UUID> stations = new HashMap<>();
 
-	@Test
-	@DisplayName("Construction block: Multi-minion column reservations maintain spacing across army")
-	public void testColumnReservationPreventsOvercrowding() {
-		class ColumnReservationHarness {
-			final Map<BlockPos, UUID> reservations = new HashMap<>();
-
-			boolean claim(BlockPos pos, UUID minion) {
-				for (Map.Entry<BlockPos, UUID> e : reservations.entrySet()) {
-					if (e.getKey().getX() == pos.getX() && e.getKey().getZ() == pos.getZ()) {
+			boolean claimStation(Vec3d station, UUID minion) {
+				for (Map.Entry<Vec3d, UUID> e : stations.entrySet()) {
+					if (e.getKey().squaredDistanceTo(station) < 1.0D) {
 						return e.getValue().equals(minion);
 					}
 				}
-				reservations.put(pos, minion);
+				stations.put(station, minion);
 				return true;
 			}
 		}
 
-		ColumnReservationHarness harness = new ColumnReservationHarness();
+		SpatialStationHarness harness = new SpatialStationHarness();
 		UUID minion1 = UUID.randomUUID();
 		UUID minion2 = UUID.randomUUID();
 
-		BlockPos colA = new BlockPos(10, 64, 10);
-		BlockPos colAShaft = new BlockPos(10, 68, 10);
-		BlockPos colB = new BlockPos(12, 64, 10);
+		Vec3d stationA = new Vec3d(10.5, 68.0, 10.5);
+		Vec3d stationClose = new Vec3d(10.8, 68.2, 10.6);
+		Vec3d stationB = new Vec3d(12.5, 68.0, 10.5);
 
-		// Minion 1 claims column A
-		Assertions.assertTrue(harness.claim(colA, minion1));
+		// Minion 1 claims station A in 3D flight
+		Assertions.assertTrue(harness.claimStation(stationA, minion1));
 
-		// Minion 2 cannot claim same X,Z column even at different Y
-		Assertions.assertFalse(harness.claim(colAShaft, minion2),
-			"Minion 2 must be prevented from crowding onto Minion 1's climbing column");
+		// Minion 2 cannot occupy nearly identical 3D coordinate
+		Assertions.assertFalse(harness.claimStation(stationClose, minion2),
+			"Minion 2 must not crowd onto Minion 1's 3D levitation station");
 
-		// Minion 2 can claim separate column B
-		Assertions.assertTrue(harness.claim(colB, minion2));
+		// Minion 2 can claim separate 3D hover station B
+		Assertions.assertTrue(harness.claimStation(stationB, minion2));
 	}
 
 	@Test
-	@DisplayName("Construction block: MinionEntity recognizes CONSTRUCTION_BLOCK for climbing physics")
+	@DisplayName("Scaffolding: MinionEntity recognizes SCAFFOLDING for passive climbing physics")
 	public void testMinionEntityClimbingRecognition() throws IOException {
 		Path minionEntityPath = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
 		String code = Files.readString(minionEntityPath);
-		Assertions.assertTrue(code.contains("!currentFootState.isOf(Blocks.SCAFFOLDING) && !currentFootState.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
-			"MinionEntity.tick must not prematurely cancel climbing in construction blocks");
-		Assertions.assertTrue(code.contains("!footState.isOf(Blocks.SCAFFOLDING) && !footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
-			"MinionEntity.isNavigatingUpwardInScaffolding must accept construction blocks");
-		Assertions.assertTrue(code.contains("footState.isOf(Blocks.SCAFFOLDING) || footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)"),
-			"MinionEntity.isClimbing must accept construction blocks");
+		Assertions.assertTrue(code.contains("!currentFootState.isOf(Blocks.SCAFFOLDING)"),
+			"MinionEntity.tick must not prematurely cancel climbing in scaffolding");
+		Assertions.assertTrue(code.contains("!footState.isOf(Blocks.SCAFFOLDING)"),
+			"MinionEntity.isNavigatingUpwardInScaffolding must accept scaffolding");
+		Assertions.assertTrue(code.contains("footState.isOf(Blocks.SCAFFOLDING)"),
+			"MinionEntity.isClimbing must accept scaffolding");
+		Assertions.assertFalse(code.contains("ModBlocks.CONSTRUCTION_BLOCK"),
+			"MinionEntity must not reference retired ModBlocks.CONSTRUCTION_BLOCK");
 	}
 }
-

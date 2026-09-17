@@ -538,7 +538,7 @@ public class ConstructionManager {
 
 	/**
 	 * Checks whether a minion thrall is actively engaged in an ongoing construction or deconstruction
-	 * session, either by holding a claimed building task or reserving a scaffolding column.
+	 * session by holding a claimed building task.
 	 *
 	 * @param minionUuid The minion's unique ID.
 	 * @return True if actively engaged in an active session.

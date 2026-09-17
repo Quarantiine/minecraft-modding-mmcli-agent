@@ -1,6 +1,5 @@
 package com.example.entity.ai.pathing;
 
-import com.example.block.ModBlocks;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.entity.ai.pathing.LandPathNodeMaker;
@@ -17,10 +16,10 @@ import net.minecraft.util.math.BlockPos;
  * {@link PathNodeType#BLOCKED}, preventing mobs from pathfinding onto scaffolding columns,
  * ascending scaffolding ladders, or traversing scaffolding work platforms.
  *
- * This path node maker re-evaluates scaffolding and construction blocks:
- * 1. Scaffolding / construction blocks themselves are treated as {@link PathNodeType#OPEN}
+ * This path node maker re-evaluates scaffolding blocks:
+ * 1. Scaffolding blocks themselves are treated as {@link PathNodeType#OPEN}
  *    (or {@link PathNodeType#WALKABLE} if supported from below), allowing vertical ascent and lateral traversal.
- * 2. Standing on top of scaffolding / construction blocks is treated as {@link PathNodeType#WALKABLE},
+ * 2. Standing on top of scaffolding blocks is treated as {@link PathNodeType#WALKABLE},
  *    enabling smooth movement across elevated building platforms and sapper bridges.
  */
 public class MinionPathNodeMaker extends LandPathNodeMaker {
@@ -29,8 +28,8 @@ public class MinionPathNodeMaker extends LandPathNodeMaker {
 		super();
 	}
 
-	private static boolean isScaffoldOrConstruction(BlockState state) {
-		return state.isOf(Blocks.SCAFFOLDING) || state.isOf(ModBlocks.CONSTRUCTION_BLOCK);
+	private static boolean isScaffold(BlockState state) {
+		return state.isOf(Blocks.SCAFFOLDING);
 	}
 
 	@Override
@@ -38,18 +37,18 @@ public class MinionPathNodeMaker extends LandPathNodeMaker {
 		BlockPos pos = new BlockPos(x, y, z);
 		BlockState state = context.getBlockState(pos);
 
-		// If current block is scaffolding or construction block
-		if (isScaffoldOrConstruction(state)) {
+		// If current block is scaffolding
+		if (isScaffold(state)) {
 			BlockState below = context.getBlockState(pos.down());
-			if (isScaffoldOrConstruction(below) || (!below.isAir() && below.isOpaque())) {
+			if (isScaffold(below) || (!below.isAir() && below.isOpaque())) {
 				return PathNodeType.WALKABLE;
 			}
 			return PathNodeType.OPEN;
 		}
 
-		// If the block below is scaffolding/construction and current block is passable, it is walkable ground
+		// If the block below is scaffolding and current block is passable, it is walkable ground
 		BlockState belowState = context.getBlockState(pos.down());
-		if (isScaffoldOrConstruction(belowState)) {
+		if (isScaffold(belowState)) {
 			if (state.isAir() || state.canPathfindThrough(NavigationType.LAND)) {
 				return PathNodeType.WALKABLE;
 			}
@@ -63,18 +62,18 @@ public class MinionPathNodeMaker extends LandPathNodeMaker {
 		BlockPos pos = new BlockPos(x, y, z);
 		BlockState state = context.getBlockState(pos);
 
-		// Scaffolding or construction block traversal
-		if (isScaffoldOrConstruction(state)) {
+		// Scaffolding traversal
+		if (isScaffold(state)) {
 			BlockState below = context.getBlockState(pos.down());
-			if (isScaffoldOrConstruction(below) || (!below.isAir() && below.isOpaque())) {
+			if (isScaffold(below) || (!below.isAir() && below.isOpaque())) {
 				return PathNodeType.WALKABLE;
 			}
 			return PathNodeType.OPEN;
 		}
 
-		// Surface of scaffolding or construction block
+		// Surface of scaffolding
 		BlockState belowState = context.getBlockState(pos.down());
-		if (isScaffoldOrConstruction(belowState)) {
+		if (isScaffold(belowState)) {
 			if (state.isAir() || state.canPathfindThrough(NavigationType.LAND)) {
 				return PathNodeType.WALKABLE;
 			}

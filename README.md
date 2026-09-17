@@ -14,7 +14,7 @@ The mod introduces strategic army management, autonomous AI companions, and stru
   - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman or ranged archer based on equipped weapons.
   - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded players (commander priority) and allied minions within 10 blocks, maintaining an expanded 128-block operational leash.
   - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, and deposits surplus materials into autonomous supply depot chests.
-  - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 3D Arcane Levitation flight throughout construction, and instant 2-tick obstacle-vaulting traversal.
+  - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 100% zero-footprint 3D Arcane Levitation flight across all roles (with zero ephemeral block generation), and instant 2-tick obstacle-vaulting traversal.
 - **The Loki Command Scepter**: Handheld tactical relic enabling:
   - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines with expanded 128-block operational leash freedom.
   - **Banner of Courage (90° Forward Sector)**: Hold right-click to project an expanding tactical cone; releasing launches a synchronized Mass Assault queue hunting down all enclosed hostiles.
@@ -76,7 +76,7 @@ To test server-authoritative logic, multiplayer sync, or network packets:
 
 ### 5. Running Automated Unit Tests
 
-Run the automated test suite (249 unit tests across 23 suites covering AI, math, networking, logistics, ordnance, and safeguards):
+Run the automated test suite (241 unit tests across 22 suites covering AI, math, networking, logistics, ordnance, and safeguards):
 
 ```bash
 ./gradlew test

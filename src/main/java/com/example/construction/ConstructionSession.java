@@ -672,8 +672,8 @@ public class ConstructionSession {
 
 
 	/**
-	 * Checks if a minion thrall is actively engaged in this session, either holding a claimed
-	 * task or a reserved scaffolding column.
+	 * Checks if a minion thrall is actively engaged in this session by holding a claimed
+	 * task.
 	 *
 	 * @param minionUuid The minion's unique ID.
 	 * @return True if actively engaged in this session.

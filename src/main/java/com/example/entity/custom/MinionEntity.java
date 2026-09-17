@@ -6,13 +6,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-import com.example.block.ModBlocks;
 import com.example.component.SquadGroup;
 import com.example.entity.ai.goal.MinionActiveTargetGoal;
 import com.example.entity.ai.goal.MinionBuildGoal;
 import com.example.entity.ai.goal.MinionFormationFollowGoal;
 import com.example.entity.ai.goal.MinionRangedAttackGoal;
-import com.example.entity.ai.goal.MinionSapperGoal;
 import com.example.entity.ai.goal.SentinelGuardGoal;
 import com.example.entity.ai.goal.SentinelHealAllyGoal;
 import com.example.entity.ai.goal.WaypointHoldGoal;
@@ -462,7 +460,6 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(0, new SwimGoal(this));
 		this.goalSelector.add(1, new SitGoal(this));
 		this.goalSelector.add(2, new LongDoorInteractGoal(this, true));
-		this.goalSelector.add(2, new MinionSapperGoal(this));
 		this.goalSelector.add(3, new SentinelGuardGoal(this));
 		this.goalSelector.add(3, new SentinelHealAllyGoal(this));
 		this.goalSelector.add(3, new WaypointHoldGoal(this));
@@ -534,9 +531,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				autoEquipFromInventory();
 			}
 
-			// Auto-clear climbing flag if minion is no longer within a scaffolding block or construction block
+			// Auto-clear climbing flag if minion is no longer within a scaffolding block
 			BlockState currentFootState = this.getBlockStateAtPos();
-			if (this.climbingScaffolding && !currentFootState.isOf(Blocks.SCAFFOLDING) && !currentFootState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
+			if (this.climbingScaffolding && !currentFootState.isOf(Blocks.SCAFFOLDING)) {
 				this.climbingScaffolding = false;
 			}
 
@@ -982,7 +979,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public boolean isNavigatingUpwardInScaffolding() {
 		BlockState footState = this.getBlockStateAtPos();
-		if (!footState.isOf(Blocks.SCAFFOLDING) && !footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
+		if (!footState.isOf(Blocks.SCAFFOLDING)) {
 			return false;
 		}
 		// Explicit climbing flag from build or sapper AI goals
@@ -1021,7 +1018,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	/**
 	 * Overrides vanilla climbing behavior to give the minion AI explicit control over scaffolding traversal.
-	 * If the minion is currently within a scaffolding block or custom construction block, climbing physics is enabled if
+	 * If the minion is currently within a scaffolding block, climbing physics is enabled if
 	 * {@link #isClimbingScaffolding()} is true or if the minion is actively navigating upward
 	 * through the column. For ladders, vines, and other climbables, defaults to vanilla logic.
 	 *
@@ -1030,7 +1027,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	@Override
 	public boolean isClimbing() {
 		BlockState footState = this.getBlockStateAtPos();
-		if (footState.isOf(Blocks.SCAFFOLDING) || footState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
+		if (footState.isOf(Blocks.SCAFFOLDING)) {
 			return this.climbingScaffolding || this.isNavigatingUpwardInScaffolding();
 		}
 		return super.isClimbing();
@@ -1039,7 +1036,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	/**
 	 * Overrides entity travel physics to implement smooth scaffolding climbing mechanics for minions.
 	 * Because mob entities lack client jump input packets, vanilla scaffolding logic fails to propel
-	 * mobs upward when ascending. When inside scaffolding or construction blocks and navigating upward or toward elevated targets,
+	 * mobs upward when ascending. When inside scaffolding and navigating upward or toward elevated targets,
 	 * applies a continuous +0.25D vertical velocity impulse and zeroes fall distance.
 	 *
 	 * @param movementInput Lateral and forward directional movement vector.
@@ -1047,7 +1044,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	@Override
 	public void travel(Vec3d movementInput) {
 		BlockState footState = this.getBlockStateAtPos();
-		boolean inScaffolding = footState.isOf(Blocks.SCAFFOLDING) || footState.isOf(ModBlocks.CONSTRUCTION_BLOCK);
+		boolean inScaffolding = footState.isOf(Blocks.SCAFFOLDING);
 		boolean ascendingScaffolding = this.isAlive()
 			&& inScaffolding
 			&& this.isNavigatingUpwardInScaffolding();
@@ -1061,7 +1058,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 		super.travel(movementInput);
 
-		if (this.isAlive() && (this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING) || this.getBlockStateAtPos().isOf(ModBlocks.CONSTRUCTION_BLOCK))) {
+		if (this.isAlive() && this.getBlockStateAtPos().isOf(Blocks.SCAFFOLDING)) {
 			this.fallDistance = 0.0F;
 			if (ascendingScaffolding) {
 				Vec3d currentVelocity = this.getVelocity();
@@ -1131,8 +1128,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		if (source.isOf(DamageTypes.IN_WALL)) {
 			BlockState state = this.getBlockStateAtPos();
 			BlockState headState = this.getWorld().getBlockState(this.getBlockPos().up());
-			if (state.isOf(ModBlocks.CONSTRUCTION_BLOCK) || state.isOf(Blocks.SCAFFOLDING)
-				|| headState.isOf(ModBlocks.CONSTRUCTION_BLOCK) || headState.isOf(Blocks.SCAFFOLDING)) {
+			if (state.isOf(Blocks.SCAFFOLDING) || headState.isOf(Blocks.SCAFFOLDING)) {
 				return false;
 			}
 		}
@@ -1680,15 +1676,15 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		BlockPos below = pos.down();
 		BlockState belowState = world.getBlockState(below);
 
-		if (!belowState.isSolidBlock(world, below) && !belowState.isOf(Blocks.SCAFFOLDING) && !belowState.isOf(ModBlocks.CONSTRUCTION_BLOCK)) {
+		if (!belowState.isSolidBlock(world, below) && !belowState.isOf(Blocks.SCAFFOLDING)) {
 			return false;
 		}
 
 		BlockState feetState = world.getBlockState(pos);
 		BlockState headState = world.getBlockState(pos.up());
 
-		boolean feetClear = feetState.isAir() || feetState.isOf(Blocks.SCAFFOLDING) || feetState.isOf(ModBlocks.CONSTRUCTION_BLOCK) || feetState.canPathfindThrough(NavigationType.LAND);
-		boolean headClear = headState.isAir() || headState.isOf(Blocks.SCAFFOLDING) || headState.isOf(ModBlocks.CONSTRUCTION_BLOCK) || headState.canPathfindThrough(NavigationType.LAND);
+		boolean feetClear = feetState.isAir() || feetState.isOf(Blocks.SCAFFOLDING) || feetState.canPathfindThrough(NavigationType.LAND);
+		boolean headClear = headState.isAir() || headState.isOf(Blocks.SCAFFOLDING) || headState.canPathfindThrough(NavigationType.LAND);
 		boolean hazard = feetState.isOf(Blocks.LAVA) || feetState.isOf(Blocks.FIRE) || feetState.isOf(Blocks.SWEET_BERRY_BUSH);
 
 		return feetClear && headClear && !hazard;
