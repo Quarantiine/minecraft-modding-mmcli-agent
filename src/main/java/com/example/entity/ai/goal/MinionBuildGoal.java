@@ -397,13 +397,18 @@ public class MinionBuildGoal extends Goal {
 				}
 			}
 
-			// 4. Autonomous Material Harvesting & Agro-Forestry
+			// 4. Autonomous Material Harvesting, Agro-Forestry & Mob Procurement
 			if (!hasResources) {
-				hasResources = com.example.entity.ai.logistics.MinionHarvestingHelper.tryAutonomousHarvest(this.minion, serverWorld, requiredItem, this.currentSession);
-				if (hasResources) {
+				boolean harvestOrContract = com.example.entity.ai.logistics.MinionHarvestingHelper.tryAutonomousHarvest(this.minion, serverWorld, requiredItem, this.currentSession);
+				if (harvestOrContract) {
 					int slot = findItemSlot(minionInv, requiredItem);
 					if (slot != -1) {
 						minionInv.removeStack(slot, 1);
+						hasResources = true;
+					} else {
+						// Procurement hunt contract commissioned or in progress: wait patiently for delivery
+						this.ticksNavigating = 0;
+						return;
 					}
 				}
 			}

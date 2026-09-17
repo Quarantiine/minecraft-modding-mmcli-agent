@@ -52,6 +52,7 @@ public final class MinionLogisticsHelper {
 
 		for (MinionEntity ally : allies) {
 			SimpleInventory allyInv = ally.getInventory();
+			// First check direct item match
 			for (int slot = 0; slot < allyInv.size(); slot++) {
 				ItemStack stack = allyInv.getStack(slot);
 				if (!stack.isEmpty() && stack.isOf(requiredItem) && stack.getCount() > 0) {
@@ -81,12 +82,50 @@ public final class MinionLogisticsHelper {
 					return true;
 				}
 			}
+
+			// Second check: check if ally can synthesize the item from raw materials (e.g. bones -> bone meal, string -> wool)
+			if (MinionHarvestingHelper.isMobProcurementResource(requiredItem)) {
+				if (MinionHarvestingHelper.synthesizeMaterial(allyInv, requiredItem)) {
+					for (int slot = 0; slot < allyInv.size(); slot++) {
+						ItemStack stack = allyInv.getStack(slot);
+						if (!stack.isEmpty() && stack.isOf(requiredItem) && stack.getCount() > 0) {
+							ItemStack transferred = stack.split(1);
+							allyInv.markDirty();
+
+							requester.getInventory().addStack(transferred);
+							requester.getInventory().markDirty();
+
+							spawnSharingBeam(world, ally.getEyePos(), requester.getEyePos());
+
+							world.playSound(
+								null,
+								requester.getX(),
+								requester.getY(),
+								requester.getZ(),
+								SoundEvents.ENTITY_ITEM_PICKUP,
+								SoundCategory.NEUTRAL,
+								0.8F,
+								1.2F + (world.random.nextFloat() * 0.2F)
+							);
+
+							return true;
+						}
+					}
+				}
+			}
 		}
 
 		return false;
 	}
 
-	private static void spawnSharingBeam(ServerWorld world, Vec3d from, Vec3d to) {
+	/**
+	 * Spawns visual particle beams between two positions.
+	 *
+	 * @param world Server world.
+	 * @param from  Origin position.
+	 * @param to    Destination position.
+	 */
+	public static void spawnSharingBeam(ServerWorld world, Vec3d from, Vec3d to) {
 		Vec3d diff = to.subtract(from);
 		double dist = diff.length();
 		if (dist < 0.1D) return;

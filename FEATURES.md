@@ -15,7 +15,7 @@ This document provides a comprehensive technical breakdown of all gameplay featu
 7. [Structure Deconstruction, Mining Area Clearance & Bedrock Immunity](#7-structure-deconstruction-mining-area-clearance--bedrock-immunity)
 8. [100% Zero-Footprint Universal Arcane Levitation](#8-100-zero-footprint-universal-arcane-levitation)
 9. [Advanced Mob Pathfinding Engine](#9-advanced-mob-pathfinding-engine)
-10. [Tactical Ordnance: TNT Stick & Frost Grenade Stick](#10-tactical-ordnance-tnt-stick--frost-grenade-stick)
+10. [Tactical Ordnance & Warrior Thrown Weapon Arsenal](#10-tactical-ordnance--warrior-thrown-weapon-arsenal)
 11. [Data Components & Network Protocol Architecture](#11-data-components--network-protocol-architecture)
 12. [Survival vs. Creative Mode Economy & Mechanics](#12-survival-vs-creative-mode-economy--mechanics)
 
@@ -150,7 +150,12 @@ The **Minion Thrall** is an autonomous bipedal worker, builder, and combat entit
 
 - **Bare-Handed Initialization**: Minions summoned via spawn egg or recruited from wild mobs initialize with empty equipment hands and an empty 9-slot backpack.
 - **Dynamic Role Disarming**: When a minion's role changes (e.g. from Warrior to Builder), any equipped mainhand weapon incompatible with the new role is immediately disarmed and moved into the backpack, or dropped at feet if the backpack is full.
-- **Warrior Ranged vs. Melee Suppression**: When a Warrior equips a bow or crossbow, melee strike behaviors are suppressed, allowing them to strafe and skirmish as an archer. When equipped with a sword, axe, or mace, melee attack goals engage automatically.
+- **Warrior Combat Modality & Thrown Weapon Arsenal**: Warriors dynamically adapt combat styles based on their equipped arsenal:
+  - **Frontline Melee**: Swords, axes, and maces trigger aggressive melee assault pathfinding.
+  - **Ranged Archery**: Bows and crossbows trigger strafing ranged skirmishing AI (`MinionRangedAttackGoal`).
+  - **Thrown Ordnance**: Frost Grenade Sticks and TNT Sticks allow warriors to lob tactical projectiles at enemy formations.
+  - **Trident Duality**: Tridents operate as hybrid melee/ranged weapons, dynamically engaging in close-quarters melee thrusts when enemies are $\le 5.0\text{D}$ and seamlessly switching to ranged javelin throws when targets are $5.0\text{D} < d \le 20.0\text{D}$.
+- **Warrior Ranged vs. Melee Suppression**: When equipped with pure ranged weapons (bow, crossbow, frost grenade stick), melee strike behaviors are suppressed, allowing them to strafe and skirmish. When equipped with melee weapons, close-range combat engages automatically.
 
 ### Health Regeneration & Interactive Feeding
 
@@ -208,9 +213,9 @@ To ensure commanders can monitor their thralls' vital status at a glance during 
 
 | Role | Color | Combat Profile | Primary Equipment | Behaviors |
 | :--- | :--- | :--- | :--- | :--- |
-| **`WARRIOR`** | Red (`§c`) | Frontline Melee **or** Ranged Skirmish | Swords, Axes, Maces **OR** Bows, Crossbows | **Dual Combatant**: Functions as a frontline melee striker or as a ranged archer based on equipped weapon. Leads formation frontline. |
+| **`WARRIOR`** | Red (`§c`) | Frontline Melee, Ranged Skirmish **&** Tactical Procurement Hunts | Swords, Axes, Maces, Tridents **OR** Bows, Crossbows, Thrown Ordnance (Frost Grenades, TNT Sticks) | **Multi-Modality Combatant & Hunter**: Functions as a frontline melee striker, ranged archer, or thrown javelin specialist based on equipped loadout. Features **Trident Duality** ($\le 5\text{D}$ melee, $5\text{D}\text{--}20\text{D}$ ranged javelin). Automatically accepts **Squad Material Procurement Contracts** commissioned by Builder thralls to hunt mob resources (wool, bones, slime, leather, etc.), synthesize refined goods, and deliver drops via peer logistics. Leads formation frontline. |
 | **`SENTINEL`** | Green (`§a`) | Perimeter Guard & Combat Medic | Sword + Shield | Holds designated anchor; 8-block guard zone; 128-block leash freedom; prioritizes shields. **Aegis of Restoration**: Autonomously channels healing to the player commander and allied minions under 70% HP within 10 blocks (prioritizing the player commander if wounded), restoring 6.0 HP (3 hearts) and granting Regeneration II for 5s with heart VFX, chime audio, and an action bar confirmation message (6s cooldown; fallback self-heal below 40% HP). |
-| **`BUILDER`** | Blue (`§9`) | Construction & Logistics | Pickaxes, Axes, Shovels | Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts tools, shares blocks via peer energy beams, and deploys supply depot chests. |
+| **`BUILDER`** | Blue (`§9`) | Construction, Deconstruction & Logistics Procurement | Pickaxes, Axes, Shovels | Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts tools, shares blocks via peer energy beams, deploys supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warrior thralls for mob-derived construction materials. |
 
 ### 5 Tactical Squad Channels (`SquadGroup`)
 
@@ -390,10 +395,12 @@ Server-authoritative engine orchestrating automated multiblock building and demo
     2. *Nearby Container Scavenging*: Searches chests, barrels, and shulkers within 12 blocks for missing materials.
     3. *Peer-to-Peer Allied Sharing (`MinionLogisticsHelper`)*: Scans allied minions within 24m, transferring required blocks via green energy beams and pickup audio.
     4. *Autonomous Quarrying & Agro-Forestry (`MinionHarvestingHelper`)*: Autonomously quarries natural stone, deepslate, and earth. For timber, fells trees or plants saplings and accelerates maturity with bone meal.
-    5. *Tool Self-Crafting*: Synthesizes wooden or stone tools (pickaxes, axes, shovels) from timber and stone when tools break or are missing.
-    6. *Strict Build Protection*: Never breaks player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
-    7. *Hazard Avoidance*: Inspects all 6 orthogonal directions and refuses to break blocks adjacent to lava.
-    8. *Autonomous Supply Depots*: When bags are full of surplus non-blueprint materials, deposits excess into nearby chests or crafts an 8-plank Chest (pairing into a Double Chest if adjacent).
+    5. *Squad Material Procurement & Mob Hunting Contracts (`MinionHarvestingHelper`)*: When organic or mob-derived materials are required (wool, bones, slime, leather, ink, prismarine, etc.), builders scan for target mobs within 32m and commission an available allied Warrior thrall. The warrior receives the contract via a weaponsmith audio cue and energy beam, hunts the target mob, synthesizes the required refined material, and delivers it directly to the builder. (Falls back to solo builder hunting if no warrior is nearby).
+    6. *In-Inventory Resource Synthesis Engine*: Automatically synthesizes high-tier multiblock components from raw mob ingredients (e.g. 4 String $\to$ 1 Wool, 1 Bone $\to$ 3 Bone Meal, 9 Bone Meal $\to$ 1 Bone Block, 9 Slimeballs $\to$ 1 Slime Block, 4 Magma Cream $\to$ 1 Magma Block, 1 Blaze Rod $\to$ 2 Blaze Powder, 1 Ender Pearl + 1 Blaze Powder $\to$ 1 Eye of Ender, 4 Prismarine Shards $\to$ 1 Prismarine, 9 Shards $\to$ 1 Prismarine Bricks, 4 Shards + 5 Crystals $\to$ 1 Sea Lantern, 4 Rabbit Hide $\to$ 1 Leather, 9 String $\to$ 1 Cobweb).
+    7. *Strict Safety & Build Protection*: Never hunts player pets, named mobs, villagers, iron golems, allays, or allied minions (`isSafeHuntTarget`). Never breaks player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
+    8. *Hazard Avoidance*: Inspects all 6 orthogonal directions and refuses to break blocks adjacent to lava.
+    9. *Tool Self-Crafting*: Synthesizes wooden or stone tools (pickaxes, axes, shovels) from timber and stone when tools break or are missing.
+    10. *Autonomous Supply Depots*: When bags are full of surplus non-blueprint materials, deposits excess into nearby chests or crafts an 8-plank Chest (pairing into a Double Chest if adjacent).
 
 ### Arcane Builder Levitation & Universal 3D Levitation Traversal (`MinionBuildGoal`, `MinionEntity`, `WaypointHoldGoal`, `MinionFormationFollowGoal`, `SentinelGuardGoal`)
 
@@ -476,7 +483,31 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 
 ---
 
-## 10. Tactical Ordnance: TNT Stick & Frost Grenade Stick
+## 10. Tactical Ordnance & Warrior Thrown Weapon Arsenal
+
+### Warrior Thrown Weapon Arsenal & Trident Duality
+
+The `WARRIOR` archetype possesses advanced mastery over thrown weapons and projectile ordnance:
+
+#### 1. Trident Duality (`TridentItem` & `TridentEntity`)
+- **Dual-Stance Weapon Kinetics**: The Trident acts as both a heavy melee polearm and a long-range piercing javelin:
+  - **Melee Zone ($\le 5.0\text{D}$, $\le 25.0\text{D}^2$)**: `MinionRangedAttackGoal` suppresses ranged attack triggers; `MeleeAttackGoal` takes priority, executing rapid thrusts at close range.
+  - **Ranged Zone ($5.0\text{D} < d \le 20.0\text{D}$, $\le 400.0\text{D}^2$)**: `MinionRangedAttackGoal` activates; the warrior maintains spacing, adopts the `THROW_SPEAR` arm pose, charges for 20--40 ticks, and launches a server-authoritative `TridentEntity` with $1.6\text{F}$ velocity, accurate pitch/yaw orientation, and `ITEM_TRIDENT_THROW` audio.
+  - **Disallowed Pickup Protection**: Minion-launched tridents initialize with `TridentEntity.PickupPermission.DISALLOWED`, preventing infinite arrow/trident duplication while ensuring seamless combat balance.
+  - **Dual-Wielding Priority**: If a warrior carries a pure ranged weapon (Bow/Crossbow) in offhand, offhand ranged skirmishing is prioritized; otherwise, mainhand Trident duality governs combat.
+
+#### 2. Frost Grenade Launching (`FrostGrenadeStickItem` & `FrostGrenadeEntity`)
+- Equipped Warriors identify Frost Grenade Sticks as ranged tactical ordnance (`isThrownWeapon`).
+- In combat, warriors maintain an 8--16 block pocket and lob cryogenic frost grenades via `shootAt(LivingEntity, float)`, creating instant snow transmutation zones, flash-freezing fluids, deploying powder snow rings, and inflicting freezing debuffs on enemy formations.
+
+#### 3. TNT Stick Launching (`TntStickItem` & `TntProjectileEntity`)
+- Warriors equipped with TNT Sticks launch explosive projectiles at hostile clusters, providing heavy artillery support.
+
+---
+
+### Handheld Tactical Ordnance Items
+
+Commanders and minions alike can employ dedicated handheld ordnance:
 
 ### TNT Stick (`TntStickItem`)
 
@@ -562,7 +593,7 @@ The commander's active game mode dynamically dictates minion logistics, resource
 
 | Subsystem | Survival Mode (`/gamemode survival`) | Creative Mode (`/gamemode creative`) |
 | :--- | :--- | :--- |
-| **Structure Building (`BUILD`)** | **Autonomous Logistics & Harvesting**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. They self-craft replacement tools and deposit excess materials into newly crafted/placed supply depot chests. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Pre-Clearing**: Builders place blocks freely and continuously without consuming items or requiring container inventories. Existing terrain (grass, flowers, snow, dirt) is automatically pre-cleared with zero dropped items, eliminating clutter. |
+| **Structure Building (`BUILD`)** | **Autonomous Logistics, Harvesting & Procurement**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. When mob resources (wool, bones, slime, leather, etc.) are needed, builders commission nearby Warriors on tactical hunting contracts with automatic material synthesis. They self-craft replacement tools and deposit excess materials into newly crafted/placed supply depot chests. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Pre-Clearing**: Builders place blocks freely and continuously without consuming items or requiring container inventories. Existing terrain (grass, flowers, snow, dirt) is automatically pre-cleared with zero dropped items, eliminating clutter. |
 | **Area Mining (`MINE`)** | **Full Resource Recovery**: Excavated blocks drop as collectible world item entities for player salvage. | **Zero-Drop Demolition**: Blocks are cleared without entity drops, preventing world and inventory clutter during large excavations. |
 | **Minion Taming** | Consumes **1 Gold Ingot** from player hand when binding an untamed minion. | Tames the minion instantly **without consuming** the held Gold Ingot. |
 | **Feeding & Healing** | Consumes **1 food or gold item** per healing interaction from the player's hand. | Restores health to full **without consuming** held food or gold items. |

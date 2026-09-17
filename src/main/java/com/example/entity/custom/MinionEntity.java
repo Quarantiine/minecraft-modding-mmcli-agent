@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 import com.example.component.SquadGroup;
 import com.example.entity.ai.goal.MinionActiveTargetGoal;
@@ -15,6 +16,9 @@ import com.example.entity.ai.goal.SentinelGuardGoal;
 import com.example.entity.ai.goal.SentinelHealAllyGoal;
 import com.example.entity.ai.goal.WaypointHoldGoal;
 import com.example.entity.ai.pathing.MinionNavigation;
+import com.example.item.ModItems;
+import com.example.item.custom.FrostGrenadeStickItem;
+import com.example.item.custom.TntStickItem;
 import com.example.screen.MinionScreenHandler;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
@@ -58,10 +62,12 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.entity.projectile.PersistentProjectileEntity;
 import net.minecraft.entity.projectile.ProjectileUtil;
+import net.minecraft.entity.projectile.TridentEntity;
 import net.minecraft.inventory.SimpleInventory;
 import net.minecraft.item.AxeItem;
 import net.minecraft.item.BowItem;
 import net.minecraft.item.CrossbowItem;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.item.MaceItem;
@@ -119,6 +125,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	private boolean activelyBuilding = false;
 	private int traversalStallTicks = 0;
 	private int arcaneLevitationTicks = 0;
+
+	private UUID procurementRequesterUuid = null;
+	private Item procurementItem = null;
+	private LivingEntity procurementTarget = null;
 
 	public MinionEntity(EntityType<? extends TameableEntity> entityType, World world) {
 		super(entityType, world);
@@ -243,6 +253,77 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void setActivelyBuilding(boolean activelyBuilding) {
 		this.activelyBuilding = activelyBuilding;
+	}
+
+	/**
+	 * @return The UUID of the requesting Builder minion that commissioned the mob procurement contract, or null.
+	 */
+	public UUID getProcurementRequesterUuid() {
+		return this.procurementRequesterUuid;
+	}
+
+	/**
+	 * Sets the UUID of the requesting Builder minion for the active procurement contract.
+	 *
+	 * @param uuid The requester's UUID.
+	 */
+	public void setProcurementRequesterUuid(UUID uuid) {
+		this.procurementRequesterUuid = uuid;
+	}
+
+	/**
+	 * @return The requested mob material item being hunted for, or null.
+	 */
+	public Item getProcurementItem() {
+		return this.procurementItem;
+	}
+
+	/**
+	 * Sets the target material item for the active procurement contract.
+	 *
+	 * @param item The requested material item.
+	 */
+	public void setProcurementItem(Item item) {
+		this.procurementItem = item;
+	}
+
+	/**
+	 * @return The active living entity target designated for mob procurement, or null.
+	 */
+	public LivingEntity getProcurementTarget() {
+		return this.procurementTarget;
+	}
+
+	/**
+	 * Sets the active living entity target designated for mob procurement.
+	 *
+	 * @param target The target entity.
+	 */
+	public void setProcurementTarget(LivingEntity target) {
+		this.procurementTarget = target;
+	}
+
+	/**
+	 * @return true if this minion is currently assigned an active mob material procurement task.
+	 */
+	public boolean hasActiveProcurement() {
+		return this.procurementRequesterUuid != null || this.procurementItem != null || this.procurementTarget != null;
+	}
+
+	/**
+	 * Clears the active mob material procurement contract and resets associated tracking fields.
+	 */
+	public void clearProcurement() {
+		this.procurementRequesterUuid = null;
+		this.procurementItem = null;
+		this.procurementTarget = null;
+	}
+
+	/**
+	 * Alias for clearProcurement.
+	 */
+	public void clearProcurementTask() {
+		this.clearProcurement();
 	}
 
 	/**
@@ -468,10 +549,21 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(5, new MeleeAttackGoal(this, 1.35D, true) {
 			@Override
 			public boolean canStart() {
-				if (MinionEntity.isRangedWeapon(MinionEntity.this.getMainHandStack())) {
+				ItemStack held = MinionEntity.this.getMainHandStack();
+				// If holding a pure ranged/thrown weapon (bow, crossbow, grenade stick, tnt stick), suppress melee goal
+				if (MinionEntity.isRangedWeapon(held) && !MinionEntity.isMeleeWeapon(held)) {
 					return false;
 				}
 				return super.canStart();
+			}
+
+			@Override
+			public boolean shouldContinue() {
+				ItemStack held = MinionEntity.this.getMainHandStack();
+				if (MinionEntity.isRangedWeapon(held) && !MinionEntity.isMeleeWeapon(held)) {
+					return false;
+				}
+				return super.shouldContinue();
 			}
 		});
 		this.goalSelector.add(6, new MinionFormationFollowGoal(this));
@@ -627,6 +719,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	@Override
 	public boolean onKilledOther(ServerWorld world, LivingEntity other) {
 		boolean result = super.onKilledOther(world, other);
+		if (this.hasActiveProcurement()) {
+			com.example.entity.ai.logistics.MinionHarvestingHelper.processMobHuntingDrops(this, other, world);
+		}
 		if (this.hasAssaultTargets()) {
 			LivingEntity next = this.acquireNextAssaultTarget();
 			if (next != null) {
@@ -795,7 +890,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		// Melee Warrior grounding in combat:
 		// If a melee Warrior is fighting a target on the ground and is elevated above it (dy < -0.8D),
 		// glide down immediately to melee reach rather than hovering in the air.
-		if (this.getRole() == MinionRole.WARRIOR && !isRangedWeapon(this.getMainHandStack()) && this.getTarget() != null) {
+		if (this.getRole() == MinionRole.WARRIOR && (!isRangedWeapon(this.getMainHandStack()) || isMeleeWeapon(this.getMainHandStack())) && this.getTarget() != null) {
 			if (dy < -0.8D && this.arcaneLevitating) {
 				this.setVelocity(dx * 0.15D, -0.35D, dz * 0.15D);
 				this.velocityModified = true;
@@ -905,32 +1000,71 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	@Override
 	public void shootAt(LivingEntity target, float pullProgress) {
 		ItemStack weapon = this.getMainHandStack();
-		if (!weapon.isOf(Items.BOW) && !weapon.isOf(Items.CROSSBOW) && !(weapon.getItem() instanceof BowItem)) {
+		if (!isRangedWeapon(weapon)) {
 			ItemStack offhand = this.getOffHandStack();
-			if (offhand.isOf(Items.BOW) || offhand.isOf(Items.CROSSBOW) || offhand.getItem() instanceof BowItem) {
+			if (isRangedWeapon(offhand)) {
 				weapon = offhand;
 			}
 		}
-		ItemStack arrowStack = this.getProjectileType(weapon);
-		if (arrowStack.isEmpty()) {
-			arrowStack = new ItemStack(Items.ARROW);
+
+		if (weapon.isOf(Items.TRIDENT) || weapon.getItem() instanceof TridentItem) {
+			TridentEntity tridentEntity = new TridentEntity(
+				this.getWorld(),
+				this,
+				weapon.isEmpty() ? new ItemStack(Items.TRIDENT) : weapon
+			);
+			if (this.isTamed()) {
+				tridentEntity.pickupType = PersistentProjectileEntity.PickupPermission.DISALLOWED;
+			}
+			double dx = target.getX() - this.getX();
+			double dy = target.getBodyY(0.3333333333333333D) - tridentEntity.getY();
+			double dz = target.getZ() - this.getZ();
+			double distance = Math.sqrt(dx * dx + dz * dz);
+			tridentEntity.setVelocity(dx, dy + distance * 0.20000000298023224D, dz, 1.6F, (float) (14 - this.getWorld().getDifficulty().getId() * 4));
+			this.playSound(SoundEvents.ITEM_TRIDENT_THROW.value(), 1.0F, 1.0F / (this.getRandom().nextFloat() * 0.4F + 0.8F));
+			this.getWorld().spawnEntity(tridentEntity);
+		} else if (weapon.isOf(ModItems.FROST_GRENADE_STICK) || weapon.getItem() instanceof FrostGrenadeStickItem) {
+			FrostGrenadeEntity grenade = new FrostGrenadeEntity(this.getWorld(), this);
+			grenade.setItem(weapon);
+			double dx = target.getX() - this.getX();
+			double dy = target.getBodyY(0.5D) - grenade.getY();
+			double dz = target.getZ() - this.getZ();
+			double dist = Math.sqrt(dx * dx + dz * dz);
+			grenade.setVelocity(dx, dy + dist * 0.18D, dz, 1.25F, 1.0F);
+			this.playSound(SoundEvents.ENTITY_SNOWBALL_THROW, 1.0F, 0.4F / (this.getRandom().nextFloat() * 0.4F + 0.8F));
+			this.getWorld().spawnEntity(grenade);
+		} else if (weapon.isOf(ModItems.TNT_STICK) || weapon.getItem() instanceof TntStickItem) {
+			TntProjectileEntity tnt = new TntProjectileEntity(this.getWorld(), this);
+			tnt.setItem(new ItemStack(Items.TNT));
+			double dx = target.getX() - this.getX();
+			double dy = target.getBodyY(0.5D) - tnt.getY();
+			double dz = target.getZ() - this.getZ();
+			double dist = Math.sqrt(dx * dx + dz * dz);
+			tnt.setVelocity(dx, dy + dist * 0.18D, dz, 1.2F, 1.0F);
+			this.playSound(SoundEvents.ENTITY_TNT_PRIMED, 1.0F, 1.0F);
+			this.getWorld().spawnEntity(tnt);
+		} else {
+			ItemStack arrowStack = this.getProjectileType(weapon);
+			if (arrowStack.isEmpty()) {
+				arrowStack = new ItemStack(Items.ARROW);
+			}
+			PersistentProjectileEntity arrowEntity = ProjectileUtil.createArrowProjectile(
+				this,
+				arrowStack,
+				pullProgress,
+				weapon.isEmpty() ? null : weapon
+			);
+			if (this.isTamed()) {
+				arrowEntity.pickupType = PersistentProjectileEntity.PickupPermission.DISALLOWED;
+			}
+			double dx = target.getX() - this.getX();
+			double dy = target.getBodyY(0.3333333333333333D) - arrowEntity.getY();
+			double dz = target.getZ() - this.getZ();
+			double distance = Math.sqrt(dx * dx + dz * dz);
+			arrowEntity.setVelocity(dx, dy + distance * 0.20000000298023224D, dz, 1.6F, (float) (14 - this.getWorld().getDifficulty().getId() * 4));
+			this.playSound(SoundEvents.ENTITY_SKELETON_SHOOT, 1.0F, 1.0F / (this.getRandom().nextFloat() * 0.4F + 0.8F));
+			this.getWorld().spawnEntity(arrowEntity);
 		}
-		PersistentProjectileEntity arrowEntity = ProjectileUtil.createArrowProjectile(
-			this,
-			arrowStack,
-			pullProgress,
-			weapon.isEmpty() ? null : weapon
-		);
-		if (this.isTamed()) {
-			arrowEntity.pickupType = PersistentProjectileEntity.PickupPermission.DISALLOWED;
-		}
-		double dx = target.getX() - this.getX();
-		double dy = target.getBodyY(0.3333333333333333D) - arrowEntity.getY();
-		double dz = target.getZ() - this.getZ();
-		double distance = Math.sqrt(dx * dx + dz * dz);
-		arrowEntity.setVelocity(dx, dy + distance * 0.20000000298023224D, dz, 1.6F, (float) (14 - this.getWorld().getDifficulty().getId() * 4));
-		this.playSound(SoundEvents.ENTITY_SKELETON_SHOOT, 1.0F, 1.0F / (this.getRandom().nextFloat() * 0.4F + 0.8F));
-		this.getWorld().spawnEntity(arrowEntity);
 	}
 
 	@Override
@@ -943,6 +1077,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.setActivelyBuilding(false);
 		if (sitting) {
 			this.clearAssaultTargets();
+			this.clearProcurement();
 			this.setTarget(null);
 		}
 	}
@@ -951,6 +1086,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	public void onDeath(DamageSource damageSource) {
 		super.onDeath(damageSource);
 		this.clearAssaultTargets();
+		this.clearProcurement();
 	}
 
 	/**
@@ -1140,14 +1276,26 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 * 9-slot storage inventory into any corresponding empty equipment slots.
 	 */
 	/**
-	 * Determines whether the given item is a ranged weapon (bow or crossbow).
+	 * Determines whether the given item is a thrown weapon (Trident, Frost Grenade Stick, TNT Stick).
+	 */
+	public static boolean isThrownWeapon(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return false;
+		return stack.isOf(Items.TRIDENT)
+			|| stack.getItem() instanceof TridentItem
+			|| stack.getItem() instanceof FrostGrenadeStickItem
+			|| stack.getItem() instanceof TntStickItem;
+	}
+
+	/**
+	 * Determines whether the given item is a ranged or thrown weapon (bow, crossbow, trident, grenade, or tnt stick).
 	 */
 	public static boolean isRangedWeapon(ItemStack stack) {
 		if (stack == null || stack.isEmpty()) return false;
 		return stack.isOf(Items.BOW) || stack.isOf(Items.CROSSBOW)
 			|| stack.getItem() instanceof BowItem
 			|| stack.getItem() instanceof CrossbowItem
-			|| stack.getItem() instanceof RangedWeaponItem;
+			|| stack.getItem() instanceof RangedWeaponItem
+			|| isThrownWeapon(stack);
 	}
 
 	/**
@@ -1158,7 +1306,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		return stack.getItem() instanceof SwordItem
 			|| stack.getItem() instanceof AxeItem
 			|| stack.getItem() instanceof MaceItem
-			|| stack.getItem() instanceof TridentItem;
+			|| stack.getItem() instanceof TridentItem
+			|| stack.isOf(Items.TRIDENT);
 	}
 
 	/**
@@ -1180,7 +1329,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	public static boolean canRoleAutoEquipMainhand(MinionRole role, ItemStack stack) {
 		if (stack == null || stack.isEmpty()) return false;
 		return switch (role) {
-			case WARRIOR -> isMeleeWeapon(stack) || isRangedWeapon(stack);
+			case WARRIOR -> isMeleeWeapon(stack) || isRangedWeapon(stack) || isThrownWeapon(stack);
 			case SENTINEL -> isMeleeWeapon(stack);
 			case BUILDER -> stack.getItem() instanceof MiningToolItem || isMeleeWeapon(stack);
 		};

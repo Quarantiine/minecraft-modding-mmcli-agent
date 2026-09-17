@@ -11,9 +11,9 @@ This mod transforms your Minecraft world into an RTS battlefield and automated c
 The mod introduces strategic army management, autonomous AI companions, and structural engineering into Minecraft 1.21:
 
 - **Autonomous Minion Thralls**: Tameable, persistent companions with 3 versatile archetype roles:
-  - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman or ranged archer based on equipped weapons.
+  - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** (melee thrusts at $\le 5\text{D}$, thrown piercing javelins at $5\text{D}\text{--}20\text{D}$), thrown tactical ordnance (Frost Grenades, TNT Sticks), and accepts builder **Squad Material Procurement** hunting contracts.
   - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded players (commander priority) and allied minions within 10 blocks, maintaining an expanded 128-block operational leash.
-  - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, and deposits surplus materials into autonomous supply depot chests.
+  - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, deposits surplus materials into autonomous supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived materials with in-inventory resource synthesis.
   - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 100% zero-footprint 3D Arcane Levitation flight across all roles (with zero ephemeral block generation), and instant 2-tick obstacle-vaulting traversal.
 - **The Loki Command Scepter**: Handheld tactical relic enabling:
   - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines with expanded 128-block operational leash freedom.
@@ -25,7 +25,7 @@ The mod introduces strategic army management, autonomous AI companions, and stru
   - Pre-engineered topological blueprints: *Overlord Watchtower* (7×7×9), *Arcane Obelisk* (5×5×8), and *Defensive Barricade* (9×3×3).
   - Top-down area clearance and demolition engine with Bedrock and indestructible block protection.
   - Zero-drop Creative Mode pre-clearing ensuring zero clutter item drops when building over existing terrain.
-- **Tactical Ordnance**: Throwable TNT Sticks and cryogenic Frost Grenades (transmutes blocks into snow, flash-freezes water, turns lava to obsidian, summons a powder snow ring, and applies Slowness III).
+- **Tactical Ordnance & Thrown Arsenal**: Throwable TNT Sticks and cryogenic Frost Grenades (transmutes blocks into snow, flash-freezes water, turns lava to obsidian, summons a powder snow ring, and applies Slowness III), along with full Warrior thrown weapon support and Trident duality.
 
 > 📖 **In-Game Controls & Commands**: For the full controls cheat sheet and scepter input manual, see [**COMMANDS.md**](COMMANDS.md).
 >
