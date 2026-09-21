@@ -319,7 +319,7 @@ public class ConstructionManager {
 		List<com.example.entity.custom.MinionEntity> stationedBuilders = world.getEntitiesByClass(
 			com.example.entity.custom.MinionEntity.class,
 			mobilizationBox,
-			m -> m.isAlive() && m.isTamed() && owner.getUuid().equals(m.getOwnerUuid()) && m.getRole() == com.example.entity.custom.MinionRole.BUILDER
+			m -> m.isAlive() && m.isTamed() && owner.getUuid().equals(m.getOwnerUuid()) && m.matchesRole(com.example.entity.custom.MinionRole.BUILDER)
 		);
 		for (com.example.entity.custom.MinionEntity builder : stationedBuilders) {
 			if (builder.isSitting() || builder.getGuardAnchorPos() != null) {
@@ -768,11 +768,10 @@ public class ConstructionManager {
 		if (isMinionEngagedInConstruction(minion.getUuid())) {
 			return true;
 		}
-		MinionRole role = minion.getRole();
-		if (role == MinionRole.BUILDER
+		if (minion.matchesRole(MinionRole.BUILDER)
 				&& minion.getWorld() instanceof ServerWorld serverWorld
 				&& minion.getOwnerUuid() != null) {
-			return isMinionNearActiveSession(serverWorld, minion.getBlockPos(), minion.getOwnerUuid(), maxDistance, role);
+			return isMinionNearActiveSession(serverWorld, minion.getBlockPos(), minion.getOwnerUuid(), maxDistance, MinionRole.BUILDER);
 		}
 		return false;
 	}

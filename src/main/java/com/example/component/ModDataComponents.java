@@ -102,6 +102,18 @@ public class ModDataComponents {
 	);
 
 	/**
+	 * Data component storing the active patrol route channel index (0 to 4) on the Command Scepter.
+	 */
+	public static final ComponentType<Integer> ACTIVE_PATROL_ROUTE = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "active_patrol_route"),
+		ComponentType.<Integer>builder()
+			.codec(Codec.INT)
+			.packetCodec(PacketCodecs.INTEGER)
+			.build()
+	);
+
+	/**
 	 * Static initializer method invoked during mod initialization
 	 * to ensure all static component type registrations are registered.
 	 */

@@ -32,7 +32,7 @@ public class WaypointHoldGoal extends Goal {
 
 	@Override
 	public boolean canStart() {
-		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
+		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting() || this.minion.hasLeader()) {
 			return false;
 		}
 		// SentinelGuardGoal already handles Sentinels
@@ -62,7 +62,7 @@ public class WaypointHoldGoal extends Goal {
 
 	@Override
 	public boolean shouldContinue() {
-		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
+		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting() || this.minion.hasLeader()) {
 			return false;
 		}
 		if (this.minion.getRole() == MinionRole.SENTINEL) {

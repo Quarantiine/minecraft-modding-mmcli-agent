@@ -10,16 +10,26 @@ This mod transforms your Minecraft world into an RTS battlefield and automated c
 
 The mod introduces strategic army management, autonomous AI companions, and structural engineering into Minecraft 1.21:
 
-- **Autonomous Minion Thralls**: Tameable, persistent companions with 3 versatile archetype roles:
+- **Autonomous Minion Thralls**: Tameable, persistent companions with 4 versatile archetype roles:
   - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** (melee thrusts at $\le 5\text{D}$, thrown piercing javelins at $5\text{D}\text{--}20\text{D}$), thrown tactical ordnance (Frost Grenades, TNT Sticks), and accepts builder **Squad Material Procurement** hunting contracts.
   - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded players (commander priority) and allied minions within 10 blocks, maintaining an expanded 128-block operational leash.
   - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints with persistent zero-timeout execution, **Builder Block Phasing (`noClip`)** while working to seamlessly navigate through walls/ceilings, **Post-Construction Structure Egress** evacuating buildings before collision returns, automatic **Perimeter Waypoint Deployment & Stationing** on build completion, and Arcane Phase-Shift obstacle resolution. Also deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, deposits surplus materials into autonomous supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived materials with in-inventory resource synthesis.
-  - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 100% zero-footprint 3D Arcane Levitation flight across all roles (with zero ephemeral block generation), and instant 2-tick obstacle-vaulting traversal.
+  - ⚙ **Auto (`MinionRole.AUTO`)**: Autonomous agent that dynamically re-evaluates its environment every second, morphing on the fly into **Sentinel** (if any ally < 70% HP), **Warrior** (if hostiles < 16m), or **Builder** (if blueprints active or peaceful).
+  - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, 100% zero-footprint 3D Arcane Levitation flight across all roles, and instant 2-tick obstacle-vaulting traversal.
 - **The Loki Command Scepter**: Handheld tactical relic enabling:
   - 64-block raycast unit selection and waypoint deployment into straight, parallel ranked army battle lines with **Unified Stationing** (`holdingPosition`) and expanded 128-block operational leash freedom, allowing single-click toggling back to follow.
   - **Banner of Courage (90° Forward Sector)**: Hold right-click to project an expanding tactical cone; releasing launches a synchronized Mass Assault queue hunting down all enclosed hostiles.
-  - **Command Hub GUI (`V` key)**: Interactive tactical hub for squad routing (Alpha through Delta), mode cycling, 3-role mass archetype assignment, and blueprint selection.
-  - **Panic Retreat (`R` key)**: Instant emergency recall sounding a warning bell, immediately dismissing all 3D holographic wireframes, cancelling active construction sessions, clearing combat targets, and sprinting minions back into formation.
+  - **Command Hub GUI (`V` key)**: Interactive tactical hub for squad routing (Alpha through Delta), mode cycling, 4-role mass archetype assignment, **Patrol Route Dashboard**, and blueprint selection.
+  - **Dual-Tier Panic Retreat (`R` vs `Shift + R`)**: Quick **`R`** disengages active squad members within 64m and recalls them into formation; **`Shift + R`** sounds a fortress-wide **Emergency Citadel Call** (128m), unbinding all patrol duties, sounding a raid horn & bell, and sprinting all units to the commander's defense!
+- **Visual Pathway Patrols & Escort Hierarchy**:
+  - **5 Color-Coded Route Channels**: 3D block wireframes and numbered checkpoint badges (`[ 1 ]`, `[ 2 ]`, etc.) with glowing surface laser vector tethers, visible exclusively when holding the Scepter in `PATHWAY` mode. Zero-overlap route protection guarantees different channel routes cannot collide or stack on the same block coordinate.
+  - **Universal Cross-Channel Tile Deletion**: Left-click (punch) or right-click any placed waypoint block with the Scepter in `PATHWAY` mode to undo it cleanly from whichever route channel owns it without channel-switching traps.
+  - **Ordered Traversal & End-Only Linger**: Minions smoothly march sequentially through each placed tile without intermediate delays, only pausing for a 10s–15s sentry wait upon reaching the terminal ends of the route.
+  - **Closed Loop vs. Linear Ping-Pong**: Toggle between continuous loop patrols and ping-pong linear patrols.
+  - **World Save Persistence**: All routes are natively saved in world data (`data/minion_patrol_routes.dat`) and restore automatically on world reload and player reconnect.
+  - **Patrol Breach Alarm**: Sentry horn and bell alerts nearby allies within 16m when hostiles cross patrol routes.
+  - **Minion Escort Hierarchy**: Prime escorts (Shift + Left-Click) and bind to squad leaders (Right-Click) with visible **Arcane Tether Beams**. Escorts of any squad size dynamically deploy into disciplined, non-overlapping military formations around the squad leader, pacing at march/sprint speeds, defending the leader with target coordination, respecting a 16-block combat leash, and returning directly to the leader post-combat.
+  - **Dynamic Overhead Badges**: Displays `[ 🟡 Route # ]`, `[ 🛡 Escort ]`, and `[ ⚙ AUTO: <Role> ]`.
 - **Dynamic Organic Architecture & Procedural Construction**:
   - **Free Survival Build Flight**: Unconstrained 3D vanilla flight in Survival mode when holding the Scepter in `BUILD` mode (Space to ascend, Shift to descend, full WASD navigation).
   - **Water Flight Cancellation Safeguard**: Automatically cancels construction, revokes flight, and switches scepter mode to `FOLLOW` with extinguish SFX and warning cues if the player flies over or enters water in `BUILD` mode.
@@ -81,7 +91,7 @@ To test server-authoritative logic, multiplayer sync, or network packets:
 
 ### 5. Running Automated Unit Tests
 
-Run the automated test suite (294 unit tests across 34 suites covering AI, math, networking, logistics, ordnance, organic building, phasing, and safeguards):
+Run the automated test suite (324 unit and contract tests across 38 suites covering AI, math, networking, logistics, ordnance, organic building, phasing, patrols, zero-overlap routing, escort formations, and safeguards):
 
 ```bash
 ./gradlew test

@@ -59,7 +59,7 @@ public class SentinelHealAllyGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.SENTINEL) {
+		if (!this.minion.matchesRole(MinionRole.SENTINEL)) {
 			return false;
 		}
 
@@ -89,7 +89,7 @@ public class SentinelHealAllyGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.SENTINEL) {
+		if (!this.minion.matchesRole(MinionRole.SENTINEL)) {
 			return false;
 		}
 		if (this.targetAlly == null || !this.targetAlly.isAlive()) {

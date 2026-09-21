@@ -32,7 +32,7 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.fromId(0));
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.fromId(1));
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(2));
-		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(3)); // Legacy ID 3 maps to BUILDER
+		Assertions.assertEquals(MinionRole.AUTO, MinionRole.fromId(3));
 
 		// Fallback for out-of-bounds IDs defaults to WARRIOR
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.fromId(99));
@@ -41,10 +41,12 @@ public class MinionSquadAndRoleTest {
 		// Sequential cycling
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.WARRIOR.next());
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.SENTINEL.next());
-		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.BUILDER.next());
+		Assertions.assertEquals(MinionRole.AUTO, MinionRole.BUILDER.next());
+		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.AUTO.next());
 
 		// Reverse cycling
-		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.WARRIOR.previous());
+		Assertions.assertEquals(MinionRole.AUTO, MinionRole.WARRIOR.previous());
+		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.AUTO.previous());
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.BUILDER.previous());
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.SENTINEL.previous());
 
@@ -52,13 +54,14 @@ public class MinionSquadAndRoleTest {
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.warrior", MinionRole.WARRIOR.getTranslationKey());
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.sentinel", MinionRole.SENTINEL.getTranslationKey());
 		Assertions.assertEquals("role.modid-mmcli-agent-modding.builder", MinionRole.BUILDER.getTranslationKey());
+		Assertions.assertEquals("role.modid-mmcli-agent-modding.auto", MinionRole.AUTO.getTranslationKey());
 	}
 
 	@Test
 	@DisplayName("Validate MinionRole cyclic algebra invariants")
 	void testMinionRoleCyclicInvariants() {
 		MinionRole[] roles = MinionRole.values();
-		Assertions.assertEquals(3, roles.length);
+		Assertions.assertEquals(4, roles.length);
 
 		for (MinionRole role : roles) {
 			// Invariant 1: Cycling length times returns to original

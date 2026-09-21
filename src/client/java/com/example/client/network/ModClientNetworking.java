@@ -33,6 +33,19 @@ public class ModClientNetworking {
 			com.example.network.EndConstructionSessionPayload.ID,
 			(payload, context) -> context.client().execute(() -> com.example.client.renderer.ClientConstructionTracker.removeSession(payload.sessionId()))
 		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			com.example.network.SyncPatrolRoutesPayload.ID,
+			(payload, context) -> context.client().execute(() -> {
+				com.example.client.renderer.ClientPatrolRouteTracker.setRoutes(payload.routes());
+				if (context.client().currentScreen instanceof com.example.client.gui.CommandScepterScreen screen) {
+					screen.refreshButtonLabels();
+				}
+			})
+		);
+
+		net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+			com.example.client.renderer.ClientPatrolRouteTracker.clear();
+		});
 	}
 
 	/**
@@ -193,12 +206,22 @@ public class ModClientNetworking {
 
 	/**
 	 * Dispatches a {@link com.example.network.RetreatPayload} to recall active minions to formation.
+	/**
+	 * Dispatches a {@link com.example.network.RetreatPayload} to recall active minions or trigger emergency citadel recall.
 	 *
-	 * @param targetSquad The target squad channel filter.
+	 * @param targetSquad            The target squad channel filter.
+	 * @param isEmergencyCitadelCall True to recall all units base-wide including patrol sentries.
 	 */
-	public static void sendRetreat(SquadGroup targetSquad) {
-		com.example.network.RetreatPayload payload = new com.example.network.RetreatPayload(targetSquad != null ? targetSquad : SquadGroup.ALL);
+	public static void sendRetreat(SquadGroup targetSquad, boolean isEmergencyCitadelCall) {
+		com.example.network.RetreatPayload payload = new com.example.network.RetreatPayload(
+			targetSquad != null ? targetSquad : SquadGroup.ALL,
+			isEmergencyCitadelCall
+		);
 		ClientPlayNetworking.send(payload);
+	}
+
+	public static void sendRetreat(SquadGroup targetSquad) {
+		sendRetreat(targetSquad, false);
 	}
 
 	/**
@@ -218,5 +241,39 @@ public class ModClientNetworking {
 	public static void sendAnchorConstruction(net.minecraft.util.math.BlockPos clickedPos, net.minecraft.util.math.Direction side, boolean isDismantle) {
 		com.example.network.AnchorConstructionPayload payload = new com.example.network.AnchorConstructionPayload(clickedPos, side, isDismantle);
 		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.ModifyPatrolRoutePayload} to modify in-world patrol routes or minion assignments.
+	 */
+	public static void sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action action, int routeId, net.minecraft.util.math.BlockPos pos, int minionId, int targetMinionId) {
+		com.example.network.ModifyPatrolRoutePayload payload = new com.example.network.ModifyPatrolRoutePayload(
+			action,
+			routeId,
+			pos != null ? pos : net.minecraft.util.math.BlockPos.ORIGIN,
+			minionId,
+			targetMinionId
+		);
+		ClientPlayNetworking.send(payload);
+	}
+
+	public static void sendTogglePatrolMode(int routeId) {
+		sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action.TOGGLE_PATROL_MODE, routeId, net.minecraft.util.math.BlockPos.ORIGIN, -1, -1);
+	}
+
+	public static void sendClearPatrolRoute(int routeId) {
+		sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action.CLEAR_ROUTE, routeId, net.minecraft.util.math.BlockPos.ORIGIN, -1, -1);
+	}
+
+	public static void sendAssignMinionPatrol(int minionId, int routeId) {
+		sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action.ASSIGN_MINION, routeId, net.minecraft.util.math.BlockPos.ORIGIN, minionId, -1);
+	}
+
+	public static void sendSetEscort(int minionId, int leaderMinionId) {
+		sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action.SET_ESCORT, -1, net.minecraft.util.math.BlockPos.ORIGIN, minionId, leaderMinionId);
+	}
+
+	public static void sendClearEscort(int minionId) {
+		sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action.CLEAR_ESCORT, -1, net.minecraft.util.math.BlockPos.ORIGIN, minionId, -1);
 	}
 }

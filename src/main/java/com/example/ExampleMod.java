@@ -17,6 +17,7 @@ import com.example.entity.custom.MinionEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
+import net.minecraft.util.math.BlockPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,15 +41,41 @@ public class ExampleMod implements ModInitializer {
 		ModNetworking.registerC2SPayloads();
 		ModNetworking.registerServerReceivers();
 
+		// Register server world load event to initialize persistent patrol routes
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents.LOAD.register((server, world) -> {
+			if (world.getRegistryKey().equals(net.minecraft.world.World.OVERWORLD)) {
+				LOGGER.info("Initializing PatrolRouteManager persistent state for overworld: {}", world.getRegistryKey().getValue());
+				com.example.patrol.PatrolRouteManager.getInstance().init(world);
+			}
+		});
+
+		// Register server started event as a guaranteed overworld init point
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+			net.minecraft.server.world.ServerWorld overworld = server.getOverworld();
+			if (overworld != null) {
+				LOGGER.info("Ensuring PatrolRouteManager initialized on SERVER_STARTED for overworld");
+				com.example.patrol.PatrolRouteManager.getInstance().init(overworld);
+			}
+		});
+
+		// Register server stopping event to finalize and persist route data
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+			com.example.patrol.PatrolRouteManager.getInstance().onServerStopping();
+		});
+
+		// Register player connect event to sync saved patrol routes immediately on world join
+		net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+			com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(handler.getPlayer());
+		});
+
 		// Register server tick event to update construction sessions and holograms
 		ServerTickEvents.END_WORLD_TICK.register(world -> {
 			ConstructionManager.getInstance().tick(world);
 		});
 
-		// Register sneak + left-click attack block callback:
-		// In BUILD mode: cycles rotation
 		// Register attack block callback for the Command Scepter:
 		// In BUILD mode: cycles blueprint rotation
+		// In PATHWAY mode: left-click (punch) an existing waypoint block removes it
 		// In other modes: sneak + left-click deselects all minions
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
 			ItemStack stack = CommandScepterItem.getHeldScepter(player);
@@ -59,6 +86,37 @@ public class ExampleMod implements ModInitializer {
 						CommandScepterItem.cycleRotation(stack, player);
 					}
 					return ActionResult.SUCCESS;
+				} else if (mode == CommandMode.PATHWAY) {
+					if (!world.isClient() && world instanceof net.minecraft.server.world.ServerWorld serverWorld) {
+						com.example.patrol.PatrolRouteManager.WaypointMatch match = com.example.patrol.PatrolRouteManager.getInstance().findWaypoint(
+							player.getUuid(), pos, pos.offset(direction), pos.up()
+						);
+						if (match != null) {
+							int matchedRouteId = match.routeId();
+							BlockPos targetWp = match.pos();
+							com.example.patrol.PatrolRoute updated = com.example.patrol.PatrolRouteManager.getInstance().removeWaypoint(player.getUuid(), matchedRouteId, targetWp);
+							com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer((net.minecraft.server.network.ServerPlayerEntity) player);
+							if (updated.waypoints().isEmpty()) {
+								java.util.List<com.example.entity.custom.MinionEntity> routeMinions = serverWorld.getEntitiesByClass(
+									com.example.entity.custom.MinionEntity.class,
+									player.getBoundingBox().expand(256.0D),
+									m -> m.isAlive() && m.isOwner(player) && m.getPatrolRouteId() == matchedRouteId
+								);
+								for (com.example.entity.custom.MinionEntity m : routeMinions) {
+									m.setPatrolRouteId(-1);
+									m.getNavigation().stop();
+								}
+							}
+							world.playSound(null, targetWp.getX(), targetWp.getY(), targetWp.getZ(), net.minecraft.sound.SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), net.minecraft.sound.SoundCategory.PLAYERS, 1.0F, 0.8F);
+							serverWorld.spawnParticles(net.minecraft.particle.ParticleTypes.SMOKE, targetWp.getX() + 0.5D, targetWp.getY() + 0.5D, targetWp.getZ() + 0.5D, 8, 0.2D, 0.2D, 0.2D, 0.05D);
+							player.sendMessage(net.minecraft.text.Text.literal("§c✦ Removed Waypoint from " + updated.getFormattedName()), true);
+							return ActionResult.SUCCESS;
+						}
+					} else if (world.isClient()) {
+						if (CommandScepterItem.isClientWaypoint(stack, pos) || CommandScepterItem.isClientWaypoint(stack, pos.offset(direction)) || CommandScepterItem.isClientWaypoint(stack, pos.up())) {
+							return ActionResult.SUCCESS;
+						}
+					}
 				} else if (player.isSneaking()) {
 					if (!world.isClient()) {
 						CommandScepterItem.deselectAllMinions(player, world);
@@ -76,8 +134,26 @@ public class ExampleMod implements ModInitializer {
 		AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
 			ItemStack stack = CommandScepterItem.getHeldScepter(player);
 			if (!stack.isEmpty()) {
-				// Friendly-fire prevention: left-clicking an owned minion toggles its selection
+				// Friendly-fire prevention: left-clicking an owned minion
 				if (entity instanceof MinionEntity minion && minion.isOwner(player)) {
+					if (player.isSneaking()) {
+						if (!world.isClient()) {
+							int assigned = CommandScepterItem.assignSelectedMinionsToLeader(player, minion);
+							if (assigned == 0) {
+								if (minion.hasLeader()) {
+									minion.clearLeader();
+									minion.setSelected(true);
+									player.sendMessage(net.minecraft.text.Text.literal("§e✦ Escort cleared; minion follows master.§r"), true);
+									world.playSound(null, player.getX(), player.getY(), player.getZ(), net.minecraft.sound.SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), net.minecraft.sound.SoundCategory.PLAYERS, 1.2F, 0.8F);
+								} else {
+									player.sendMessage(net.minecraft.text.Text.literal("§e✦ Select minions first, then Shift + Punch a minion to designate them as Squad Leader!§r"), true);
+									world.playSound(null, player.getX(), player.getY(), player.getZ(), net.minecraft.sound.SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), net.minecraft.sound.SoundCategory.PLAYERS, 0.8F, 0.6F);
+								}
+							}
+						}
+						return ActionResult.SUCCESS;
+					}
+
 					if (!world.isClient()) {
 						CommandScepterItem.toggleMinionSelection(player, minion);
 					}

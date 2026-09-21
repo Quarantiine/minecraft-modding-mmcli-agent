@@ -42,10 +42,12 @@ public class ModNetworking {
 		PayloadTypeRegistry.playC2S().register(MassRolePayload.ID, MassRolePayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(RetreatPayload.ID, RetreatPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(AnchorConstructionPayload.ID, AnchorConstructionPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(ModifyPatrolRoutePayload.ID, ModifyPatrolRoutePayload.PACKET_CODEC);
 
-		// S2C Payloads for active blueprint wireframe synchronization
+		// S2C Payloads for active blueprint wireframe and patrol route synchronization
 		PayloadTypeRegistry.playS2C().register(SyncConstructionSessionPayload.ID, SyncConstructionSessionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playS2C().register(EndConstructionSessionPayload.ID, EndConstructionSessionPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playS2C().register(SyncPatrolRoutesPayload.ID, SyncPatrolRoutesPayload.PACKET_CODEC);
 	}
 
 	/**
@@ -84,6 +86,10 @@ public class ModNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(RetreatPayload.ID, (payload, context) -> {
 			ServerPlayerEntity player = context.player();
 			context.server().execute(() -> handleRetreat(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(ModifyPatrolRoutePayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleModifyPatrolRoute(player, payload));
 		});
 	}
 
@@ -428,7 +434,7 @@ public class ModNetworking {
 		if (player == null || payload == null) {
 			return;
 		}
-		CommandScepterItem.executeRetreat(player, player.getServerWorld(), payload.targetSquad());
+		CommandScepterItem.executeRetreat(player, player.getServerWorld(), payload.targetSquad(), payload.isEmergencyCitadelCall());
 	}
 
 	/**
@@ -463,6 +469,136 @@ public class ModNetworking {
 			CommandScepterItem.executeBuildPlacement(world, player, scepterStack, clickedPos, payload.side(), payload.isDismantle());
 		} else if (mode == CommandMode.MINE) {
 			CommandScepterItem.executeMinePlacement(world, player, scepterStack, clickedPos);
+		}
+	}
+
+	/**
+	 * Handles C2S patrol route modifications and minion escort/patrol assignments.
+	 */
+	private static void handleModifyPatrolRoute(ServerPlayerEntity player, ModifyPatrolRoutePayload payload) {
+		if (player == null || payload == null) return;
+		ServerWorld world = player.getServerWorld();
+
+		switch (payload.action()) {
+			case ADD_WAYPOINT -> {
+				com.example.patrol.PatrolRoute updated = com.example.patrol.PatrolRouteManager.getInstance().addWaypoint(
+					player.getUuid(), payload.routeId(), payload.pos()
+				);
+				com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(player);
+				player.sendMessage(Text.literal("§6✦ Added Waypoint §e#" + updated.waypoints().size() + " §6to " + updated.getFormattedName()), true);
+			}
+			case REMOVE_WAYPOINT -> {
+				com.example.patrol.PatrolRoute updated = com.example.patrol.PatrolRouteManager.getInstance().removeWaypoint(
+					player.getUuid(), payload.routeId(), payload.pos()
+				);
+				com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(player);
+				if (updated.waypoints().isEmpty()) {
+					List<MinionEntity> routeMinions = world.getEntitiesByClass(
+						MinionEntity.class,
+						player.getBoundingBox().expand(256.0D),
+						m -> m.isAlive() && m.isOwner(player) && m.getPatrolRouteId() == payload.routeId()
+					);
+					for (MinionEntity m : routeMinions) {
+						m.setPatrolRouteId(-1);
+						m.getNavigation().stop();
+					}
+				}
+				player.sendMessage(Text.literal("§c✦ Removed Waypoint from " + updated.getFormattedName()), true);
+			}
+			case CLEAR_ROUTE -> {
+				com.example.patrol.PatrolRoute updated = com.example.patrol.PatrolRouteManager.getInstance().clearRoute(
+					player.getUuid(), payload.routeId()
+				);
+				com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(player);
+				List<MinionEntity> routeMinions = world.getEntitiesByClass(
+					MinionEntity.class,
+					player.getBoundingBox().expand(256.0D),
+					m -> m.isAlive() && m.isOwner(player) && m.getPatrolRouteId() == payload.routeId()
+				);
+				for (MinionEntity m : routeMinions) {
+					m.setPatrolRouteId(-1);
+					m.getNavigation().stop();
+				}
+				player.sendMessage(Text.literal("§c✦ Cleared all waypoints for " + updated.getFormattedName()), true);
+			}
+			case ASSIGN_MINION -> {
+				Entity entity = world.getEntityById(payload.minionId());
+				if (entity instanceof MinionEntity minion && minion.isOwner(player)) {
+					if (minion.getPatrolRouteId() == payload.routeId()) {
+						minion.setPatrolRouteId(-1);
+						minion.setSelected(false);
+						minion.getNavigation().stop();
+						player.sendMessage(Text.literal("§e✦ " + minion.getRole().getDisplayName() + " removed from patrol duty."), true);
+					} else {
+						com.example.patrol.PatrolRoute route = com.example.patrol.PatrolRouteManager.getInstance().getRoute(player.getUuid(), payload.routeId());
+						if (route == null || route.waypoints().isEmpty()) {
+							player.sendMessage(Text.literal("§c⚠ Cannot assign to " + (route != null ? route.getFormattedName() : "Route") + " — no waypoints set! Place waypoints first."), true);
+							return;
+						}
+						minion.setPatrolRouteId(payload.routeId());
+						minion.setCurrentWaypointIndex(0);
+						minion.clearLeader();
+						minion.setSitting(false);
+						minion.setGuardAnchorPos(null);
+						minion.setSelected(false);
+						minion.getNavigation().stop();
+						player.sendMessage(Text.literal("§a✦ Assigned " + minion.getRole().getDisplayName() + " to " + route.getFormattedName() + " (" + route.waypoints().size() + " waypoints)!"), true);
+					}
+				}
+			}
+			case SET_ESCORT -> {
+				Entity followerEntity = world.getEntityById(payload.minionId());
+				Entity leaderEntity = world.getEntityById(payload.targetMinionId());
+				if (followerEntity instanceof MinionEntity follower && follower.isOwner(player)
+					&& leaderEntity instanceof MinionEntity leader && leader.isOwner(player)) {
+					if (follower.equals(leader) || follower.getUuid().equals(leader.getUuid())) {
+						return; // Minion cannot escort itself
+					}
+					// Break reciprocal circular escort loop if leader was escorting follower
+					if (leader.getLeaderMinionUuid() != null && leader.getLeaderMinionUuid().equals(follower.getUuid())) {
+						leader.clearLeader();
+					}
+					follower.setLeaderMinionUuid(leader.getUuid());
+					follower.setSelected(false);
+					follower.setPatrolRouteId(-1); // Follows leader's patrol or movements
+					follower.setSitting(false);
+					follower.setGuardAnchorPos(null);
+					follower.getNavigation().stop();
+					world.spawnParticles(
+						ParticleTypes.HAPPY_VILLAGER,
+						follower.getX(), follower.getY() + 1.2D, follower.getZ(),
+						10, 0.3D, 0.3D, 0.3D, 0.1D
+					);
+					world.playSound(
+						null, player.getX(), player.getY(), player.getZ(),
+						SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value(), SoundCategory.PLAYERS, 1.8F, 1.4F
+					);
+					world.playSound(
+						null, player.getX(), player.getY(), player.getZ(),
+						SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, SoundCategory.PLAYERS, 1.8F, 1.2F
+					);
+					world.playSound(
+						null, follower.getX(), follower.getY(), follower.getZ(),
+						SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.8F, 1.4F
+					);
+					player.sendMessage(Text.literal("§a✦ " + follower.getRole().getDisplayName() + " is now escorting " + leader.getRole().getDisplayName() + "! (Deselected from you)§r"), true);
+				}
+			}
+			case CLEAR_ESCORT -> {
+				Entity followerEntity = world.getEntityById(payload.minionId());
+				if (followerEntity instanceof MinionEntity follower && follower.isOwner(player)) {
+					follower.clearLeader();
+					follower.setSelected(true);
+					player.sendMessage(Text.literal("§e✦ Escort cleared; minion follows master."), true);
+				}
+			}
+			case TOGGLE_PATROL_MODE -> {
+				com.example.patrol.PatrolRoute updated = com.example.patrol.PatrolRouteManager.getInstance().togglePatrolMode(
+					player.getUuid(), payload.routeId()
+				);
+				com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(player);
+				player.sendMessage(Text.literal("§6✦ Set " + updated.getFormattedName() + " to §b" + updated.patrolMode().getFormattedLabel()), true);
+			}
 		}
 	}
 }

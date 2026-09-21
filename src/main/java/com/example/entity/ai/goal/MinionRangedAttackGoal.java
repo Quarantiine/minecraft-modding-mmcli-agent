@@ -94,7 +94,7 @@ public class MinionRangedAttackGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.WARRIOR) {
+		if (!this.minion.matchesRole(MinionRole.WARRIOR)) {
 			return false;
 		}
 		LivingEntity target = this.minion.getTarget();
@@ -123,7 +123,7 @@ public class MinionRangedAttackGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.WARRIOR) {
+		if (!this.minion.matchesRole(MinionRole.WARRIOR)) {
 			return false;
 		}
 		LivingEntity target = this.minion.getTarget();

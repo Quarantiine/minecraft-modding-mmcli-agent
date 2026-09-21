@@ -56,6 +56,7 @@ public class CommandScepterScreen extends Screen {
 	private ArchitectureStyle selectedStyle = ArchitectureStyle.BIOME_NATIVE;
 	private int selectedSize = BuildingCategory.SIZE_MEDIUM;
 	private int selectedRotation = 0;
+	private int activePatrolRouteId = 0;
 
 	private final List<ButtonWidget> squadButtons = new ArrayList<>();
 	private final List<ButtonWidget> roleButtons = new ArrayList<>();
@@ -63,6 +64,7 @@ public class CommandScepterScreen extends Screen {
 	private final List<ButtonWidget> modeButtons = new ArrayList<>();
 	private final List<ButtonWidget> blueprintButtons = new ArrayList<>();
 	private final List<ButtonWidget> sizeButtons = new ArrayList<>();
+	private final List<ButtonWidget> pathwayWidgets = new ArrayList<>();
 	private ButtonWidget rotateBtn;
 	private ButtonWidget prevPageBtn;
 	private ButtonWidget nextPageBtn;
@@ -84,6 +86,7 @@ public class CommandScepterScreen extends Screen {
 			this.selectedStyle = CommandScepterItem.getArchitectureStyle(scepterStack);
 			this.selectedSize = CommandScepterItem.getBuildingSize(scepterStack);
 			this.selectedRotation = CommandScepterItem.getRotationIndex(scepterStack);
+			this.activePatrolRouteId = CommandScepterItem.getActivePatrolRoute(scepterStack);
 		} else {
 			this.selectedMode = CommandMode.FOLLOW;
 			this.selectedBlueprintId = "modid-mmcli-agent-modding:watchtower";
@@ -92,6 +95,7 @@ public class CommandScepterScreen extends Screen {
 			this.selectedStyle = ArchitectureStyle.BIOME_NATIVE;
 			this.selectedSize = BuildingCategory.SIZE_MEDIUM;
 			this.selectedRotation = 0;
+			this.activePatrolRouteId = 0;
 		}
 		this.shiftHeldOnOpen = isShiftOrSneakDown();
 	}
@@ -112,6 +116,7 @@ public class CommandScepterScreen extends Screen {
 		this.modeButtons.clear();
 		this.blueprintButtons.clear();
 		this.sizeButtons.clear();
+		this.pathwayWidgets.clear();
 
 		// Detect physical sneak/shift state on initial opening with state guard
 		if (!this.initializedOpenState) {
@@ -153,9 +158,9 @@ public class CommandScepterScreen extends Screen {
 			this.addDrawableChild(btn);
 		}
 
-		// Interactive Mass Role Assignment Bar (Warrior / Sentinel / Builder)
+		// Interactive Mass Role Assignment Bar (Warrior / Sentinel / Builder / Auto)
 		MinionRole[] roles = MinionRole.values();
-		int roleBtnWidth = 98;
+		int roleBtnWidth = 72;
 		int roleGap = 6;
 		int roleStartX = startX + 17;
 		int roleY = startY + 80;
@@ -291,6 +296,45 @@ public class CommandScepterScreen extends Screen {
 		.build();
 		this.rotateBtn.visible = this.selectedMode == CommandMode.BUILD;
 		this.addDrawableChild(this.rotateBtn);
+
+		// Pathway Route Dashboard Controls (5 Channel Rows: Select Channel, Toggle Mode, Clear Route)
+		for (int i = 0; i < com.example.patrol.PatrolRoute.CHANNEL_COUNT; i++) {
+			final int routeId = i;
+			int rowY = startY + 118 + i * 25;
+
+			// Channel select button [ 🟡 Route 1 (3) ]
+			ButtonWidget selectBtn = ButtonWidget.builder(
+				getRouteChannelButtonText(routeId),
+				b -> selectActiveRoute(routeId)
+			)
+			.dimensions(startX + 165, rowY, 94, 20)
+			.tooltip(getRouteChannelTooltip(routeId))
+			.build();
+			this.pathwayWidgets.add(selectBtn);
+			this.addDrawableChild(selectBtn);
+
+			// Mode toggle button [ Loop ] or [ Ping ]
+			ButtonWidget modeBtn = ButtonWidget.builder(
+				getRouteModeButtonText(routeId),
+				b -> toggleRouteMode(routeId)
+			)
+			.dimensions(startX + 262, rowY, 38, 20)
+			.tooltip(getRouteModeTooltip(routeId))
+			.build();
+			this.pathwayWidgets.add(modeBtn);
+			this.addDrawableChild(modeBtn);
+
+			// Clear route button [ ✕ ]
+			ButtonWidget clearBtn = ButtonWidget.builder(
+				Text.literal("§c✕"),
+				b -> clearRoute(routeId)
+			)
+			.dimensions(startX + 303, rowY, 22, 20)
+			.tooltip(Tooltip.of(Text.literal("§c✕ Clear Route\n§7Remove all waypoints from " + com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId])))
+			.build();
+			this.pathwayWidgets.add(clearBtn);
+			this.addDrawableChild(clearBtn);
+		}
 
 		updateBlueprintButtons();
 		updateControlsVisibility();
@@ -556,6 +600,7 @@ public class CommandScepterScreen extends Screen {
 
 	public void updateControlsVisibility() {
 		boolean isBuild = this.selectedMode == CommandMode.BUILD;
+		boolean isPathway = this.selectedMode == CommandMode.PATHWAY;
 		for (ButtonWidget btn : this.roleButtons) {
 			btn.visible = !isBuild;
 		}
@@ -568,6 +613,98 @@ public class CommandScepterScreen extends Screen {
 		if (this.rotateBtn != null) {
 			this.rotateBtn.visible = isBuild;
 		}
+
+		for (ButtonWidget btn : this.blueprintButtons) {
+			btn.visible = !isPathway;
+		}
+		if (this.prevPageBtn != null) {
+			this.prevPageBtn.visible = !isPathway;
+		}
+		if (this.nextPageBtn != null) {
+			this.nextPageBtn.visible = !isPathway;
+		}
+
+		for (ButtonWidget btn : this.pathwayWidgets) {
+			btn.visible = isPathway;
+		}
+	}
+
+	public List<ButtonWidget> getPathwayWidgets() {
+		return this.pathwayWidgets;
+	}
+
+	private Text getRouteChannelButtonText(int routeId) {
+		boolean isActive = (routeId == this.activePatrolRouteId);
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		int waypointCount = route != null ? route.waypoints().size() : 0;
+		String prefix = isActive ? "▶ " : "";
+		String color = com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId].substring(0, 2);
+		return Text.literal(color + prefix + "Route " + (routeId + 1) + " §8[" + waypointCount + "]");
+	}
+
+	private Tooltip getRouteChannelTooltip(int routeId) {
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		int waypointCount = route != null ? route.waypoints().size() : 0;
+		boolean isActive = (routeId == this.activePatrolRouteId);
+		String status = isActive ? "§a[Active Channel]\n" : "§eClick to select as active pathway.\n";
+		return Tooltip.of(Text.literal(
+			"§6✦ " + com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId] + "\n" +
+			status +
+			"§7Waypoints: §e" + waypointCount + "\n" +
+			"§7Hold Scepter & Right-Click blocks to append points."
+		));
+	}
+
+	private Text getRouteModeButtonText(int routeId) {
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		com.example.patrol.PatrolRoute.PatrolMode mode = route != null ? route.patrolMode() : com.example.patrol.PatrolRoute.PatrolMode.LOOP;
+		return Text.literal(mode == com.example.patrol.PatrolRoute.PatrolMode.LOOP ? "§bLoop" : "§6Ping");
+	}
+
+	private Tooltip getRouteModeTooltip(int routeId) {
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		com.example.patrol.PatrolRoute.PatrolMode mode = route != null ? route.patrolMode() : com.example.patrol.PatrolRoute.PatrolMode.LOOP;
+		String desc = mode == com.example.patrol.PatrolRoute.PatrolMode.LOOP
+			? "§bLoop: §7Closed loop traversal (1 → 2 → 3 → 1).\n§eClick to toggle Ping-Pong."
+			: "§6Ping-Pong: §7Linear traversal (1 → 2 → 3 → 2 → 1).\n§eClick to toggle Loop.";
+		return Tooltip.of(Text.literal(
+			"§6✦ Patrol Mode: §f" + mode.getDisplayName() + "\n" + desc
+		));
+	}
+
+	public int getActivePatrolRouteId() {
+		return this.activePatrolRouteId;
+	}
+
+	public void selectActiveRoute(int routeId) {
+		this.activePatrolRouteId = routeId;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setActivePatrolRoute(this.scepterStack, routeId);
+		}
+		if (this.client != null && this.client.player != null) {
+			this.client.player.sendMessage(Text.literal("§6✦ Active Patrol Channel: §r" + com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId]), true);
+		}
+		refreshButtonLabels();
+	}
+
+	public void toggleRouteMode(int routeId) {
+		ModClientNetworking.sendTogglePatrolMode(routeId);
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		if (route != null) {
+			com.example.patrol.PatrolRoute updated = route.withPatrolMode(route.patrolMode().toggle());
+			com.example.client.renderer.ClientPatrolRouteTracker.updateRoute(updated);
+		}
+		refreshButtonLabels();
+	}
+
+	public void clearRoute(int routeId) {
+		ModClientNetworking.sendClearPatrolRoute(routeId);
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		if (route != null) {
+			com.example.patrol.PatrolRoute cleared = route.withClearedWaypoints();
+			com.example.client.renderer.ClientPatrolRouteTracker.updateRoute(cleared);
+		}
+		refreshButtonLabels();
 	}
 
 	public List<ButtonWidget> getArchitectureButtons() {
@@ -669,7 +806,7 @@ public class CommandScepterScreen extends Screen {
 		}
 	}
 
-	private void refreshButtonLabels() {
+	public void refreshButtonLabels() {
 		SquadGroup[] squads = SquadGroup.values();
 		for (int i = 0; i < squads.length && i < this.squadButtons.size(); i++) {
 			this.squadButtons.get(i).setMessage(getSquadButtonText(squads[i]));
@@ -702,15 +839,43 @@ public class CommandScepterScreen extends Screen {
 			this.modeButtons.get(i).setMessage(getModeButtonText(modes[i]));
 		}
 
+		for (int i = 0; i < com.example.patrol.PatrolRoute.CHANNEL_COUNT; i++) {
+			int baseIdx = i * 3;
+			if (baseIdx + 2 < this.pathwayWidgets.size()) {
+				this.pathwayWidgets.get(baseIdx).setMessage(getRouteChannelButtonText(i));
+				this.pathwayWidgets.get(baseIdx).setTooltip(getRouteChannelTooltip(i));
+				this.pathwayWidgets.get(baseIdx + 1).setMessage(getRouteModeButtonText(i));
+				this.pathwayWidgets.get(baseIdx + 1).setTooltip(getRouteModeTooltip(i));
+			}
+		}
+
 		if (!this.blueprintButtons.isEmpty()) {
 			updateBlueprintButtons();
 		}
+		updateControlsVisibility();
 	}
 
 	private void updateBlueprintButtons() {
 		if (this.blueprintButtons.isEmpty()) {
 			return;
 		}
+		boolean isPathway = this.selectedMode == CommandMode.PATHWAY;
+		if (isPathway) {
+			for (ButtonWidget btn : this.blueprintButtons) {
+				btn.visible = false;
+				btn.active = false;
+			}
+			if (this.prevPageBtn != null) {
+				this.prevPageBtn.visible = false;
+				this.prevPageBtn.active = false;
+			}
+			if (this.nextPageBtn != null) {
+				this.nextPageBtn.visible = false;
+				this.nextPageBtn.active = false;
+			}
+			return;
+		}
+
 		List<StructureBlueprint> blueprints = new ArrayList<>(BlueprintRegistry.getAll());
 		int totalPages = Math.max(1, (blueprints.size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
 		if (this.blueprintPage >= totalPages) {
@@ -735,9 +900,11 @@ public class CommandScepterScreen extends Screen {
 		}
 
 		if (this.prevPageBtn != null) {
+			this.prevPageBtn.visible = true;
 			this.prevPageBtn.active = this.blueprintPage > 0;
 		}
 		if (this.nextPageBtn != null) {
+			this.nextPageBtn.visible = true;
 			this.nextPageBtn.active = (this.blueprintPage + 1) < totalPages;
 		}
 	}
@@ -851,7 +1018,7 @@ public class CommandScepterScreen extends Screen {
 				MinionRole[] roles = MinionRole.values();
 				if (selectedRoleIndex >= 0 && selectedRoleIndex < roles.length) {
 					int roleStartX = startX + 17;
-					int roleBtnWidth = 98;
+					int roleBtnWidth = 72;
 					int roleGap = 6;
 					int roleY = startY + 80;
 					int indX = roleStartX + selectedRoleIndex * (roleBtnWidth + roleGap);
@@ -872,24 +1039,34 @@ public class CommandScepterScreen extends Screen {
 			0xFFD700
 		);
 
-		context.drawTextWithShadow(
-			this.textRenderer,
-			Text.literal("§bBlueprint Catalog:"),
-			startX + 165,
-			startY + 106,
-			0x55FFFF
-		);
-
-		// Blueprint pagination indicator (only shown when not in BUILD mode, as size buttons occupy this space)
-		if (this.selectedMode != CommandMode.BUILD) {
-			int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
-			context.drawCenteredTextWithShadow(
+		if (this.selectedMode == CommandMode.PATHWAY) {
+			context.drawTextWithShadow(
 				this.textRenderer,
-				Text.literal("§7Page §f" + (this.blueprintPage + 1) + "§7/§f" + totalPages),
-				startX + 245,
-				startY + 231,
-				0xAAAAAA
+				Text.literal("§d✦ Patrol Route Dashboard:"),
+				startX + 165,
+				startY + 106,
+				0xFF55FF
 			);
+		} else {
+			context.drawTextWithShadow(
+				this.textRenderer,
+				Text.literal("§bBlueprint Catalog:"),
+				startX + 165,
+				startY + 106,
+				0x55FFFF
+			);
+
+			// Blueprint pagination indicator (only shown when not in BUILD or PATHWAY mode)
+			if (this.selectedMode != CommandMode.BUILD) {
+				int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
+				context.drawCenteredTextWithShadow(
+					this.textRenderer,
+					Text.literal("§7Page §f" + (this.blueprintPage + 1) + "§7/§f" + totalPages),
+					startX + 245,
+					startY + 231,
+					0xAAAAAA
+				);
+			}
 		}
 
 		// Mode Description Footer Box
@@ -903,6 +1080,7 @@ public class CommandScepterScreen extends Screen {
 			case MINE -> "§6Minions harvest ores & break blocks.";
 			case BUILD -> "§bMinions erect selected blueprint.";
 			case RECRUIT -> "§dEnthrall living mobs into thralls.";
+			case PATHWAY -> "§3Define & patrol waypoint routes.";
 		};
 
 		context.drawTextWithShadow(

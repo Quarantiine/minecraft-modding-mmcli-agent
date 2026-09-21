@@ -54,7 +54,17 @@ public class SentinelGuardGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.SENTINEL) {
+		if (!this.minion.matchesRole(MinionRole.SENTINEL)) {
+			return false;
+		}
+
+		// Minions escorting a squad leader yield to MinionFollowLeaderGoal
+		if (this.minion.hasLeader()) {
+			return false;
+		}
+
+		// Minions on patrol routes yield to MinionPatrolGoal
+		if (this.minion.getPatrolRouteId() >= 0) {
 			return false;
 		}
 
@@ -85,7 +95,11 @@ public class SentinelGuardGoal extends Goal {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		if (this.minion.getRole() != MinionRole.SENTINEL) {
+		if (!this.minion.matchesRole(MinionRole.SENTINEL)) {
+			return false;
+		}
+
+		if (this.minion.hasLeader() || this.minion.getPatrolRouteId() >= 0) {
 			return false;
 		}
 

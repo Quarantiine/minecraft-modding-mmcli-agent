@@ -88,6 +88,16 @@ public class MinionFormationFollowGoal extends Goal {
 			return false;
 		}
 
+		// Minions assigned to patrol routes yield to MinionPatrolGoal
+		if (this.minion.getPatrolRouteId() >= 0) {
+			return false;
+		}
+
+		// Minions escorting a Squad Leader yield to MinionFollowLeaderGoal
+		if (this.minion.hasLeader()) {
+			return false;
+		}
+
 		// Minions actively building or engaged in construction work never follow formation
 		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
 			return false;
@@ -106,7 +116,7 @@ public class MinionFormationFollowGoal extends Goal {
 		}
 
 		this.cachedRank = this.resolveRank(owner);
-		Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
+		Vec3d station = calculateFormationStation(owner, this.minion.getEffectiveRole(), this.cachedRank);
 		double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
 		double distToStationSq = this.minion.squaredDistanceTo(station.x, walkableY, station.z);
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
@@ -129,6 +139,10 @@ public class MinionFormationFollowGoal extends Goal {
 			return false;
 		}
 
+		if (this.minion.getPatrolRouteId() >= 0 || this.minion.hasLeader()) {
+			return false;
+		}
+
 		// Minions actively building or engaged in construction work never follow formation
 		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
 			return false;
@@ -145,7 +159,7 @@ public class MinionFormationFollowGoal extends Goal {
 			return false;
 		}
 
-		Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
+		Vec3d station = calculateFormationStation(owner, this.minion.getEffectiveRole(), this.cachedRank);
 		double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
 		double distToStationSq = this.minion.squaredDistanceTo(station.x, walkableY, station.z);
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
@@ -159,7 +173,7 @@ public class MinionFormationFollowGoal extends Goal {
 		this.rankUpdateCooldown = 0;
 		LivingEntity owner = this.minion.getOwner();
 		if (owner != null) {
-			Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
+			Vec3d station = calculateFormationStation(owner, this.minion.getEffectiveRole(), this.cachedRank);
 			double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
 			Vec3d targetStation = new Vec3d(station.x, walkableY, station.z);
 			this.minion.setActiveTraversalDestination(targetStation);
@@ -204,7 +218,7 @@ public class MinionFormationFollowGoal extends Goal {
 			}
 		}
 
-		Vec3d station = calculateFormationStation(owner, this.minion.getRole(), this.cachedRank);
+		Vec3d station = calculateFormationStation(owner, this.minion.getEffectiveRole(), this.cachedRank);
 		double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
 		Vec3d targetStation = new Vec3d(station.x, walkableY, station.z);
 		this.minion.setActiveTraversalDestination(targetStation);

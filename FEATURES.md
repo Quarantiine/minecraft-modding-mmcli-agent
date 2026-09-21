@@ -22,6 +22,9 @@ This document provides a comprehensive technical breakdown of all gameplay featu
 14. [Multi-Modal Blueprint Rotation & Arcane Build Flight Controls](#14-multi-modal-blueprint-rotation--arcane-build-flight-controls)
 15. [Builder Block Phasing, Post-Construction Structure Egress & Guaranteed Perimeter Flank Spread](#15-builder-block-phasing-post-construction-structure-egress--guaranteed-perimeter-flank-spread)
 16. [Free Survival Build Flight & Water Flight Cancellation Safeguard](#16-free-survival-build-flight--water-flight-cancellation-safeguard)
+17. [Visual Pathway Patrol System & Minion Escort Hierarchy](#17-visual-pathway-patrol-system--minion-escort-hierarchy)
+18. [Autonomous Agent System (`MinionRole.AUTO` Dynamic Evaluation)](#18-autonomous-agent-system-minionroleauto-dynamic-evaluation)
+19. [Dual-Tier Panic Retreat & Emergency Citadel Call](#19-dual-tier-panic-retreat--emergency-citadel-call)
 
 ---
 
@@ -47,15 +50,16 @@ The **Loki Command Scepter** is a high-tier tactical relic allowing players to c
 - **Rarity**: `Rarity.EPIC` (purple item name with persistent enchanted glint)
 - **Max Stack Size**: `1` (single handheld focus)
 
-### 5 Operating Modes (`CommandMode`)
+### 6 Operating Modes (`CommandMode`)
 
-The scepter cycles through 5 distinct operational modes via **Sneak + Right-Click** (in air) or the Command Hub GUI:
+The scepter cycles through 6 distinct operational modes via **Sneak + Right-Click** (in air) or the Command Hub GUI:
 
 1. **`FOLLOW`** (`0.8F` pitch, `§aFollow`): Directs matching squad thralls to break stationary posts, assemble into formation, and escort the commander.
 2. **`STAY`** (`1.0F` pitch, `§eStay`): Directs matching squad thralls to halt movement and hold ground at attention.
 3. **`MINE`** (`1.4F` pitch, `§6Mine`): Directs builders to begin top-down deconstruction of clicked multiblock structures or 3D terrain volumes.
 4. **`BUILD`** (`1.6F` pitch, `§bBuild`): Projects blueprint holographic wireframes and anchors new multiblock construction sessions.
 5. **`RECRUIT`** (`1.8F` pitch, `§dRecruit`): Targets wild or enemy mobs to transfigure them into loyal minion thralls.
+6. **`PATHWAY`** (`2.0F` pitch, `§3Pathway`): Projects 3D block wireframe checkpoints and establishes autonomous looping patrol routes across 5 distinct color channels.
 
 > [!TIP]
 > **Contextual Combat Control**:
@@ -940,3 +944,143 @@ The commander's active game mode dynamically dictates minion logistics, resource
   3. **Flight Revocation**: Revokes flight abilities (`allowFlying = false`, `flying = false`) and clears `ACTIVE_SERVER_BUILD_FLIERS`.
   4. **Audiovisual Feedback**: Plays an extinguishing sizzle sound effect (`SoundEvents.BLOCK_FIRE_EXTINGUISH`) and spawns water splash particles (`ParticleTypes.SPLASH`).
   5. **Commander Alert**: Displays an immediate warning message on the actionbar: `§c⚠ Construction cancelled: Flying over water is prohibited in BUILD mode!§r`.
+
+---
+
+## 17. Visual Pathway Patrol System & Minion Escort Hierarchy
+
+### Autonomous Waypoint Patrol Engine (`MinionPatrolGoal`, `PatrolRouteManager`, `PatrolRoute`)
+
+- **5 Color-Coded Route Channels**: Channels 0–4 feature dedicated visual identities, allowing commanders to design up to 5 concurrent, isolated patrol circuits across their fortress:
+  - **Route 1**: 🟡 **Gold / Amber** (`0xFFD700`) — Citadel gates & primary courtyard.
+  - **Route 2**: 🔵 **Azure / Cyan** (`0x00E5FF`) — Castle ramparts & battlement parapets.
+  - **Route 3**: 🟢 **Emerald Green** (`0x00FF66`) — Village perimeter & agricultural farms.
+  - **Route 4**: 🟣 **Arcane Purple** (`0xB300FF`) — Nether portal hubs & subterranean quarry entries.
+  - **Route 5**: 🔴 **Crimson Red** (`0xFF2244`) — Forward trenches, barbicans & perimeter killzones.
+- **In-World 3D Holographic Wireframes & Vector Trajectories (`PathwayHologramRenderer`)**:
+  - Clicking blocks while in `PATHWAY` mode anchors an exact bounding wireframe resting cleanly on top of each waypoint surface.
+  - Floating, camera-aligned billboarding badges hover above each block displaying sequential numbered checkpoint tags: `[ 1 ]`, `[ 2 ]`, `[ 3 ]`, etc.
+  - Continuous glowing directional 3D laser tether lines float directly on top of the block surfaces, connecting consecutive waypoints in order ($1 \to 2 \to 3 \to \dots \to 1$).
+  - **Selective Scepter Illumination**: Outlines and trajectory lines render exclusively while holding the Command Scepter in **`PATHWAY`** mode, keeping the world clutter-free during regular gameplay. The active channel pulses with an energetic alpha glow.
+  - **Tactile Waypoint Deletion**: Punching/attacking an existing waypoint with the Scepter in `PATHWAY` mode instantly removes it with smoke particles and a bass note. Right-clicking an existing waypoint toggles it off. If deleting the last waypoint empties the route, all minions assigned to that route are automatically unassigned and halted.
+  - **World Save Persistence (`PatrolRoutePersistentState` & `PatrolRouteManager`)**:
+    - **Native NBT World Storage**: All 5 route channels and waypoints are stored in native world save data (`data/minion_patrol_routes.dat`) and reload seamlessly when joining or reloading a save.
+    - **Root Data Unwrap & Multi-Session Resilience**: Deserialization safely unpacks the outer `"data"` compound used by Minecraft's `PersistentStateManager`, ensuring routes are never wiped or lost across game restarts.
+    - **Immediate Disk Flushing**: Placing, removing, clearing, or modifying waypoints triggers an immediate `stateManager.save()` flush to disk rather than waiting for server shutdown.
+    - **Lifecycle & Join Synchronization**: Guaranteed initialization via `ServerLifecycleEvents.SERVER_STARTED` and `ServerWorldEvents.LOAD` (`.equals(World.OVERWORLD)`), coupled with automatic fail-safe initialization in `syncToPlayer` on connection.
+  - **Fail-Safe Route & Stance Guards**:
+    - **Empty Route Rejection**: Assigning minions to routes with 0 waypoints via GUI, direct right-click, or Banner of Courage is cleanly rejected with an informative chat alert.
+    - **Autonomous Ghost Route Detachment**: If a route is cleared while minions are assigned, `MinionPatrolGoal` automatically self-detaches (`setPatrolRouteId(-1)`), preventing minions from ever freezing in an unpatrollable state.
+    - **Stationed Post Precedence**: Stationed minions holding an anchor post or ground ping yield in `MinionPatrolGoal` to ensure they maintain their defensive posts.
+    - **Direct Command Precedence**: Toggling stance with an empty hand (following or stationed) immediately clears active patrol routes and escort links.
+    - **Circular Escort Prevention**: Self-escort and reciprocal loops (A escorts B while B escorts A) are automatically rejected and broken.
+    - **Zero-Overlap Protection & Universal Cross-Channel Removal**: Waypoints are mutually exclusive across all 5 channels—a block coordinate can only belong to one route at a time. Right-clicking or punching an existing waypoint from ANY channel removes/undoes it from whichever route it belongs to without adding duplicates on top.
+- **Patrol Kinematics & Vigilant Checkpoint Scanning**:
+  - **Sequential Order Traversal**: Minions follow each pathway tile placed by players from first placed `[ 1 ]` to last `[ N ]` in sequence.
+  - **Smooth Traversal (No Intermediate Stopping)**: Minions smoothly advance from checkpoint to checkpoint without stopping along the trail.
+  - **End-Only Sentry Linger**: Upon reaching the **end** of a pathway (at the final waypoint in `LOOP` mode, or at the terminal endpoints before reversing in `PING_PONG` mode), minions pause for **200–300 ticks (10 to 15 seconds)**, performing periodic head-turn scanning across horizontal angles to detect threats like vigilant perimeter guards. If waypoints are removed or modified while lingering, linger ticks immediately reset to transition smoothly.
+  - **Closed Loop vs. Linear Ping-Pong Patrol (`PatrolMode`)**:
+    - **`PatrolMode.LOOP`**: Connects sequential waypoints continuously, cycling from the final checkpoint straight back to point 1 ($1 \to 2 \to 3 \to 1$).
+    - **`PatrolMode.PING_PONG`**: Traverses forward, and upon reaching the final checkpoint, reverses traversal direction back to the origin ($1 \to 2 \to 3 \to 2 \to 1$), omitting the return line across base territory.
+  - **Patrol Breach Alarm & Sentry Mobilization (`MinionPatrolGoal.triggerBreachAlarm`)**:
+    - When a patrolling sentry detects hostile targets crossing its route, it activates an emergency sentry breach protocol:
+      - Sounds a deep goat horn blast and resonant raid bell (`SoundEvents.ITEM_GOAT_HORN_SOUND_0` / `SoundEvents.BLOCK_BELL_USE`).
+      - Bursts angry villager particles (`ParticleTypes.ANGRY_VILLAGER`) above the sentry's head.
+      - Scans a 16-block radius and alerts nearby idle allied minions, instantly breaking their stationary wait to mobilize and engage the threat.
+  - **Smart Combat Resumption**: If a hostile mob enters the minion's detection range, the patrol is interrupted and the minion engages. Once all hostiles are eradicated, the minion calculates the nearest waypoint along its route and resumes the patrol cycle seamlessly.
+  - **Unconstrained Terrain Scaling**: Minions leverage Universal Arcane Levitation and 2-tick Obstacle Vaulting to ascend castle battlements, cliffs, and spiral stairwells along their route without getting stuck.
+
+### Minion Escort Hierarchy & Squad Leaders (`MinionFollowLeaderGoal`)
+
+- **Commander Delegation & Bodyguards**: Minions can be assigned to follow and bodyguard other minions instead of the player commander.
+- **Method 1: Shift-Punch to Designate Squad Leader (Instant Mass Escort Assignment)**:
+  - Select one or more minions using the Command Scepter (individual punch or 90° cone mass sweep, even while in **PATHWAY** mode).
+  - With the Command Scepter in hand, **Shift + Left-Click (Shift-Punch)** an owned minion:
+    - The punched minion becomes the **Squad Leader**!
+    - All selected minions are instantly assigned to escort the punched minion as their designated Squad Leader!
+    - **Self-Follow Immunity**: A minion cannot follow itself; if the punched minion was already selected and following the player commander, it remains selected as the point-man squad leader following the commander, while all other selected minions become its bodyguards.
+    - **Automatic Deselection & Mutual Exclusivity**: All assigned escort minions are automatically deselected from the player commander (`setSelected(false)`). They strictly follow their squad leader and will never follow the player and the minion simultaneously.
+    - **Automatic Detachment Upon Following Master**: Whenever a minion is ordered to follow the player (via normal punch, 90° cone sweep, or empty-hand right-click), any active escort bond is automatically severed (`clearLeader()`), returning it immediately to direct player following.
+    - **Goal Conflict Resolution**: `SentinelGuardGoal` and `MinionFormationFollowGoal` strictly yield whenever a minion has an active leader (`hasLeader()`), preventing bodyguards from rubberbanding back to the player's anchor position.
+    - **Loud Resonant Chime Feedback**: Plays a loud dual-chime sound effect (`BLOCK_NOTE_BLOCK_CHIME` + `BLOCK_AMETHYST_BLOCK_RESONATE` at 1.8F volume) at the player's position along with a burst of emerald happy villager particles.
+  - **Shift + Left-Click (Shift-Punch)** an escort minion with 0 minions selected to dissolve its escort bond directly, returning it to direct player command.
+- **Method 2: Tactile Scepter Escort Priming (Single-Target Pairing)**:
+  - With 0 minions selected, **Sneak + Left-Click** an owned minion with the Scepter to prime it as an escort (plays amethyst chime).
+  - **Right-Click** another owned minion to bind the primed escort to that leader with a happy villager particle burst, loud chime, and automatic player deselection. Reciprocal escort loops are automatically prevented.
+  - **Shift + Left-Click** again or right-click the same minion to dissolve the escort bond and return to player following.
+- **Escort Arcane Tether Beam (`PathwayHologramRenderer`)**:
+  - When holding the Command Scepter, an arcane particle vector beam connects each escort to its squad leader.
+  - Features high-energy cyan-to-magenta gradient particles streaming along the tether vector, allowing commanders to visualize intricate command chains in real time.
+- **Dynamic Multi-Unit Army Formation Stations (Any Escort Squad Size)**:
+  - **No Matter the Squad Size**: Supports any number of escort minions (from 1 up to 20+ units). Rather than clustering or sharing the same offset, every escort unit calculates a distinct, non-overlapping military rank offset around the squad leader using `MinionFormationFollowGoal.resolveRank` and `calculateFormationStation`.
+  - **Tactical Formation Offsets**:
+    - **Sentinels**: Assume flanking bodyguard ranks on lateral shoulders and outer wings ($\pm 1.35\text{D}$ to $\pm 3.60\text{D}$, $+1.8\text{D}$ forward), staying in optimal range to cast *Aegis of Restoration* whenever their leader drops below 70% HP.
+    - **Warriors**: Advance in straight frontline battle rows ($+4.0\text{D}$ forward, $-2.0\text{D}$ per subsequent rank), actively screening the leader in combat.
+    - **Builders**: Trail in the protected rearguard support column ($-2.0\text{D}$ rearward).
+  - **Surface Elevation & Heading Hysteresis**: Uses `resolveWalkableY` to anchor stations to valid walking surfaces on hills, stairs, and ledges. Anchors formation yaw relative to the leader to eliminate disorienting station spinning during small rotational adjustments.
+  - **Emergency Teleportation**: If an escort is separated from their squad leader by >64 blocks, they immediately teleport to the leader with ender portal particles and SFX.
+- **Dedicated Squad Leader Combat AI & Leash Enforcement**:
+  - **Leader Target Sharing & Retaliation**: Escorts defend their squad leader directly: they target whatever strikes their leader (`TrackLeaderAttackerGoal`) and engage whichever enemy their leader attacks (`AttackWithLeaderGoal`), ignoring distant commander skirmishes.
+  - **16-Block Combat Leash Override**: If an enemy lures an escort >16 blocks away from the squad leader (`COMBAT_LEASH_OVERRIDE_SQ = 256.0D`), combat aggro is instantly broken and the escort sprints back to formation.
+  - **Post-Combat Return to Leader**: After clearing combat encounters, escorts sprint directly back to their squad leader (`returnToOwnerPostCombat`), never running to the commander.
+  - **Wander AI Suppression**: `WanderAroundFarGoal` and stationary waypoint holding (`WaypointHoldGoal`) are strictly suppressed while a minion has an active squad leader.
+- **Squad Patrol Synergy**:
+  - Assigning a **Squad Leader** to a patrol route causes all follower bodyguards to march together along the route in full military escort formation, coordinating attacks and defense as a unified fireteam!
+
+### Overhead Badge Status Indicators (`MinionOverheadBadgeFeatureRenderer`)
+
+Minions project dynamic billboarding badges hovering above their nameplates:
+- **Route Channel Badge**: Displays `[ 🟡 Route 1 ]`, `[ 🔵 Route 2 ]`, etc., tinted to the exact hex color of the assigned channel (only rendered when the assigned route contains active waypoints).
+- **Escort Badge**: Displays `[ 🛡 Escort ]` when bound as a dedicated follower to another squad leader.
+- **Auto Role Badge**: Displays `[ ⚙ AUTO: <Role> ]` in yellow, dynamically reflecting the autonomous agent's currently adapted role.
+
+---
+
+## 18. Autonomous Agent System (`MinionRole.AUTO` Dynamic Evaluation)
+
+### Dynamic Role Morphing Engine (`evaluateAutoRole`)
+
+The mod introduces a 4th minion archetype: **`MinionRole.AUTO`** (`id = 3`, icon `⚙`, color `§e`). Minions configured with the Auto role act as autonomous agents, dynamically re-evaluating their tactical environment every 20 ticks (1 second) and adapting into the role best suited for current conditions:
+
+1. **Medical Emergency Assessment (Priority 1 -> Sentinel)**:
+   - Evaluates the health of the player commander (within 16m) and all allied minions (within 10m).
+   - If any friendly unit is wounded below 70% maximum health, the autonomous agent adapts into a **Sentinel**, prioritizing restorative healing via *Aegis of Restoration*.
+2. **Combat Threat Assessment (Priority 2 -> Warrior)**:
+   - Scans a 16-block radius for aggressive hostile entities (monsters, raiders, enemy targets).
+   - If threats are detected, the minion adapts into a **Warrior**, drawing weapons and executing coordinated melee or ranged attacks.
+3. **Civil Engineering & Peaceful Logistics (Priority 3 -> Builder)**:
+   - If no immediate medical or combat threats exist, the minion inspects active construction or deconstruction sessions belonging to the commander.
+   - If blueprint sessions exist, or if the environment is peaceful, the agent adapts into a **Builder**, taking flight with Arcane Levitation to construct structures, quarry materials, harvest timber, or manage supply depots.
+
+### Universal Equipment & Goal Compatibility
+
+- **Adaptive Role Querying (`getEffectiveRole()`)**: All AI goals (`MinionActiveTargetGoal`, `MinionRangedAttackGoal`, `SentinelHealAllyGoal`, `MinionBuildGoal`, `ConstructionManager`) query `matchesRole()`, allowing `AUTO` minions to seamlessly satisfy role requirements for whichever behavior is currently active.
+- **Universal Auto-Equip**: Auto minions intelligently accept weapons and tools of all disciplines (swords, bows, crossbows, tridents, pickaxes, axes, shovels) while rejecting non-weapon items in the main hand.
+
+---
+
+## 19. Dual-Tier Panic Retreat & Emergency Citadel Call
+
+The tactical retreat system (`RetreatPayload`, `ExampleModClient`, `CommandScepterItem`) provides two distinct tiers of emergency recall:
+
+### Tier 1: Tactical Squad Retreat (Quick `R`)
+- **Execution**: Press **`R`** while holding the Command Scepter.
+- **Scope**: Affects units belonging to the active squad within **64 blocks**.
+- **Action**:
+  - Clears hostile combat targets (`setTarget(null)`).
+  - Dismisses 3D holographic wireframes (`ClientConstructionTracker.clear()`).
+  - Cancels active construction sessions for the commander.
+  - Sprints recalled units back into ranked formation behind the commander.
+- **Feedback**: Sounds a warning retreat bell (`SoundEvents.BLOCK_BELL_USE`) and displays action bar notification.
+
+### Tier 2: Emergency Citadel Call (`Shift + R`)
+- **Execution**: Press **`Shift + R`** while holding the Command Scepter.
+- **Scope**: Fortress-wide emergency muster covering all owned minions within **128 blocks**.
+- **Action**:
+  - Unbinds **all minions from patrol duty** (`patrolRouteId = -1`).
+  - Overrides all stationary hold postures and sitting positions.
+  - Clears all combat targets and breaks worker focus across all squads.
+  - Recalls every thrall on the map back to the player's immediate defense.
+- **Feedback**: Sounds a resounding **Raid Horn** blast accompanied by a clanging **Iron Bell** (`SoundEvents.ITEM_GOAT_HORN_SOUND_0` and `SoundEvents.BLOCK_BELL_USE`), bursts smoke and portal particles, and displays urgent banner: `§c🚨 CITADEL CALL! All 128m units abandoning posts and rallying to commander!§r`.
+
+

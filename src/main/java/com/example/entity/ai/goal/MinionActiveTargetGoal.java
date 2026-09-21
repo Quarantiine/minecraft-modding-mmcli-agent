@@ -28,8 +28,14 @@ public class MinionActiveTargetGoal extends ActiveTargetGoal<HostileEntity> {
 			return false;
 		}
 		// Warriors actively scan and engage hostiles across the tactical zone
-		if (this.minion.getRole() != MinionRole.WARRIOR) {
+		if (!this.minion.matchesRole(MinionRole.WARRIOR)) {
 			return false;
+		}
+		if (this.minion.hasLeader()) {
+			MinionEntity leader = this.minion.resolveLeader();
+			if (leader == null || !leader.isAlive() || this.minion.squaredDistanceTo(leader) > 256.0D) {
+				return false;
+			}
 		}
 		return super.canStart();
 	}

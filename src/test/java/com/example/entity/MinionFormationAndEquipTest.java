@@ -240,6 +240,14 @@ public class MinionFormationAndEquipTest {
 					|| item == TestItemCategory.MELEE_AXE
 					|| item == TestItemCategory.MELEE_SWORD
 					|| item == TestItemCategory.MELEE_MACE;
+				case AUTO -> item == TestItemCategory.MELEE_SWORD
+					|| item == TestItemCategory.MELEE_AXE
+					|| item == TestItemCategory.MELEE_MACE
+					|| item == TestItemCategory.MELEE_TRIDENT
+					|| item == TestItemCategory.RANGED_BOW
+					|| item == TestItemCategory.RANGED_CROSSBOW
+					|| item == TestItemCategory.TOOL_PICKAXE
+					|| item == TestItemCategory.TOOL_SHOVEL;
 			};
 		}
 
@@ -259,6 +267,7 @@ public class MinionFormationAndEquipTest {
 				case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 				case SENTINEL -> candidateMelee && !currentMelee;
 				case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
+				case AUTO -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 			};
 		}
 
@@ -334,6 +343,11 @@ public class MinionFormationAndEquipTest {
 				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_SWORD));
 				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_AXE));
 				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.TOOL_PICKAXE));
+			} else if (role == MinionRole.AUTO) {
+				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_BOW));
+				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_CROSSBOW));
+				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.MELEE_SWORD));
+				Assertions.assertTrue(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.TOOL_PICKAXE));
 			} else {
 				// Non-warrior roles never equip ranged weapons
 				Assertions.assertFalse(TestAutoEquipLogic.canRoleAutoEquipMainhand(role, TestItemCategory.RANGED_BOW));

@@ -18,7 +18,8 @@ public enum CommandMode implements StringIdentifiable {
 	STAY("stay", 1.0F, "Stay", "§e"),
 	MINE("mine", 1.4F, "Mine", "§6"),
 	BUILD("build", 1.6F, "Build", "§b"),
-	RECRUIT("recruit", 1.8F, "Recruit", "§d");
+	RECRUIT("recruit", 1.8F, "Recruit", "§d"),
+	PATHWAY("pathway", 2.0F, "Pathway", "§3");
 
 	public static final Codec<CommandMode> CODEC = StringIdentifiable.createCodec(CommandMode::values);
 

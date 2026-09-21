@@ -108,7 +108,7 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 		if (role == null) role = MinionRole.WARRIOR;
 
 		Text squadBannerText = getSquadBanner(squad, entity.isSelected());
-		Text roleCrestText = getRoleCrest(role, entity.isHoldingPosition());
+		Text roleCrestText = getRoleCrest(entity);
 		Text healthDisplayText = getHealthDisplay(entity.getHealth(), entity.getMaxHealth());
 
 		matrices.push();
@@ -348,6 +348,49 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 	public static Text getRoleCrest(MinionRole role, boolean isSitting) {
 		String statusSuffix = isSitting ? " §e[HOLD]" : "";
 		return Text.literal(role.getColorCode() + role.getBadgeLabel() + statusSuffix);
+	}
+
+	/**
+	 * Formats the comprehensive overhead role crest text for a minion entity,
+	 * incorporating auto-mode adaptive stance, route channel badges, escort badges, and holding indicators.
+	 *
+	 * @param entity The minion entity to query.
+	 * @return Colored text component representing the rich role crest badge.
+	 */
+	public static Text getRoleCrest(MinionEntity entity) {
+		if (entity == null) {
+			return getRoleCrest(MinionRole.WARRIOR, false);
+		}
+		MinionRole role = entity.getRole();
+		if (role == null) role = MinionRole.WARRIOR;
+
+		StringBuilder sb = new StringBuilder();
+		if (role == MinionRole.AUTO) {
+			MinionRole adaptive = entity.getAdaptiveRole();
+			sb.append("§e⚙ AUTO: ").append(adaptive.getColorCode()).append(adaptive.getIcon()).append(" ").append(adaptive.getDisplayName());
+		} else {
+			sb.append(role.getColorCode()).append(role.getBadgeLabel());
+		}
+
+		if (entity.isHoldingPosition()) {
+			sb.append(" §e[HOLD]");
+		}
+
+		// Route Badge
+		int routeId = entity.getPatrolRouteId();
+		if (routeId >= 0 && routeId < com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES.length) {
+			com.example.patrol.PatrolRoute clientRoute = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+			if (clientRoute != null && !clientRoute.waypoints().isEmpty()) {
+				sb.append(" §8[").append(com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId]).append("§8]");
+			}
+		}
+
+		// Escort Badge
+		if (entity.hasLeader()) {
+			sb.append(" §b[🛡 Escort]");
+		}
+
+		return Text.literal(sb.toString());
 	}
 
 	/**

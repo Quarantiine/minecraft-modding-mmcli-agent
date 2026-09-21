@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.example.component.SquadGroup;
@@ -113,6 +115,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	private static final TrackedData<Boolean> GUARDING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 	private static final TrackedData<Boolean> PREVIEW_GLOWING = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
 	private static final TrackedData<Boolean> PHASING_BLOCKS = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
+	private static final TrackedData<Integer> PATROL_ROUTE_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
+	private static final TrackedData<Integer> CURRENT_WAYPOINT_INDEX = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
+	private static final TrackedData<Optional<UUID>> LEADER_MINION_UUID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.OPTIONAL_UUID);
+	private static final TrackedData<Integer> ADAPTIVE_ROLE_ID = DataTracker.registerData(MinionEntity.class, TrackedDataHandlerRegistry.INTEGER);
 
 	private LivingEntity lastCombatTarget;
 	private int outOfCombatTicks = 0;
@@ -166,6 +172,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		builder.add(GUARDING, false);
 		builder.add(PREVIEW_GLOWING, false);
 		builder.add(PHASING_BLOCKS, false);
+		builder.add(PATROL_ROUTE_ID, -1);
+		builder.add(CURRENT_WAYPOINT_INDEX, 0);
+		builder.add(LEADER_MINION_UUID, Optional.empty());
+		builder.add(ADAPTIVE_ROLE_ID, MinionRole.WARRIOR.getId());
 	}
 
 	/**
@@ -182,6 +192,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void setSelected(boolean selected) {
 		this.dataTracker.set(SELECTED, selected);
+		if (selected) {
+			this.clearLeader();
+		}
 	}
 
 	/**
@@ -196,6 +209,84 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public boolean isHoldingPosition() {
 		return this.isSitting() || this.isGuarding();
+	}
+
+	public int getPatrolRouteId() {
+		return this.dataTracker.get(PATROL_ROUTE_ID);
+	}
+
+	public void setPatrolRouteId(int routeId) {
+		this.dataTracker.set(PATROL_ROUTE_ID, routeId);
+	}
+
+	public int getCurrentWaypointIndex() {
+		return this.dataTracker.get(CURRENT_WAYPOINT_INDEX);
+	}
+
+	public void setCurrentWaypointIndex(int index) {
+		this.dataTracker.set(CURRENT_WAYPOINT_INDEX, Math.max(0, index));
+	}
+
+	public UUID getLeaderMinionUuid() {
+		return this.dataTracker.get(LEADER_MINION_UUID).orElse(null);
+	}
+
+	public void setLeaderMinionUuid(UUID uuid) {
+		this.dataTracker.set(LEADER_MINION_UUID, Optional.ofNullable(uuid));
+		if (uuid != null) {
+			this.dataTracker.set(SELECTED, false);
+			this.setGuardAnchorPos(null);
+			this.setPatrolRouteId(-1);
+			this.clearAssaultTargets();
+			this.setTarget(null);
+			this.setSitting(false);
+		}
+	}
+
+	public MinionEntity resolveLeader() {
+		UUID leaderUuid = this.getLeaderMinionUuid();
+		if (leaderUuid == null) {
+			return null;
+		}
+		if (this.getWorld() instanceof ServerWorld serverWorld) {
+			Entity entity = serverWorld.getEntity(leaderUuid);
+			if (entity instanceof MinionEntity minionLeader) {
+				if (minionLeader.isAlive()) {
+					return minionLeader;
+				} else {
+					this.clearLeader();
+					return null;
+				}
+			}
+		}
+		return null;
+	}
+
+	public boolean hasLeader() {
+		return this.dataTracker.get(LEADER_MINION_UUID).isPresent();
+	}
+
+	public void clearLeader() {
+		this.dataTracker.set(LEADER_MINION_UUID, Optional.empty());
+	}
+
+	public MinionRole getAdaptiveRole() {
+		return MinionRole.fromId(this.dataTracker.get(ADAPTIVE_ROLE_ID));
+	}
+
+	public MinionRole getEffectiveRole() {
+		return this.getRole() == MinionRole.AUTO ? this.getAdaptiveRole() : this.getRole();
+	}
+
+	public void setAdaptiveRole(MinionRole role) {
+		this.dataTracker.set(ADAPTIVE_ROLE_ID, role != null ? role.getId() : MinionRole.WARRIOR.getId());
+	}
+
+	public boolean matchesRole(MinionRole expectedRole) {
+		if (this.getRole() == expectedRole) {
+			return true;
+		}
+		return this.getRole() == MinionRole.AUTO && this.getAdaptiveRole() == expectedRole;
 	}
 
 	@Override
@@ -770,6 +861,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(3, new SentinelHealAllyGoal(this));
 		this.goalSelector.add(3, new WaypointHoldGoal(this));
 		this.goalSelector.add(3, new MinionBuildGoal(this));
+		this.goalSelector.add(3, new com.example.entity.ai.goal.MinionPatrolGoal(this));
 		this.goalSelector.add(4, new MinionRangedAttackGoal(this, 1.25D, 20));
 		this.goalSelector.add(5, new MeleeAttackGoal(this, 1.35D, true) {
 			@Override
@@ -791,11 +883,12 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				return super.shouldContinue();
 			}
 		});
+		this.goalSelector.add(6, new com.example.entity.ai.goal.MinionFollowLeaderGoal(this));
 		this.goalSelector.add(6, new MinionFormationFollowGoal(this));
 		this.goalSelector.add(7, new WanderAroundFarGoal(this, 1.0D) {
 			@Override
 			public boolean canStart() {
-				if (MinionEntity.this.getGuardAnchorPos() != null || MinionEntity.this.isSelected()) {
+				if (MinionEntity.this.getGuardAnchorPos() != null || MinionEntity.this.isSelected() || MinionEntity.this.hasLeader()) {
 					return false;
 				}
 				return super.canStart();
@@ -804,8 +897,26 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(8, new LookAtEntityGoal(this, PlayerEntity.class, 8.0F));
 		this.goalSelector.add(9, new LookAroundGoal(this));
 
-		this.targetSelector.add(1, new TrackOwnerAttackerGoal(this));
-		this.targetSelector.add(2, new AttackWithOwnerGoal(this));
+		this.targetSelector.add(1, new com.example.entity.ai.goal.TrackLeaderAttackerGoal(this));
+		this.targetSelector.add(1, new TrackOwnerAttackerGoal(this) {
+			@Override
+			public boolean canStart() {
+				if (MinionEntity.this.hasLeader()) {
+					return false;
+				}
+				return super.canStart();
+			}
+		});
+		this.targetSelector.add(2, new com.example.entity.ai.goal.AttackWithLeaderGoal(this));
+		this.targetSelector.add(2, new AttackWithOwnerGoal(this) {
+			@Override
+			public boolean canStart() {
+				if (MinionEntity.this.hasLeader()) {
+					return false;
+				}
+				return super.canStart();
+			}
+		});
 		this.targetSelector.add(3, new RevengeGoal(this).setGroupRevenge());
 		this.targetSelector.add(4, new MinionActiveTargetGoal(this, 24.0D));
 	}
@@ -860,6 +971,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 			// Periodic auto-equipment check from internal 9-slot inventory (every 20 ticks / 1 second)
 			if (this.age % 20 == 0) {
+				if (this.getRole() == MinionRole.AUTO) {
+					this.evaluateAutoRole();
+				}
 				autoEquipFromInventory();
 			}
 
@@ -1236,6 +1350,15 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void returnToOwnerPostCombat() {
 		if (this.isTamed() && !this.isSitting()) {
+			if (this.hasLeader()) {
+				MinionEntity leader = this.resolveLeader();
+				if (leader != null && leader.isAlive()) {
+					if (this.squaredDistanceTo(leader) > 4.0D) {
+						this.navigation.startMovingTo(leader, 1.35D);
+					}
+					return;
+				}
+			}
 			BlockPos anchor = this.getGuardAnchorPos();
 			if (anchor != null) {
 				if (this.squaredDistanceTo(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D) > 4.0D) {
@@ -1252,6 +1375,65 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 					this.navigation.startMovingTo(owner, 1.35D);
 				}
 			}
+		}
+	}
+
+	/**
+	 * Dynamically evaluates environmental priorities and shifts the adaptive archetype role
+	 * when operating in {@link MinionRole#AUTO} mode:
+	 * - Priority 1 (Medic / Sentinel): Commander or nearby allied minion wounded below 70% HP.
+	 * - Priority 2 (Combat / Warrior): Target engaged or hostile mobs within 16m.
+	 * - Priority 3 (Architect / Builder): Active construction session or peaceful base operations.
+	 */
+	public void evaluateAutoRole() {
+		if (this.getRole() != MinionRole.AUTO || !(this.getWorld() instanceof ServerWorld serverWorld)) {
+			return;
+		}
+
+		MinionRole targetAdaptiveRole;
+
+		// 1. Check if owner or any nearby allied minion within 16m has health < 70%
+		boolean needsMedic = false;
+		if (this.getOwner() instanceof LivingEntity owner && owner.isAlive() && this.squaredDistanceTo(owner) <= 256.0D) {
+			if (owner.getHealth() < owner.getMaxHealth() * 0.70F) {
+				needsMedic = true;
+			}
+		}
+		if (!needsMedic && this.getOwnerUuid() != null) {
+			List<MinionEntity> woundedAllies = serverWorld.getEntitiesByClass(
+				MinionEntity.class,
+				this.getBoundingBox().expand(16.0D),
+				ally -> ally.isAlive() && Objects.equals(ally.getOwnerUuid(), this.getOwnerUuid()) && ally.getHealth() < ally.getMaxHealth() * 0.70F
+			);
+			if (!woundedAllies.isEmpty()) {
+				needsMedic = true;
+			}
+		}
+
+		if (needsMedic) {
+			targetAdaptiveRole = MinionRole.SENTINEL;
+		} else if (this.getTarget() != null && this.getTarget().isAlive()) {
+			targetAdaptiveRole = MinionRole.WARRIOR;
+		} else {
+			List<LivingEntity> nearbyHostiles = serverWorld.getEntitiesByClass(
+				LivingEntity.class,
+				this.getBoundingBox().expand(16.0D),
+				e -> e.isAlive() && (e instanceof net.minecraft.entity.mob.HostileEntity || e instanceof net.minecraft.entity.mob.Monster)
+			);
+			if (!nearbyHostiles.isEmpty()) {
+				targetAdaptiveRole = MinionRole.WARRIOR;
+			} else if (this.isActivelyBuilding() || this.isPhasingBlocks()) {
+				targetAdaptiveRole = MinionRole.BUILDER;
+			} else if (this.isHoldingPosition()) {
+				targetAdaptiveRole = MinionRole.SENTINEL;
+			} else {
+				targetAdaptiveRole = MinionRole.BUILDER;
+			}
+		}
+
+		if (this.getAdaptiveRole() != targetAdaptiveRole) {
+			this.setAdaptiveRole(targetAdaptiveRole);
+			this.autoEquipFromInventory();
 		}
 	}
 
@@ -1599,6 +1781,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			case WARRIOR -> isMeleeWeapon(stack) || isRangedWeapon(stack) || isThrownWeapon(stack);
 			case SENTINEL -> isMeleeWeapon(stack);
 			case BUILDER -> stack.getItem() instanceof MiningToolItem || isMeleeWeapon(stack);
+			case AUTO -> isMeleeWeapon(stack) || isRangedWeapon(stack) || stack.getItem() instanceof MiningToolItem;
 		};
 	}
 
@@ -1614,6 +1797,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 			case SENTINEL -> isMeleeWeapon(candidate) && !isMeleeWeapon(current);
 			case BUILDER -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
+			case AUTO -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 		};
 	}
 
@@ -1631,17 +1815,19 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			return;
 		}
 
-		MinionRole role = this.getRole();
+		MinionRole role = this.getRole() == MinionRole.AUTO ? this.getAdaptiveRole() : this.getRole();
 
-		// 0. Active role enforcement: disarm any weapon that violates the minion's active role
-		ItemStack heldMainhand = this.getEquippedStack(EquipmentSlot.MAINHAND);
-		if (!heldMainhand.isEmpty() && !canRoleAutoEquipMainhand(role, heldMainhand)) {
-			ItemStack remainder = this.inventory.addStack(heldMainhand);
-			this.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
-			if (!remainder.isEmpty()) {
-				this.dropStack(remainder);
+		// 0. Active role enforcement: disarm any weapon that violates the minion's active role (Auto minions never disarm)
+		if (this.getRole() != MinionRole.AUTO) {
+			ItemStack heldMainhand = this.getEquippedStack(EquipmentSlot.MAINHAND);
+			if (!heldMainhand.isEmpty() && !canRoleAutoEquipMainhand(role, heldMainhand)) {
+				ItemStack remainder = this.inventory.addStack(heldMainhand);
+				this.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+				if (!remainder.isEmpty()) {
+					this.dropStack(remainder);
+				}
+				this.inventory.markDirty();
 			}
-			this.inventory.markDirty();
 		}
 
 		for (int i = 0; i < this.inventory.size(); i++) {
@@ -1759,6 +1945,13 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		nbt.putString("MinionSquad", this.getSquad().asString());
 		nbt.putInt("MinionSquadId", this.getSquad().getId());
 		nbt.putBoolean("Selected", this.isSelected());
+		nbt.putInt("PatrolRouteId", this.getPatrolRouteId());
+		nbt.putInt("CurrentWaypointIndex", this.getCurrentWaypointIndex());
+		UUID leader = this.getLeaderMinionUuid();
+		if (leader != null) {
+			nbt.putUuid("LeaderMinionUuid", leader);
+		}
+		nbt.putInt("AdaptiveRoleId", this.getAdaptiveRole().getId());
 		if (this.guardAnchorPos != null) {
 			nbt.putLong("GuardAnchorPos", this.guardAnchorPos.asLong());
 		}
@@ -1772,6 +1965,18 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 		if (nbt.contains("Selected", NbtElement.BYTE_TYPE)) {
 			this.setSelected(nbt.getBoolean("Selected"));
+		}
+		if (nbt.contains("PatrolRouteId", NbtElement.INT_TYPE)) {
+			this.setPatrolRouteId(nbt.getInt("PatrolRouteId"));
+		}
+		if (nbt.contains("CurrentWaypointIndex", NbtElement.INT_TYPE)) {
+			this.setCurrentWaypointIndex(nbt.getInt("CurrentWaypointIndex"));
+		}
+		if (nbt.containsUuid("LeaderMinionUuid")) {
+			this.setLeaderMinionUuid(nbt.getUuid("LeaderMinionUuid"));
+		}
+		if (nbt.contains("AdaptiveRoleId", NbtElement.INT_TYPE)) {
+			this.setAdaptiveRole(MinionRole.fromId(nbt.getInt("AdaptiveRoleId")));
 		}
 		if (nbt.contains("MinionRoleId", NbtElement.INT_TYPE)) {
 			this.setRole(MinionRole.fromId(nbt.getInt("MinionRoleId")));
@@ -1903,9 +2108,13 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			if (newStationed) {
 				this.setSelected(false);
 				this.setGuardAnchorPos(this.getBlockPos());
+				this.setPatrolRouteId(-1);
+				this.clearLeader();
 			} else {
 				this.setSelected(true);
 				this.setGuardAnchorPos(null);
+				this.setPatrolRouteId(-1);
+				this.clearLeader();
 				this.getNavigation().startMovingTo(player, 1.35D);
 			}
 			if (!world.isClient()) {

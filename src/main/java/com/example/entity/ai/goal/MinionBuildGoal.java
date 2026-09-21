@@ -87,8 +87,7 @@ public class MinionBuildGoal extends Goal {
 		}
 
 		// Architectural gating: BUILDER participates in both construction & deconstruction
-		MinionRole role = this.minion.getRole();
-		if (role != MinionRole.BUILDER) {
+		if (!this.minion.matchesRole(MinionRole.BUILDER)) {
 			return false;
 		}
 
@@ -110,7 +109,7 @@ public class MinionBuildGoal extends Goal {
 			this.minion.getBlockPos(),
 			this.minion.getOwnerUuid(),
 			searchRadius,
-			role
+			this.minion.getEffectiveRole()
 		);
 
 		if (sessionOpt.isEmpty()) {

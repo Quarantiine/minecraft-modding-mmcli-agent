@@ -15,18 +15,27 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | **Right-Click** _(Quick Tap)_      | Sky in **BUILD** Mode    | **Cycle Blueprint**: Cycles to next structure preset (Watchtower, Cottage, etc.) when looking into open air or sky.                                            |
 | **Right-Click** _(Quick Tap)_      | Ground in **MINE** Mode  | **Anchor Dismantle**: Initiates structure deconstruction or area clearance at the targeted position (up to 96m away).                                          |
 | **Right-Click** _(Quick Tap)_      | Open Air / Sky           | **Broadcast Directive**: Broadcasts current mode directive to active squad.                                                                                     |
-| **Hold Right-Click** _(≥ 8 ticks)_ | Any Direction            | **Banner of Courage (90° Forward Sector)**: Real-time unit highlight; on release rallies/transfigures minions and launches **Mass Attack** on enclosed enemies. |
-| **Shift + Right-Click**            | In Air / On Block        | **Cycle Command Mode**: Cycles `FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT`.                                                                                |
+| **Hold Right-Click** _(≥ 8 ticks)_ | All Modes *(incl. PATHWAY)* | **Banner of Courage (90° Forward Sector)**: Real-time unit highlight; on release rallies and selects all enclosed minions into your squad. Any escorts caught in the sweep automatically detach and follow you! |
+| **Shift + Hold Right-Click**       | In **PATHWAY** Mode      | **Sector Pathway Dispatch (90° Forward Sector)**: On release dispatches all enclosed minions (or active selection) directly to the active patrol route! |
+| **Shift + Right-Click**            | In Air / On Block        | **Cycle Command Mode**: Cycles `FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT` → `PATHWAY`.                                  |
 | **Keybind `R`**                    | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise (North → East → South → West).                                            |
-| **Keybind `R`**                    | Any Other Mode           | **Panic Retreat / Regroup**: Disengages all minions from combat, sounds a warning bell, and recalls them into army lines.       |
+| **Keybind `R`**                    | Any Other Mode           | **Tactical Squad Retreat**: Recalls active squad members within 64m, cancels combat, and resumes formation ranks.              |
+| **Shift + Keybind `R`**            | Anywhere                 | **Emergency Citadel Call**: Fortress-wide emergency muster across 128m! Unbinds all patrol routes, sounds raid horn & bell, and sprints all units home. |
 | **Left-Click**                     | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise (on air, terrain, or block, without requiring Shift).                     |
-| **Left-Click**                     | Owned Minion             | **Toggle Selection**: Select/deselect minion without friendly-fire damage.                                                      |
+| **Left-Click**                     | Owned Minion             | **Toggle Selection**: Select/deselect minion without friendly-fire damage. If the minion was escorting another minion, selecting it **automatically detaches** it from its squad leader to follow you! |
+| **Left-Click**                     | Waypoint Block in **PATHWAY** | **Delete Waypoint Tile**: Punches/removes the targeted waypoint tile cleanly with sound and smoke particles across any of the 5 route channels without breaking the block! |
+| **Shift + Left-Click**             | Owned Minion             | **Designate Squad Leader / Untether**: With 1+ minions selected, designates this minion as the **Squad Leader** that all selected minions will escort! With 0 minions selected on an escort, dissolves its escort bond so it follows you. |
+| **Right-Click** _(Quick Tap)_      | Block in **PATHWAY**     | **Add / Remove Waypoint (Zero-Overlap)**: Places a waypoint on top of the surface. If *any* route channel (Color 1–5) already has a waypoint at that position, clicking removes/undoes it from that route instead of creating an overlap! |
+| **Shift + Right-Click**            | Block in **PATHWAY**     | **Remove Waypoint**: Removes clicked waypoint across all route channels (bypasses Command Hub GUI).                           |
+| **Right-Click Air**                | In **PATHWAY** Mode      | **Cycle Route Channel**: Cycles active patrol route (Route 1 🟡 Gold → Route 2 🔵 Cyan → Route 3 🟢 Emerald → Route 4 🟣 Purple → Route 5 🔴 Crimson). |
+| **Shift + Right-Click Air**        | In **PATHWAY** Mode      | **Clear Route**: Clears all waypoints from active patrol route channel.                                                         |
+| **Right-Click Minion**             | In **PATHWAY** Mode      | **Assign Minion to Route**: If minions are selected, assigns all selected minions to the active route. If none are selected, toggles minion patrol duty on the active route channel (shows `[ 🟡 Route # ]` badge). |
 | **Shift + Left-Click**             | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise.                                                                           |
-| **Shift + Left-Click**             | Any Other Mode           | **Deselect All**: Instantly clears selection on all minions.                                                                    |
+| **Shift + Left-Click**             | Any Other Mode (Air/Ground) | **Deselect All**: Instantly clears selection on all minions when clicking air or terrain.                                       |
 | **Keybind `H`**                    | In **BUILD** Mode        | **Tactical Zoom**: Cycles tactical camera zoom presets (0.75x, 1.0x default, 1.5x, 2.0x).                                      |
 | **Arcane Build Flight**             | In **BUILD** Mode        | **Free Survival Build Flight**: Enjoy unconstrained 3D vanilla flight in Survival mode while holding the Scepter in **BUILD** mode (Space to ascend, Shift to descend, full WASD mobility). Flying over water automatically cancels construction and revokes flight! |
 | **Ctrl + Scroll**                  | In **BUILD** Mode        | **Smooth Camera Zoom**: Smoothly zooms tactical view in and out without hotbar cycling conflicts.                                 |
-| **Keybind `V`**                    | Anywhere (with Scepter)  | **Command Hub GUI**: Tactical screen for squads, modes, blueprints, roles, **Architecture Style**, **Size**, and **[↻ Rotate]**. |
+| **Keybind `V`**                    | Anywhere (with Scepter)  | **Command Hub GUI**: Tactical screen for squads, modes, blueprints, 4-role archetypes (`AUTO`), **Architecture Style**, **Size**, and **Patrol Route Dashboard**. |
 | **Shift + Right-Click**            | In Air / On Block        | **Open Command Hub GUI**: Instant access to Command Hub GUI (works while walking or in Arcane Build Flight).                    |
 | **Shift + Right-Click**            | Owned Minion             | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots.                                                       |
 | **Empty Hand Right-Click**         | Owned Minion             | **Unified Station / Follow**: Toggles minion stationing. If stationed (via waypoint or up-close guard), a **single click** immediately orders them to follow. If following, stations them in place. |
@@ -83,6 +92,7 @@ Cycle through operating modes using **Shift + Right-Click** or by pressing **`V`
 | **`MINE`**    | 🟠 Blaze Orange  | Anchors full 3D area mining & deconstruction. Minions clear all blocks top-to-bottom with zero air-mining. |
 | **`BUILD`**   | 🔵 Diamond Cyan  | Activates 3D neon cyan blueprint holograms. Builders construct multiblocks using Arcane Levitation flight. |
 | **`RECRUIT`** | 🟣 Arcane Purple | Quick-tap living mobs to transfigure them into loyal minions.                                              |
+| **`PATHWAY`** | 🔷 Deep Aqua     | Place waypoint outlines and assign minions to autonomous patrol routes with 5 unique color channels.       |
 
 > [!TIP]
 > **No Need for an Attack Mode!**
@@ -108,15 +118,138 @@ To switch squads:
 
 ---
 
+## 🛡️ 4. Visual Pathway Patrol & Minion Escort Hierarchy
+
+### A. 5 Color-Coded Route Channels
+Patrol pathways are organized into 5 independent, color-coded channels:
+- **Route 1**: 🟡 **Gold / Amber** (`0xFFD700`) — Base perimeter & main gates.
+- **Route 2**: 🔵 **Azure / Cyan** (`0x00E5FF`) — Castle battlements & ramparts.
+- **Route 3**: 🟢 **Emerald Green** (`0x00FF66`) — Farms, village borders & gardens.
+- **Route 4**: 🟣 **Arcane Purple** (`0xB300FF`) — Nether portals & mine shafts.
+- **Route 5**: 🔴 **Crimson Red** (`0xFF2244`) — Forward defensive trenches & killzones.
+
+### B. Designing a Patrol Route in PATHWAY Mode
+1. Switch to **`PATHWAY`** mode (**Shift + Right-Click** or in the Command Hub **`V`**).
+2. **Right-Click Air** to cycle to your desired route channel (e.g. Route 1 Gold).
+3. **Right-Click Ground Blocks** along your perimeter:
+   - Each clicked block places a waypoint tile resting cleanly **on top of the surface** with a 3D holographic bounding wireframe.
+   - An animated numbered billboarding badge hovers above the tile: `[ 1 ]`, `[ 2 ]`, `[ 3 ]`, etc.
+   - Luminous 3D laser tether lines float directly on top of the block surface, connecting consecutive waypoints in order.
+   - **Zero-Overlap Protection**: A waypoint position can only belong to **one** route channel. You can never accidentally place two route colors on the same block.
+   - **Selective Visibility**: Pathway holograms and laser tethers are visible **only** when holding the Command Scepter in **`PATHWAY`** mode. Inactive channels remain vividly colored at 65% opacity, while the active channel pulses brightly with an inner core.
+4. **Universal Deleting & Undo**:
+   - **Left-Click (Punch) with Scepter**: Attack any placed waypoint block with the Scepter in `PATHWAY` mode to instantly remove it from whichever route channel it belongs to (with smoke particles and bass note sound without breaking the block!).
+   - **Right-Click Undo / Removal**: Right-clicking an existing waypoint tile removes it from its route channel, even if your held Scepter is set to a different color channel! It will never place a duplicate waypoint on top.
+   - **Sneak + Right-Click**: Sneak-right-clicking an existing waypoint deletes it without popping up the Command Hub GUI screen.
+5. Want to start over? **Sneak + Right-Click Air** or click **Clear Route** in the Command Hub GUI (`V`) to clear all waypoints from the active route channel.
+6. **Persistent Across Game Reloads**: All routes are automatically stored in world save data (`data/minion_patrol_routes.dat`) and reload seamlessly when joining the world!
+
+### C. Assigning Minions to a Patrol Route
+You have three intuitive ways to deploy minions onto a pathway:
+
+1. **Direct Right-Click (Individual Assignment)**:
+   - Hold the Command Scepter in **`PATHWAY`** mode.
+   - Verify that your active route channel matches the one with waypoints (cycle with **Right-Click Air** or check the tooltip/GUI).
+   - **Right-Click directly on an owned minion** (or aim at it with crosshairs up to 64m away).
+   - The minion salutes, displays an overhead badge `[ 🟡 Route 1 ]`, and immediately begins marching to Waypoint `[ 1 ]`.
+   - *(Right-clicking the minion again unassigns it from patrol duty).*
+
+2. **90° Forward Sector Sweep (Mass Group Assignment)**:
+   - Hold the Command Scepter in **`PATHWAY`** mode.
+   - **Hold Right-Click** for $\ge 0.4\text{s}$ (8 ticks) aiming at your group of minions.
+   - An expanding 90° forward arcane sector appears in front of you (growing from 3m to 16m), highlighting all minions inside the arc.
+   - **Release Right-Click**: All minions inside the 90° sector are assigned to the active route, burst with celebration particles, and march out together!
+   - *(Tip: If you aim into open space with no new minions in the cone, this will assign all minions you currently have **selected** to the route!)*
+   - *(Note: Assigning to an empty route with 0 waypoints is prevented with an informative warning).*
+   - *(Direct Command Precedence: Interacting with a minion using an empty hand to follow or hold position will immediately unbind it from patrol routes and escort chains).*
+
+3. **Command Hub Mass Squad Dispatch (`V` Menu)**:
+   - Press **`V`** to open the Command Hub.
+   - Select **`Pathway`** mode.
+   - Select your desired **Target Squad Channel** (e.g. `Alpha`, `Bravo`, or `ALL`).
+   - Click the **Route Channel** you want to assign them to (e.g. Route 1).
+   - Click **Execute Directive** (bottom-left button).
+   - All minions in the chosen squad within range are immediately assigned to that route and march out together!
+
+- **Autonomous AI (`MinionPatrolGoal`)**:
+  - Minions march sequentially through each tile from first placed `[ 1 ]` to last `[ N ]`.
+  - **Smooth Traversal (No Intermediate Stopping)**: Minions continuously march through intermediate pathway tiles without stopping.
+  - **End-Only Vigilant Linger**: When reaching the **end** of a pathway (terminal waypoint before reversing in `PING_PONG`, or final waypoint before looping back in `LOOP`), minions halt and perform a **10s–15s (200–300 ticks)** vigilant sentry wait, turning to scan for threats like a watchman.
+  - Over cliffs or walls, minions automatically engage Arcane Levitation / Obstacle Vaulting to never get stuck.
+  - **Smart Combat Resume**: If a hostile approaches, the minion breaks off patrol to engage. Once the threat is eliminated, the minion snaps to the nearest waypoint and seamlessly resumes the patrol cycle!
+
+### D. Linear Ping-Pong vs. Closed Loop Patrol (`[ 🔁 / 🏓 ]`)
+- **Closed Loop (`LOOP`)**: Checkpoints connect continuously ($1 \to 2 \to 3 \to 1$). Ideal for perimeter walls, moat boundaries, and circular courtyard patrols.
+- **Linear Ping-Pong (`PING_PONG`)**: Checkpoints traverse sequentially forward and reverse upon reaching terminal ends ($1 \to 2 \to 3 \to 2 \to 1$). Ideal for linear hallways, trench battle lines, bridge checkpoints, and battlement walks without minions cutting through the middle of the base!
+- **Toggling**: Switch mode via the Command Hub (`V` key) Route Dashboard using the `[ 🔁 / 🏓 ]` button.
+
+### E. Patrol Breach Alarm & Mobilization
+- When a patrolling sentry detects a hostile mob crossing its route:
+  - **Audible Sentry Alarm**: Sounds a deep goat horn blast and resonant raid bell (`ITEM_GOAT_HORN_SOUND_0` / `BLOCK_BELL_USE`).
+  - **Visual Alarm**: Emits angry villager particles above the sentry's head.
+  - **Allied Mobilization**: Instantly alerts all nearby allied minions within a **16-block radius**, calling them to break idling and converge on the breach to eliminate the intruder!
+
+### F. Minion Escort Hierarchy (Squad Leaders & Bodyguards)
+You can command minions to escort and protect another minion in two seamless ways:
+
+#### Method 1: Shift-Punch to Designate Squad Leader (Instant Escort Assignment)
+1. **Select Minions**: Left-click (punch without Shift) or use the 90° cone sweep (`Hold Right-Click`) to select one or more minions (even in **PATHWAY** mode) so they are selected and following you (e.g. two Sentinels).
+2. **Shift + Punch the Leader Minion**: While holding the Command Scepter, **Shift + Left-Click (Shift + Punch)** the minion you want them to escort (e.g. a frontline Warrior).
+3. **Automatic Deselection & Mutual Exclusivity**:
+   - The punched minion becomes the **Squad Leader**!
+   - All selected minions are immediately tethered to escort that leader.
+   - All assigned escort minions are **automatically deselected from you** (`setSelected(false)`). They cannot follow you and will exclusively follow their squad leader.
+   - **Self-Follow Safeguard**: The leader minion cannot follow itself. If it was already following you, it remains following you as point-man while the other minions fall into escort formation around it.
+   - A resonant chime sounds (`BLOCK_NOTE_BLOCK_CHIME` & `BLOCK_AMETHYST_BLOCK_RESONATE`) and celebratory particles burst!
+
+#### Method 2: Scepter Escort Priming
+1. Hold the Command Scepter with 0 minions selected and **Shift + Left-Click** an unassigned minion.
+   - HUD: *"🛡 Sentinel primed as Escort! Right-click another minion to assign as Leader."*
+2. **Right-Click** the leader minion.
+   - The follower is automatically deselected from you and tethers to the leader!
+
+#### Escort Formations & Dedicated Leader Defense:
+- **Escort Arcane Tether Beam**: Holding the Command Scepter renders a luminous cyan-to-magenta particle vector beam streaming from the escort to their squad leader.
+- **Dynamic Army Formation Ranks (Any Squad Size)**:
+  - **No Matter the Squad Size**: Whether 1, 2, 5, 10, or 20 minions escort a squad leader, every escort dynamically computes a unique, non-overlapping battle rank station.
+  - **Role-Based Tactical Layout**:
+    - **Sentinels**: Flank on lateral shoulders and outer wings ($\pm 1.35\text{D}$ to $\pm 3.60\text{D}$, $+1.8\text{D}$ forward), casting *Aegis of Restoration* whenever their leader drops below 70% HP.
+    - **Warriors**: Form frontline shock lines ($+4.0\text{D}$ forward, $-2.0\text{D}$ per subsequent row), screening their leader in battle.
+    - **Builders & Miners**: Guard the rear support column ($-2.0\text{D}$ rearward).
+  - **Surface & Obstacle Vaulting**: Automatically resolves walkable surface elevation (`resolveWalkableY`) and engages Arcane Levitation flight to scale obstacles and ledges smoothly.
+  - **Emergency Teleport**: If an escort is separated from their squad leader by >64 blocks, they immediately teleport to the leader with ender portal particles.
+- **Dedicated Squad Leader Combat AI**:
+  - **Defends the Leader, Not the Master**: Escorts automatically attack whoever damages their squad leader (`TrackLeaderAttackerGoal`) and coordinate attacks on whatever their leader attacks (`AttackWithLeaderGoal`), completely ignoring distant player skirmishes.
+  - **16-Block Combat Leash**: If an enemy tries to lure an escort more than 16 blocks away from the squad leader, the escort breaks aggro and sprints back to formation.
+  - **Post-Combat Regrouping**: Upon clearing combat targets, escorts sprint directly back to their squad leader at $1.35\text{D}$ speed, never returning to the player.
+  - **Wander & Stray Suppression**: Idle wandering (`WanderAroundFarGoal`) and stationary waypoint holding are suppressed while escorting.
+- **Automatic Detachment Upon Following You**:
+  - If a minion is escorting another minion and you order it to follow you (via **normal punch / Left-Click**, **90° Cone Sweep**, or **empty-hand right-click**), it **automatically detaches** from that minion (`clearLeader()`) and joins your following squad!
+  - You can also **Shift + Left-Click (Shift-Punch)** an escort minion with 0 minions selected to dissolve its escort bond directly (`Escort cleared; minion follows master.`).
+  - Mass squad follow commands and normal panic retreats (`R`) preserve escort bonds; only **Emergency Citadel Call (`Shift + R`)** unbinds all escorts fortress-wide.
+
+### G. Overhead Badge Status Indicators
+Minions display real-time tactical overhead badges above their heads:
+- `[ 🟡 Route 1 ]` / `[ 🔵 Route 2 ]`: Indicates active patrol channel assignment (only visible when the assigned route has active waypoints).
+- `[ 🛡 Escort ]`: Indicates the minion is tethered to a squad leader as a dedicated bodyguard.
+- `[ ⚙ AUTO: <Role> ]`: Indicates an autonomous agent displaying its currently adapted dynamic role (`Warrior`, `Sentinel`, or `Builder`).
+
+---
+
 ## 🖥️ 4. The Command Hub Screen (Keybind `V`)
 
 Press **`V`** with a scepter anywhere in your inventory to open the tactical command screen:
 
 - **Squad Tabs**: Filter orders by `ALL`, `ALPHA`, `BRAVO`, `CHARLIE`, or `DELTA`.
-- **Mode Bar**: Direct buttons for `FOLLOW`, `STAY`, `MINE`, `BUILD`, and `RECRUIT`.
-- **Archetype Toggles**: Select an active role (`WARRIOR`, `SENTINEL`, `BUILDER`). When primed, your next **Banner of Courage** rally transfigures all gathered minions into this archetype!
-- **Blueprint Browser**: Browse multiblock structure blueprints, view required resources, and project 3D wireframe holograms.
-- **Deconstruction Mode**: Toggle between construction and reverse top-down deconstruction.
+- **Mode Bar**: Direct buttons for `FOLLOW`, `STAY`, `MINE`, `BUILD`, `RECRUIT`, and `PATHWAY`.
+- **4-Role Archetype Bar**: Select an active role (`⚔ Warrior`, `🛡 Sentinel`, `🏗 Builder`, `⚙ AUTO`). When primed, your next **Banner of Courage** rally transfigures all gathered minions into this archetype!
+- **Patrol Route Dashboard (in `PATHWAY` Mode)**:
+  - Displays 5 route channel selection rows (`Route 1` through `Route 5`) with live waypoint counters (`[ 4 pts ]`).
+  - Active channel is marked with `§e✦`.
+  - **`[ 🔁 / 🏓 ]` Patrol Mode Toggle**: Instant one-click switching between **Closed Loop** ($1 \to 2 \to 3 \to 1$) and **Linear Ping-Pong** ($1 \to 2 \to 3 \to 2 \to 1$).
+  - **`[ ✕ ]` Quick Clear**: Instantly purges all waypoints from the chosen channel.
+- **Blueprint Browser (in `BUILD` Mode)**: Browse multiblock structure blueprints, view required resources, and project 3D wireframe holograms.
+- **Deconstruction Mode (in `MINE` Mode)**: Toggle between construction and reverse top-down deconstruction.
 
 ---
 
@@ -127,6 +260,7 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 | **`WARRIOR`**  | Swords, Axes, Maces, Tridents **OR** Bows, Crossbows, Thrown Sticks (Frost/TNT) | Frontline Rank 1   | **Versatile Combatant & Hunter**: Frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** ($\le 5\text{D}$ melee thrust, $5\text{D}\text{--}20\text{D}$ thrown spear) and executes **Mob Procurement Contracts** for builders. |
 | **`SENTINEL`** | Shield, Mace + Heavy Armor                                                     | Bulwark Rank 2     | **Defensive Guardian & Combat Medic**: Absorbs damage, holds fortified posts within an expanded 128-block leash, and channels the **Aegis of Restoration** to heal wounded players (commander priority) and allied minions under 70% HP. |
 | **`BUILDER`**  | Pickaxes, Axes, Shovels + Toolset                                              | Rearguard Rank 3   | **Architect, Excavator & Supply Specialist**: 3D levitation flight to construct or dismantle multiblocks at any height. Autonomously quarries natural stone, harvests timber via agro-forestry (using bone meal for rapid growth), self-crafts tools, shares blocks via peer energy beams, deploys supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived resources. |
+| **`AUTO`**     | Any Weapon / Tool (Universal Auto-Equip)                                        | Dynamic Rank       | **Autonomous Agent**: Continuously evaluates current tactical context. Morphs dynamically into **Sentinel** (if any ally < 70% HP), **Warrior** (if hostiles < 16m), or **Builder** (if blueprints active or peaceful). Shows live adapted role on overhead badge (`[ ⚙ AUTO: <Role> ]`). |
 
 ---
 
@@ -220,15 +354,28 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 - **Operational Leash Freedom**: Stationed and held minions enjoy an expanded **128-block leash**, while unselected free workers have simulation-chunk freedom without snap-teleporting to players while working on active construction sessions.
 - **Panic Retreat (`R` key)**: Instantly dismisses all 3D holographic wireframes, cancels active construction sessions for the commander, clears combat targets, and recalls all minions to formation.
 
-## 🔔 9. Tactical Panic Retreat (Keybind `R`)
+## 🔔 9. Dual-Tier Panic Retreat & Emergency Citadel Call (Keybind `R`)
 
+The mod provides two tiers of tactical emergency recall:
+
+### A. Quick `R`: Tactical Squad Retreat
 Press **`R`** at any time while holding the Command Scepter (or with it in your inventory):
+- **Range**: Recalls active squad thralls within **64 blocks**.
+- **Combat Disengage**: Immediately clears combat targets on all active minions (`setTarget(null)`).
+- **Cancel Holding/Guarding**: Cancels stationary guard or waypoint hold positions.
+- **Wireframe Dismissal**: Instantly dismisses all 3D holographic wireframes and cancels active construction sessions for the commander.
+- **Sprint Regroup**: Minions sprint back at 1.35x speed and reassemble into **Ranked Army Lines** behind you.
+- **Audio/Visual**: Sounds a warning retreat bell (`SoundEvents.BLOCK_BELL_USE`), bursts cloud particles, and displays action bar confirmation: `§e🔔 RETREAT! [Squad] disengaging and falling back!§r`.
 
-- Sounds a warning retreat bell (`SoundEvents.BLOCK_BELL_USE` / `BLOCK_NOTE_BLOCK_BELL`).
-- Immediately clears combat targets on all active minions (`setTarget(null)`).
-- Cancels stationary guard or waypoint hold positions.
-- All minions disengage and sprint back to you at 1.35x speed, assembling into **Ranked Army Lines** behind you.
-- Displays an action bar confirmation: `§e🔔 RETREAT! [Squad] disengaging and falling back!§r`.
+### B. `Shift + R`: Emergency Citadel Call (Fortress Muster)
+Press **`Shift + R`** when an all-out emergency threatens your citadel:
+- **Expanded Range**: Fortress-wide recall encompassing all owned minions within **128 blocks**!
+- **Patrol & Escort Unbinding**: Unbinds **all minions from patrol duty** (`patrolRouteId = -1`) and **unlinks all escort bodyguards** (`clearLeader()`).
+- **Stationing Override**: Overrides any sitting or holding postures regardless of squad channel.
+- **All-Out Sentry Alert**: Sounds a piercing **Raid Horn** and clanging **Iron Bell** (`ITEM_GOAT_HORN_SOUND_0` / `BLOCK_BELL_USE`).
+- **Dramatic Visuals**: Emits large bursts of smoke and purple nether portal particles.
+- **Full Fortress Rally**: Every thrall drops what they are doing and sprints to the commander's defense!
+- **HUD Alert**: Displays an urgent action bar banner: `§c🚨 CITADEL CALL! All 128m units abandoning posts and rallying to commander!§r`.
 
 ---
 

@@ -277,6 +277,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			case WARRIOR -> "⚔";
 			case SENTINEL -> "🛡";
 			case BUILDER -> "🔨";
+			case AUTO -> "⚙";
 		};
 	}
 
@@ -293,6 +294,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 			case WARRIOR -> "§7Versatile combatant engaging in melee or ranged combat.\n§8• Swordsman or Archer based on equipped weapon\n§8• Equipment: Swords, Axes, Maces, Bows & Crossbows";
 			case SENTINEL -> "§7Perimeter guard holding station & intercepting hostiles.\n§8• Perimeter: 8 blocks | Anchor Leash: 128 blocks\n§8• Equipment: Shields (offhand) & Melee weapons";
 			case BUILDER -> "§7Architectural constructor, miner & resource logistics specialist.\n§8• Blueprint building, vein mining & autonomous harvesting\n§8• Equipment: Blueprint blocks, Pickaxes, Axes & Shovels";
+			case AUTO -> "§7Autonomous tactical agent adapting dynamically.\n§8• Sentinel medic when allies < 70% HP\n§8• Warrior vanguard when threats near, Builder during construction";
 		};
 		return Text.literal("§6✦ Role Archetype: " + role.getFormattedName() + "\n" + desc + "\n§eClick or scroll to cycle role.");
 	}

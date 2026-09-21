@@ -31,6 +31,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.TypedActionResult;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockPos;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +68,7 @@ public class ExampleModClient implements ClientModInitializer {
 
 		// Register 3D holographic blueprint wireframe renderer for WorldRenderEvents.AFTER_TRANSLUCENT
 		BlueprintHologramRenderer.register();
+		com.example.client.renderer.PathwayHologramRenderer.register();
 
 		// Register the Command Hub GUI opener callback for CommandScepterItem sneak-right-click
 		CommandScepterItem.SCREEN_OPENER = (player, hand, stack) -> {
@@ -76,6 +78,11 @@ public class ExampleModClient implements ClientModInitializer {
 		// Hook client-side camera raycast target resolver into CommandScepterItem
 		CommandScepterItem.CLIENT_TARGET_RESOLVER = (player) ->
 			TacticalBuildCameraController.getCameraTargetedBlock(MinecraftClient.getInstance(), 96.0F);
+
+		// Hook client-side waypoint checker for PATHWAY mode into CommandScepterItem
+		CommandScepterItem.CLIENT_WAYPOINT_CHECKER = (routeId, pos) -> {
+			return com.example.client.renderer.ClientPatrolRouteTracker.isAnyWaypoint(pos);
+		};
 
 		// Intercept right-clicks with the Command Scepter in BUILD or MINE mode
 		UseItemCallback.EVENT.register((player, world, hand) -> {
@@ -89,8 +96,20 @@ public class ExampleModClient implements ClientModInitializer {
 			}
 
 			// Sneak-right-click is reserved for Command Hub GUI (checks physical sneak key to work in flight)
+			// Bypasses GUI if aiming directly at an existing waypoint in PATHWAY mode to allow deletion
 			boolean isSneakDown = player.isSneaking() || MinecraftClient.getInstance().options.sneakKey.isPressed();
 			if (isSneakDown) {
+				CommandMode mode = CommandScepterItem.getMode(stack);
+				if (mode == CommandMode.PATHWAY) {
+					HitResult hit = MinecraftClient.getInstance().crosshairTarget;
+					if (hit instanceof BlockHitResult blockHit && blockHit.getType() == HitResult.Type.BLOCK) {
+						BlockPos clicked = blockHit.getBlockPos();
+						BlockPos top = clicked.offset(blockHit.getSide());
+						if (CommandScepterItem.isClientWaypoint(stack, clicked) || CommandScepterItem.isClientWaypoint(stack, top) || CommandScepterItem.isClientWaypoint(stack, clicked.up())) {
+							return TypedActionResult.pass(stack);
+						}
+					}
+				}
 				MinecraftClient.getInstance().setScreen(new CommandScepterScreen(hand, stack));
 				return TypedActionResult.success(stack);
 			}
@@ -187,8 +206,11 @@ public class ExampleModClient implements ClientModInitializer {
 							false
 						);
 					} else {
+						boolean isEmergency = net.minecraft.client.gui.screen.Screen.hasShiftDown()
+							|| client.options.sneakKey.isPressed()
+							|| client.player.isSneaking();
 						com.example.component.SquadGroup squad = !heldScepter.isEmpty() ? CommandScepterItem.getTargetSquad(heldScepter) : com.example.component.SquadGroup.ALL;
-						ModClientNetworking.sendRetreat(squad);
+						ModClientNetworking.sendRetreat(squad, isEmergency);
 						com.example.client.renderer.ClientConstructionTracker.clear();
 					}
 				}

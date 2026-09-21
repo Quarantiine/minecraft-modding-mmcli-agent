@@ -46,7 +46,7 @@ public class BlueprintRegistry {
 		WORKSHOP = register(BuildingCategory.WORKSHOP.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L));
 		SUPPLY_DEPOT = register(BuildingCategory.SUPPLY_DEPOT.createBlueprint(BuildingCategory.SIZE_MEDIUM, 42L));
 
-		// Register canonical category names so "home", "workshop", "supply_depot" resolve directly
+		// Register canonical category names so blueprints resolve directly
 		REGISTRY.put(HOME_ID, HOME);
 		REGISTRY.put(WORKSHOP_ID, WORKSHOP);
 		REGISTRY.put(SUPPLY_DEPOT_ID, SUPPLY_DEPOT);
@@ -484,3 +484,4 @@ public class BlueprintRegistry {
 		return b.build();
 	}
 }
+

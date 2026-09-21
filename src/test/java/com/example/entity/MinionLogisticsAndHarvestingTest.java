@@ -19,18 +19,19 @@ import java.util.*;
 public class MinionLogisticsAndHarvestingTest {
 
 	@Test
-	@DisplayName("Validate 3-pillar role consolidation and legacy MINER (ID 3) migration to BUILDER")
+	@DisplayName("Validate role consolidation and legacy MINER (ID 3) migration to BUILDER")
 	void testRoleConsolidationAndMigration() {
-		Assertions.assertEquals(3, MinionRole.values().length, "System must have exactly 3 role archetypes");
+		Assertions.assertEquals(4, MinionRole.values().length, "System has 4 role archetypes");
 		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.fromId(0));
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.fromId(1));
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(2));
-		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.fromId(3), "Legacy MINER ID 3 must map to BUILDER");
+		Assertions.assertEquals(MinionRole.AUTO, MinionRole.fromId(3));
 
-		// Cycling through all 3 roles
+		// Cycling through all 4 roles
 		Assertions.assertEquals(MinionRole.SENTINEL, MinionRole.WARRIOR.next());
 		Assertions.assertEquals(MinionRole.BUILDER, MinionRole.SENTINEL.next());
-		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.BUILDER.next());
+		Assertions.assertEquals(MinionRole.AUTO, MinionRole.BUILDER.next());
+		Assertions.assertEquals(MinionRole.WARRIOR, MinionRole.AUTO.next());
 	}
 
 	@Test
@@ -547,6 +548,7 @@ public class MinionLogisticsAndHarvestingTest {
 					case WARRIOR -> isMeleeWeapon(item) || isRangedWeapon(item) || isThrownWeapon(item);
 					case SENTINEL -> isMeleeWeapon(item);
 					case BUILDER -> isMiningTool(item) || isMeleeWeapon(item);
+					case AUTO -> isMeleeWeapon(item) || isRangedWeapon(item) || isMiningTool(item) || isThrownWeapon(item);
 				};
 			}
 
@@ -556,6 +558,7 @@ public class MinionLogisticsAndHarvestingTest {
 					case WARRIOR -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 					case SENTINEL -> isMeleeWeapon(candidate) && !isMeleeWeapon(current);
 					case BUILDER -> isMiningTool(candidate) && !isMiningTool(current);
+					case AUTO -> canRoleAutoEquipMainhand(role, candidate) && !canRoleAutoEquipMainhand(role, current);
 				};
 			}
 		}
