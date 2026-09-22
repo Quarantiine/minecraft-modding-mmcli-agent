@@ -867,6 +867,37 @@ public class CommandScepterItem extends Item {
 				return;
 			}
 
+			HitResult hit = raycastTarget(player, MINION_COMMAND_RADIUS);
+
+			// 1. Entity Hit: Individual Follow, Focus-fire, Pathway Assignment, or Transfigure (RECRUIT)
+			if (hit instanceof EntityHitResult entityHit && entityHit.getEntity() instanceof LivingEntity targetEntity) {
+				// Owned Minion Hit: Pathway Assignment or Individual Follow
+				if (targetEntity instanceof MinionEntity minion && minion.isOwner(player)) {
+					if (mode == CommandMode.PATHWAY) {
+						if (!player.isSneaking()) {
+							assignMinionToActivePatrolRoute(player, minion, stack);
+						}
+						return;
+					}
+					commandIndividualMinionFollow(player, minion);
+					return;
+				}
+
+				if (mode == CommandMode.RECRUIT) {
+					if (targetEntity instanceof MobEntity mob && !(targetEntity instanceof MinionEntity) && !(targetEntity instanceof PlayerEntity) && targetEntity.isAlive()) {
+						if (!world.isClient() && world instanceof ServerWorld serverWorld) {
+							transfigureEntityToMinion(serverWorld, player, mob);
+						}
+					} else if (!world.isClient()) {
+						player.sendMessage(Text.literal("§c✦ Cannot enthrall this entity! Only living non-minion mobs can be recruited.§r"), true);
+					}
+				} else if (targetEntity.isAlive() && !(targetEntity instanceof MinionEntity minion && minion.isOwner(player)) && !(targetEntity instanceof PlayerEntity)) {
+					executeHostileEntityPing(player, world, targetEntity, targetSquad);
+				}
+				return;
+			}
+
+			// In PATHWAY mode: if no owned minion was hit, quick right-click cycles route (or clears waypoints if sneaking)
 			if (mode == CommandMode.PATHWAY) {
 				if (player.isSneaking()) {
 					if (!world.isClient() && world instanceof ServerWorld serverWorld) {
@@ -887,30 +918,6 @@ public class CommandScepterItem extends Item {
 					}
 				} else {
 					cyclePatrolRoute(stack, player);
-				}
-				return;
-			}
-
-			HitResult hit = raycastTarget(player, MINION_COMMAND_RADIUS);
-
-			// 1. Entity Hit: Individual Follow, Focus-fire, or Transfigure (RECRUIT)
-			if (hit instanceof EntityHitResult entityHit && entityHit.getEntity() instanceof LivingEntity targetEntity) {
-				// Individual Minion Follow: Raycast hitting an owned minion
-				if (targetEntity instanceof MinionEntity minion && minion.isOwner(player)) {
-					commandIndividualMinionFollow(player, minion);
-					return;
-				}
-
-				if (mode == CommandMode.RECRUIT) {
-					if (targetEntity instanceof MobEntity mob && !(targetEntity instanceof MinionEntity) && !(targetEntity instanceof PlayerEntity) && targetEntity.isAlive()) {
-						if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-							transfigureEntityToMinion(serverWorld, player, mob);
-						}
-					} else if (!world.isClient()) {
-						player.sendMessage(Text.literal("§c✦ Cannot enthrall this entity! Only living non-minion mobs can be recruited.§r"), true);
-					}
-				} else if (targetEntity.isAlive() && !(targetEntity instanceof MinionEntity minion && minion.isOwner(player)) && !(targetEntity instanceof PlayerEntity)) {
-					executeHostileEntityPing(player, world, targetEntity, targetSquad);
 				}
 				return;
 			}
@@ -1394,26 +1401,8 @@ public class CommandScepterItem extends Item {
 			// Individual Minion Follow or Pathway Assignment: Raycast hitting an owned minion
 			if (targetEntity instanceof MinionEntity minion && minion.isOwner(player)) {
 				if (mode == CommandMode.PATHWAY) {
-					if (!world.isClient()) {
-						int routeId = getActivePatrolRoute(stack);
-						if (minion.getPatrolRouteId() == routeId) {
-							minion.setPatrolRouteId(-1);
-							player.sendMessage(Text.literal("§e✦ " + minion.getRole().getDisplayName() + " removed from patrol duty."), true);
-						} else {
-							PatrolRoute route = PatrolRouteManager.getInstance().getRoute(player.getUuid(), routeId);
-							if (route == null || route.waypoints().isEmpty()) {
-								player.sendMessage(Text.literal("§c⚠ Cannot assign minion to " + (route != null ? route.getFormattedName() : "Route") + " — no waypoints placed yet!"), true);
-								return ActionResult.success(world.isClient());
-							}
-							minion.setPatrolRouteId(routeId);
-							minion.setCurrentWaypointIndex(0);
-							minion.clearLeader();
-							minion.setSitting(false);
-							minion.setGuardAnchorPos(null);
-							minion.setSelected(false);
-							minion.getNavigation().stop();
-							player.sendMessage(Text.literal("§a✦ Assigned " + minion.getRole().getDisplayName() + " to " + route.getFormattedName() + " (" + route.waypoints().size() + " waypoints)!"), true);
-						}
+					if (!player.isSneaking()) {
+						assignMinionToActivePatrolRoute(player, minion, stack);
 					}
 					return ActionResult.success(world.isClient());
 				}
@@ -1635,63 +1624,15 @@ public class CommandScepterItem extends Item {
 			}
 		}
 
-		// PATHWAY Mode: Right-clicking an owned minion assigns/unassigns to the active route
-		if (mode == CommandMode.PATHWAY && entity instanceof MinionEntity minion && minion.isOwner(user)) {
-			if (!world.isClient() && world instanceof ServerWorld serverWorld) {
-				int routeId = getActivePatrolRoute(stack);
-				PatrolRoute route = PatrolRouteManager.getInstance().getRoute(user.getUuid(), routeId);
-				if (route == null || route.waypoints().isEmpty()) {
-					user.sendMessage(Text.literal("§c⚠ Cannot assign minion to " + (route != null ? route.getFormattedName() : "Route") + " — no waypoints placed yet!"), true);
-					return ActionResult.success(world.isClient());
-				}
-
-				Box searchBox = user.getBoundingBox().expand(MINION_COMMAND_RADIUS);
-				List<MinionEntity> selectedMinions = serverWorld.getEntitiesByClass(
-					MinionEntity.class,
-					searchBox,
-					m -> m.isAlive() && m.isOwner(user) && m.isSelected()
-				);
-
-				if (!selectedMinions.isEmpty()) {
-					java.util.Set<MinionEntity> toAssign = new java.util.LinkedHashSet<>(selectedMinions);
-					toAssign.add(minion);
-					for (MinionEntity m : toAssign) {
-						m.setPatrolRouteId(routeId);
-						m.setCurrentWaypointIndex(0);
-						m.clearLeader();
-						m.setSitting(false);
-						m.setGuardAnchorPos(null);
-						m.setSelected(false);
-						m.getNavigation().stop();
-						serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, m.getX(), m.getY() + 1.2D, m.getZ(), 8, 0.25, 0.4, 0.25, 0.05);
-					}
-					serverWorld.playSound(null, user.getX(), user.getY(), user.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.4F);
-					user.sendMessage(Text.literal("§a✦ Assigned " + toAssign.size() + " minion(s) to " + route.getFormattedName() + " (" + route.waypoints().size() + " waypoints)!"), true);
-					return ActionResult.success(world.isClient());
-				}
-
-				if (minion.getPatrolRouteId() == routeId) {
-					minion.setPatrolRouteId(-1);
-					user.sendMessage(Text.literal("§e✦ " + minion.getRole().getDisplayName() + " removed from patrol duty."), true);
-				} else {
-					minion.setPatrolRouteId(routeId);
-					minion.setCurrentWaypointIndex(0);
-					minion.clearLeader();
-					minion.setSitting(false);
-					minion.setGuardAnchorPos(null);
-					minion.setSelected(false);
-					minion.getNavigation().stop();
-					serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, minion.getX(), minion.getY() + 1.2D, minion.getZ(), 8, 0.25, 0.4, 0.25, 0.05);
-					serverWorld.playSound(null, user.getX(), user.getY(), user.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.4F);
-					user.sendMessage(Text.literal("§a✦ Assigned " + minion.getRole().getDisplayName() + " to " + route.getFormattedName() + " (" + route.waypoints().size() + " waypoints)!"), true);
-				}
-			}
-			return ActionResult.success(world.isClient());
-		}
-
 		// Sneak + Right-Click on an owned minion passes through to open the Minion Screen GUI
 		if (user.isSneaking() && entity instanceof MinionEntity minion && minion.isOwner(user)) {
 			return ActionResult.PASS;
+		}
+
+		// PATHWAY Mode: Right-clicking an owned minion while not shifting assigns/unassigns to the active route
+		if (mode == CommandMode.PATHWAY && entity instanceof MinionEntity minion && minion.isOwner(user)) {
+			assignMinionToActivePatrolRoute(user, minion, stack);
+			return ActionResult.success(world.isClient());
 		}
 
 		// Individual Minion Follow: Direct right-click on an owned minion
@@ -2002,6 +1943,82 @@ public class CommandScepterItem extends Item {
 	// -----------------------------------------------------------------------------------------
 
 	/**
+	 * Assigns or unassigns an owned minion (or all currently selected minions) to the player's active patrol route.
+	 *
+	 * - If route has no waypoints: alerts the player and plays warning bass sound.
+	 * - If player has minions selected: assigns all selected minions + targetMinion to the active route,
+	 *   clears their leader, clears anchor/sitting, deselects them from following the player, and begins patrolling.
+	 * - If player has no minions selected: toggles targetMinion onto/off the active route.
+	 *
+	 * @param player The commanding player.
+	 * @param targetMinion The target owned minion.
+	 * @param stack The Command Scepter item stack holding active route channel info.
+	 * @return true if an assignment or warning was handled, false if invalid target.
+	 */
+	public static boolean assignMinionToActivePatrolRoute(PlayerEntity player, MinionEntity targetMinion, ItemStack stack) {
+		if (player == null || targetMinion == null || !targetMinion.isAlive() || !targetMinion.isOwner(player)) {
+			return false;
+		}
+
+		World world = player.getWorld();
+		int routeId = getActivePatrolRoute(stack);
+		PatrolRoute route = PatrolRouteManager.getInstance().getRoute(player.getUuid(), routeId);
+		if (route == null || route.waypoints().isEmpty()) {
+			if (!world.isClient()) {
+				player.sendMessage(Text.literal("§c⚠ Cannot assign minion to " + (route != null ? route.getFormattedName() : "Route") + " — no waypoints placed yet!"), true);
+				world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), SoundCategory.PLAYERS, 1.0F, 0.6F);
+			}
+			return true;
+		}
+
+		if (!world.isClient() && world instanceof ServerWorld serverWorld) {
+			Box searchBox = player.getBoundingBox().expand(MINION_COMMAND_RADIUS);
+			List<MinionEntity> selectedMinions = serverWorld.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected()
+			);
+
+			if (!selectedMinions.isEmpty()) {
+				java.util.Set<MinionEntity> toAssign = new java.util.LinkedHashSet<>(selectedMinions);
+				toAssign.add(targetMinion);
+				for (MinionEntity m : toAssign) {
+					m.setPatrolRouteId(routeId);
+					m.setCurrentWaypointIndex(0);
+					m.clearLeader();
+					m.setSitting(false);
+					m.setGuardAnchorPos(null);
+					m.setSelected(false);
+					m.getNavigation().stop();
+					serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, m.getX(), m.getY() + 1.2D, m.getZ(), 8, 0.25, 0.4, 0.25, 0.05);
+				}
+				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.4F);
+				player.sendMessage(Text.literal("§a✦ Assigned " + toAssign.size() + " minion(s) to " + route.getFormattedName() + " (" + route.waypoints().size() + " waypoints)!"), true);
+				return true;
+			}
+
+			if (targetMinion.getPatrolRouteId() == routeId) {
+				targetMinion.setPatrolRouteId(-1);
+				targetMinion.getNavigation().stop();
+				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), SoundCategory.PLAYERS, 1.0F, 0.8F);
+				player.sendMessage(Text.literal("§e✦ " + targetMinion.getRole().getDisplayName() + " removed from patrol duty."), true);
+			} else {
+				targetMinion.setPatrolRouteId(routeId);
+				targetMinion.setCurrentWaypointIndex(0);
+				targetMinion.clearLeader();
+				targetMinion.setSitting(false);
+				targetMinion.setGuardAnchorPos(null);
+				targetMinion.setSelected(false);
+				targetMinion.getNavigation().stop();
+				serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, targetMinion.getX(), targetMinion.getY() + 1.2D, targetMinion.getZ(), 8, 0.25, 0.4, 0.25, 0.05);
+				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.4F);
+				player.sendMessage(Text.literal("§a✦ Assigned " + targetMinion.getRole().getDisplayName() + " to " + route.getFormattedName() + " (" + route.waypoints().size() + " waypoints)!"), true);
+			}
+		}
+		return true;
+	}
+
+	/**
 	 * Commands an individual owned minion to break its guard/sitting station and follow the commanding player.
 	 * Toggles selection of an individual minion:
 	 * If unselected, selects the minion, clears anchor, and orders it to follow.
@@ -2040,7 +2057,9 @@ public class CommandScepterItem extends Item {
 			minion.setTarget(null);
 			minion.getNavigation().startMovingTo(player, 1.35D);
 		} else {
-			minion.setGuardAnchorPos(minion.getBlockPos());
+			if (minion.getPatrolRouteId() < 0 && !minion.hasLeader()) {
+				minion.setGuardAnchorPos(minion.getBlockPos());
+			}
 			minion.clearAssaultTargets();
 			minion.setTarget(null);
 			minion.getNavigation().stop();

@@ -710,5 +710,57 @@ public class PatrolRouteAndHierarchyTest {
 			"CommandScepterItem.broadcastFollow and executeRetreat must exclude escorts from direct player recall"
 		);
 	}
+
+	@Test
+	@DisplayName("Source contract: PATHWAY mode right-click assigns minions to route while leaving left-click as standard selection")
+	void testPathwayModeRightClickAssignmentContracts() throws java.io.IOException {
+		String scepterContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/item/custom/CommandScepterItem.java"));
+
+		// 1. Verify assignMinionToActivePatrolRoute exists and deselects assigned units so they patrol immediately
+		Assertions.assertTrue(
+			scepterContent.contains("public static boolean assignMinionToActivePatrolRoute("),
+			"CommandScepterItem must define assignMinionToActivePatrolRoute"
+		);
+		Assertions.assertTrue(
+			scepterContent.contains("m.setPatrolRouteId(routeId);") && scepterContent.contains("m.setSelected(false);"),
+			"assignMinionToActivePatrolRoute must set route ID and deselect units from player follow"
+		);
+
+		// 2. Verify useOnEntity routes non-sneak right clicks in PATHWAY mode to assignMinionToActivePatrolRoute
+		Assertions.assertTrue(
+			scepterContent.contains("if (mode == CommandMode.PATHWAY && entity instanceof MinionEntity minion && minion.isOwner(user)) {\n\t\t\tassignMinionToActivePatrolRoute(user, minion, stack);"),
+			"useOnEntity must route PATHWAY mode non-sneak right clicks to assignMinionToActivePatrolRoute"
+		);
+
+		// 3. Verify sneak right click passes through to open the minion inventory GUI
+		Assertions.assertTrue(
+			scepterContent.contains("if (user.isSneaking() && entity instanceof MinionEntity minion && minion.isOwner(user)) {\n\t\t\treturn ActionResult.PASS;"),
+			"useOnEntity must pass through sneak right-clicks on owned minions"
+		);
+
+		// 4. Verify raycast targeting in useOnBlock and onStoppedUsing routes to assignMinionToActivePatrolRoute
+		Assertions.assertTrue(
+			scepterContent.contains("if (mode == CommandMode.PATHWAY) {\n\t\t\t\t\tif (!player.isSneaking()) {\n\t\t\t\t\t\tassignMinionToActivePatrolRoute(player, minion, stack);"),
+			"useOnBlock must route PATHWAY mode cursor minion hits to assignMinionToActivePatrolRoute"
+		);
+		Assertions.assertTrue(
+			scepterContent.contains("if (mode == CommandMode.PATHWAY) {\n\t\t\t\t\t\tif (!player.isSneaking()) {\n\t\t\t\t\t\t\tassignMinionToActivePatrolRoute(player, minion, stack);"),
+			"onStoppedUsing must route PATHWAY mode raycast minion hits to assignMinionToActivePatrolRoute"
+		);
+
+		// 5. Verify toggleMinionSelection does not anchor patrolling or escort minions to a stationary block
+		Assertions.assertTrue(
+			scepterContent.contains("if (minion.getPatrolRouteId() < 0 && !minion.hasLeader()) {\n\t\t\t\tminion.setGuardAnchorPos(minion.getBlockPos());"),
+			"toggleMinionSelection must not anchor patrolling or escort minions to a stationary guard post"
+		);
+
+		// 6. Verify AttackEntityCallback in ExampleMod leaves left click intact for standard minion selection
+		String modContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/ExampleMod.java"));
+		Assertions.assertTrue(
+			modContent.contains("CommandScepterItem.toggleMinionSelection(player, minion);"),
+			"AttackEntityCallback must continue to toggle minion selection on left-click punch"
+		);
+	}
 }
+
 

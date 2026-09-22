@@ -2097,8 +2097,11 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			return ActionResult.success(world.isClient());
 		}
 
-		// 2. Empty Hand: toggle stationed / following
+		// 2. Empty Hand: toggle stationed / following (yields to Command Scepter if held in off-hand)
 		if (itemStack.isEmpty()) {
+			if (hand == Hand.MAIN_HAND && player.getOffHandStack().getItem() instanceof com.example.item.custom.CommandScepterItem) {
+				return ActionResult.PASS;
+			}
 			boolean currentlyStationed = this.isHoldingPosition() || this.isSitting() || this.getGuardAnchorPos() != null;
 			boolean newStationed = !currentlyStationed;
 			this.setSitting(newStationed);

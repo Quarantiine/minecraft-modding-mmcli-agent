@@ -29,7 +29,7 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | **Shift + Right-Click**            | Block in **PATHWAY**     | **Remove Waypoint**: Removes clicked waypoint across all route channels (bypasses Command Hub GUI).                           |
 | **Right-Click Air**                | In **PATHWAY** Mode      | **Cycle Route Channel**: Cycles active patrol route (Route 1 🟡 Gold → Route 2 🔵 Cyan → Route 3 🟢 Emerald → Route 4 🟣 Purple → Route 5 🔴 Crimson). |
 | **Shift + Right-Click Air**        | In **PATHWAY** Mode      | **Clear Route**: Clears all waypoints from active patrol route channel.                                                         |
-| **Right-Click Minion**             | In **PATHWAY** Mode      | **Assign Minion to Route**: If minions are selected, assigns all selected minions to the active route. If none are selected, toggles minion patrol duty on the active route channel (shows `[ 🟡 Route # ]` badge). |
+| **Right-Click Minion** _(without Shift)_ | In **PATHWAY** Mode      | **Assign Minion to Route**: Assigns target minion (or all currently selected minions) to the active patrol route channel, deselecting them from following the master so they begin patrolling immediately. If already on this route with no others selected, removes them from patrol. |
 | **Shift + Left-Click**             | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise.                                                                           |
 | **Shift + Left-Click**             | Any Other Mode (Air/Ground) | **Deselect All**: Instantly clears selection on all minions when clicking air or terrain.                                       |
 | **Keybind `H`**                    | In **BUILD** Mode        | **Tactical Zoom**: Cycles tactical camera zoom presets (0.75x, 1.0x default, 1.5x, 2.0x).                                      |
@@ -37,7 +37,7 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | **Ctrl + Scroll**                  | In **BUILD** Mode        | **Smooth Camera Zoom**: Smoothly zooms tactical view in and out without hotbar cycling conflicts.                                 |
 | **Keybind `V`**                    | Anywhere (with Scepter)  | **Command Hub GUI**: Tactical screen for squads, modes, blueprints, 4-role archetypes (`AUTO`), **Architecture Style**, **Size**, and **Patrol Route Dashboard**. |
 | **Shift + Right-Click**            | In Air / On Block        | **Open Command Hub GUI**: Instant access to Command Hub GUI (works while walking or in Arcane Build Flight).                    |
-| **Shift + Right-Click**            | Owned Minion             | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots.                                                       |
+| **Shift + Right-Click**            | Owned Minion             | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots (passes through in all modes including `PATHWAY`).    |
 | **Empty Hand Right-Click**         | Owned Minion             | **Unified Station / Follow**: Toggles minion stationing. If stationed (via waypoint or up-close guard), a **single click** immediately orders them to follow. If following, stations them in place. |
 | **Gold Ingot Right-Click**         | Untamed Minion           | **Bind / Tame**: Binds the minion permanently to your will (consumes 1 Gold Ingot in Survival).                                                                 |
 | **Food / Gold Right-Click**        | Wounded Minion           | **Heal**: Restores minion health (consumes food/gold in Survival; infinite in Creative).                                                                        |
@@ -147,19 +147,21 @@ Patrol pathways are organized into 5 independent, color-coded channels:
 ### C. Assigning Minions to a Patrol Route
 You have three intuitive ways to deploy minions onto a pathway:
 
-1. **Direct Right-Click (Individual Assignment)**:
+1. **Direct Right-Click Without Shifting (Individual or Group Route Assignment)**:
    - Hold the Command Scepter in **`PATHWAY`** mode.
    - Verify that your active route channel matches the one with waypoints (cycle with **Right-Click Air** or check the tooltip/GUI).
-   - **Right-Click directly on an owned minion** (or aim at it with crosshairs up to 64m away).
-   - The minion salutes, displays an overhead badge `[ 🟡 Route 1 ]`, and immediately begins marching to Waypoint `[ 1 ]`.
-   - *(Right-clicking the minion again unassigns it from patrol duty).*
+   - **Right-Click directly on an owned minion without shifting** (works up-close or aiming at it with crosshairs up to 32m away).
+   - **With minions selected**: Assigns all currently selected minions plus the clicked minion to the active route, automatically deselecting them from following you so they begin patrolling immediately!
+   - **With 0 minions selected**: Toggles the targeted minion on/off the active route. When assigned, the minion salutes, displays an overhead badge `[ 🟡 Route # ]`, and immediately begins marching along the pathway.
+   - *(Note: Shift + Right-Click on an owned minion passes through to open the Minion Inventory GUI screen).*
+   - *(Note: Left-Click remains standard selection/punch — use normal Left-Click or 90° cone sweep to select your minions first, then Right-Click to assign them all to the route!).*
 
-2. **90° Forward Sector Sweep (Mass Group Assignment)**:
+2. **90° Forward Sector Sweep (`Shift + Hold Right-Click` in PATHWAY Mode)**:
    - Hold the Command Scepter in **`PATHWAY`** mode.
-   - **Hold Right-Click** for $\ge 0.4\text{s}$ (8 ticks) aiming at your group of minions.
+   - **Shift + Hold Right-Click** for $\ge 0.4\text{s}$ (8 ticks) aiming at your group of minions.
    - An expanding 90° forward arcane sector appears in front of you (growing from 3m to 16m), highlighting all minions inside the arc.
    - **Release Right-Click**: All minions inside the 90° sector are assigned to the active route, burst with celebration particles, and march out together!
-   - *(Tip: If you aim into open space with no new minions in the cone, this will assign all minions you currently have **selected** to the route!)*
+   - *(Tip: Normal Hold Right-Click without Shift performs the standard 90° cone sweep to select minions into your squad).*
    - *(Note: Assigning to an empty route with 0 waypoints is prevented with an informative warning).*
    - *(Direct Command Precedence: Interacting with a minion using an empty hand to follow or hold position will immediately unbind it from patrol routes and escort chains).*
 
