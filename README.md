@@ -12,7 +12,7 @@ A tactical real-time strategy (RTS) and multiblock engineering mod for Minecraft
 
 - **Autonomous Minion Thralls**: Tameable, persistent companions with 4 versatile archetype roles:
   - ⚔ **Warrior**: Versatile combat unit automatically acting as frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** (melee thrusts at $\le 5\text{D}$, thrown piercing javelins at $5\text{D}\text{--}20\text{D}$), thrown tactical ordnance (Frost Grenades, TNT Sticks), and accepts builder **Squad Material Procurement** hunting contracts.
-  - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the *Aegis of Restoration* to heal wounded players (commander priority), allied minions, and non-hostile **Iron Golems** under 70% HP within 10 blocks (restoring 6 HP + Regeneration II for 5s with amethyst chime SFX and heart particles), maintaining an expanded 128-block operational leash and teammate alignment with Iron Golems.
+  - 🛡 **Sentinel**: Sturdy defensive bulwark and combat-medic channeling the _Aegis of Restoration_ to heal wounded players (commander priority), allied minions, and non-hostile **Iron Golems** under 70% HP within 10 blocks (restoring 6 HP + Regeneration II for 5s with amethyst chime SFX and heart particles), maintaining an expanded 128-block operational leash and teammate alignment with Iron Golems.
   - 🔨 **Builder**: Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints with persistent zero-timeout execution, **Builder Block Phasing (`noClip`)** while working to seamlessly navigate through walls/ceilings, **Post-Construction Structure Egress** evacuating buildings before collision returns, **Builder Kinematics Isolation** protecting hover stations and deconstruction paths from travel levitation conflicts, automatic **Perimeter Waypoint Deployment & Stationing** on build completion, and Arcane Phase-Shift obstacle resolution. Also deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts replacement tools, shares blocks with peer minions via energy beams, deposits surplus materials into autonomous supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived materials with in-inventory resource synthesis.
   - ⚙ **Auto (`MinionRole.AUTO`)**: The **default archetype** for all newly created, summoned, and recruited minions. Acts as an autonomous agent that dynamically re-evaluates its environment every second, morphing on the fly into **Sentinel** (if any ally < 70% HP or holding position), **Warrior** (if hostiles < 16m or peacetime escort), or **Builder** (if blueprints or mining areas are active).
   - Minions feature customizable 9-slot backpacks, 6 equipment slots, dynamic overhead hearts health indicators, **Player-Like Ground Navigation** ($1.25\text{D}$ step height for smooth stepping over slabs, stairs, and 1-block steps), **Smart Companion Catch-Up Teleportation** (rescuing trapped/stuck followers without skyrocket launches), **Universal Door Auto-Opening** (`autoOpenNearbyDoors` for fluid doorway traversal), **Strict Selection Following** (only selected minions follow the player; unselected minions wander freely or hold assigned posts), and builder-exclusive 3D Arcane Levitation and block phasing.
@@ -117,7 +117,8 @@ To test server-authoritative logic, multiplayer sync, or network packets:
 ```bash
 ./gradlew runServer
 ```
-*(Accept the Minecraft EULA when prompted in `run/eula.txt` by setting `eula=true`.)*
+
+_(Accept the Minecraft EULA when prompted in `run/eula.txt` by setting `eula=true`.)_
 
 ### 5. Running Automated Unit Tests
 
@@ -136,6 +137,7 @@ To compile and remap the production mod JAR:
 ```
 
 The compiled, ready-to-distribute mod JAR will be located at:
+
 ```text
 build/libs/fabric-mmcli-agent-modding-1.0.0.jar
 ```
@@ -168,11 +170,13 @@ Follow these steps to deploy and play the compiled mod inside the official Mojan
 ### 2. Step-by-Step Installation
 
 #### Step A: Install Minecraft 1.21
+
 1. Open the official Minecraft Launcher.
 2. Select **Minecraft: Java Edition** and launch the **Latest Release (1.21)** once to the main title screen to ensure all vanilla assets are downloaded.
 3. Close Minecraft.
 
 #### Step B: Install Fabric Loader
+
 1. Download the Fabric Installer from [fabricmc.net/use/installer](https://fabricmc.net/use/installer/).
 2. Run the installer:
    - Select the **Client** tab.
@@ -183,12 +187,14 @@ Follow these steps to deploy and play the compiled mod inside the official Mojan
 3. Reopen the Minecraft Launcher. A new installation profile named **fabric-loader-1.21** will be available.
 
 #### Step C: Download Fabric API
+
 1. Fabric Loader requires the Fabric API mod JAR to provide gameplay and rendering hooks.
 2. Download the Minecraft 1.21 release from:
    - [Modrinth: Fabric API](https://modrinth.com/mod/fabric-api)
    - [CurseForge: Fabric API](https://curseforge.com/minecraft/mc-mods/fabric-api)
 
 #### Step D: Install the Mod JARs
+
 Copy both the **mod JAR** (`fabric-mmcli-agent-modding-1.0.0.jar`) and the **Fabric API JAR** into your Minecraft `mods` folder:
 
 - **Windows**:
@@ -200,9 +206,10 @@ Copy both the **mod JAR** (`fabric-mmcli-agent-modding-1.0.0.jar`) and the **Fab
 - **Linux**:
   - Path: `~/.minecraft/mods/`
 
-*(If the `mods` folder does not exist, create it manually).*
+_(If the `mods` folder does not exist, create it manually)._
 
 #### Step E: Launch the Game
+
 1. In the Minecraft Launcher, select the **fabric-loader-1.21** profile from the drop-down menu next to the **Play** button.
 2. Click **Play**.
 3. Once in-game, you can obtain mod items via Creative inventory tabs (`Combat` and `Tools`) or craft them in Survival.
@@ -212,6 +219,7 @@ Copy both the **mod JAR** (`fabric-mmcli-agent-modding-1.0.0.jar`) and the **Fab
 ## Verification & Troubleshooting
 
 ### How to Verify the Mod is Active
+
 - **Mod Menu**: If you have [Mod Menu](https://modrinth.com/mod/modmenu) installed, open **Mods** on the title screen to see **Sovereign: Arcane Strategy & Engineering (`modid-mmcli-agent-modding`)** listed.
 - **Game Logs**: Check `.minecraft/logs/latest.log` for the initialization messages:
   ```text
@@ -221,11 +229,23 @@ Copy both the **mod JAR** (`fabric-mmcli-agent-modding-1.0.0.jar`) and the **Fab
 
 ### Common Issues
 
-| Issue | Cause | Solution |
-| :--- | :--- | :--- |
-| **`Incompatible mod set!` or `Mod requires fabric-api`** | Fabric API JAR is missing from the `mods` folder or has a mismatched version. | Download the Fabric API JAR matching Minecraft 1.21 and place it in `.minecraft/mods/`. |
+| Issue                                                        | Cause                                                                                 | Solution                                                                                                                                                |
+| :----------------------------------------------------------- | :------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`Incompatible mod set!` or `Mod requires fabric-api`**     | Fabric API JAR is missing from the `mods` folder or has a mismatched version.         | Download the Fabric API JAR matching Minecraft 1.21 and place it in `.minecraft/mods/`.                                                                 |
 | **`UnsupportedClassVersionError (class file version 65.0)`** | Minecraft is running on an older Java runtime (e.g. Java 8 or 17 instead of Java 21). | In Minecraft Launcher, edit the **fabric-loader-1.21** profile > **More Options** > **Java Executable** and browse to your Java 21 binary (`bin/java`). |
-| **Gradle mapping or dependency cache errors** | Stale cache after switching versions. | Run `./gradlew clean --refresh-dependencies` in your workspace root, then rebuild. |
+| **Gradle mapping or dependency cache errors**                | Stale cache after switching versions.                                                 | Run `./gradlew clean --refresh-dependencies` in your workspace root, then rebuild.                                                                      |
+
+---
+
+## License
+
+**Sovereign: Arcane Strategy & Engineering** is licensed under a **Visible Source & All Rights Reserved (ARR)** license model:
+
+- **Visible Source**: Public source code inspection, educational review, personal local compilation, and development of third-party compatibility addons/integrations via public APIs are welcomed and permitted.
+- **All Rights Reserved**: Redistribution of binary JARs or source code, mirroring on third-party websites, commercial exploitation/paywalling, public clone forks, and extraction/reuse of proprietary Art Assets (textures, 3D models, sound effects, logos) are strictly prohibited without prior written permission.
+- **Modpacks**: Inclusion of unmodified release binary JARs in free public/private modpacks is permitted with proper author attribution.
+
+See the complete terms in the [LICENSE](LICENSE) file located in the root repository directory.
 
 ---
 
@@ -233,5 +253,6 @@ Copy both the **mod JAR** (`fabric-mmcli-agent-modding-1.0.0.jar`) and the **Fab
 
 - [COMMANDS.md](COMMANDS.md) — Controls cheat sheet, scepter commands, and tactical orders
 - [FEATURES.md](FEATURES.md) — Comprehensive technical breakdown and feature specifications
+- [LICENSE](LICENSE) — Visible Source & All Rights Reserved license terms
 - [Fabric Official Documentation](https://fabricmc.net/wiki/)
 - [Fabric Loom Documentation](https://fabricmc.net/wiki/documentation:loom)

@@ -2,14 +2,14 @@
 	"schemaVersion": 1,
 	"id": "modid-mmcli-agent-modding",
 	"version": "${version}",
-	"name": "Sovereign: Arcane Strategy & Engineering",
+	"name": "Sovereign Simulator: Arcane Strategy & Engineering",
 	"description": "Tactical real-time strategy (RTS) and multiblock arcane engineering mod for Fabric 1.21.",
 	"authors": ["Mino"],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
-	"license": "CC0-1.0",
+	"license": "All Rights Reserved",
 	"environment": "*",
 	"entrypoints": {
 		"main": ["com.example.ExampleMod"],

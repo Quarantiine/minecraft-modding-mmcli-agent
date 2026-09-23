@@ -1,0 +1,163 @@
+# VISIBLE SOURCE & ALL RIGHTS RESERVED LICENSE
+
+Project: Sovereign: Arcane Strategy & Engineering
+Copyright (c) 2024-2025 Mino (and Project Contributors). All Rights Reserved.
+================================================================================
+
+## Preamble
+
+This License Agreement governs the use, inspection, modification, distribution,
+and compilation of "Sovereign: Arcane Strategy & Engineering" (hereinafter
+referred to as the "Software"), including all source code, compiled binaries,
+bytecode, mixins, textures, 3D models, animations, audio, graphical assets,
+documentation, and associated intellectual property.
+
+By accessing, viewing, downloading, compiling, or executing this Software, you
+agree to be bound by the terms and conditions set forth in this License. If you
+do not agree with these terms, do not access, download, compile, or use the
+Software.
+
+1. Definitions
+
+---
+
+- "Software": The computer program known as "Sovereign: Arcane Strategy &
+  Engineering", including its source code, build scripts, class files, bytecode,
+  mixins, shaders, configurations, network protocols, algorithms, and binary
+  releases.
+- "Art Assets": All non-code media and intellectual property bundled with or
+  derived from the Software, including but not limited to 2D textures, 3D voxel
+  models, item models, entity models, UI graphics, particle definitions, sound
+  effects, music, logos, branding, and narrative lore text.
+- "Author" / "Licensor": Mino, the original creator and primary copyright holder
+  of the Software and Art Assets.
+- "User" / "You": Any individual, group, automated system, or entity exercising
+  permissions granted by this License.
+- "Compatibility Mod" / "Addon": An independent third-party software module or
+  Minecraft mod that interacts with the Software via public APIs, events, or
+  class interfaces without redistributing the Software's internal implementation
+  code or Art Assets.
+
+2. Grant of Rights & Permitted Usages (Visible Source)
+
+---
+
+Subject to the restrictions in Section 3, the Licensor grants you a non-exclusive,
+non-transferable, revocable license to exercise the following rights:
+
+a. Public Source Inspection & Education:
+You may view, inspect, study, and analyze the public source code of the
+Software for educational, security auditing, debugging, and review purposes.
+
+b. Personal & Local Compilation:
+You may clone the repository and compile the Software locally on your own
+hardware solely for personal, private, non-commercial gameplay and testing.
+
+c. Third-Party Compatibility & Addons:
+You may develop, publish, and distribute independent Compatibility Mods or
+Addons that compile against or link to the Software's public API and public
+class signatures, provided that:
+
+- Your addon does not bundle, repackage, or redistribute the Software's
+  bytecode, binary JARs, or Art Assets.
+- Your addon does not violate any trademark, branding, or attribution terms.
+
+d. Modpack Distribution:
+You may include official, unmodified binary releases of the Software in
+public or private Minecraft modpacks (e.g., CurseForge, Modrinth, FTB, Prism),
+provided that:
+
+- The modpack is distributed free of charge (without paywalls or locked tiers).
+- Appropriate attribution is given to the Author (Mino).
+- The original JAR artifact and this LICENSE remain intact and unmodified.
+
+e. Content Creation & Streaming:
+You may stream, record video gameplay, create screenshots, and publish
+commentary featuring the Software on public media platforms (such as YouTube,
+Twitch, or equivalent), including monetized video channels, provided you do
+not claim ownership of the Software or Art Assets.
+
+3. Restrictions & Prohibited Usages (All Rights Reserved)
+
+---
+
+Except as expressly authorized in Section 2, all rights are strictly reserved by
+the Author. The following acts are strictly prohibited without prior written
+permission from the Author:
+
+a. No Unauthorized Redistribution or Mirroring:
+You may NOT re-host, mirror, re-upload, or distribute modified or unmodified
+binaries, installers, or source archives of the Software on external websites,
+third-party file hosting services, monetized URL shorteners (e.g., AdFly), or
+unauthorized custom launcher distributions.
+
+b. No Commercial Exploitation or Paywalling:
+You may NOT sell, rent, lease, sub-license, monetize via paywalls, or commercially
+exploit the Software, its source code, binaries, or Art Assets in any form.
+This includes, but is not limited to, charging fees for access, gating features
+behind VIP ranks/donations/NFTs/cryptocurrency tokens, or selling modified forks.
+
+c. No Art Asset or Texture Reuse:
+All Art Assets (textures, 3D models, sound effects, audio, UI assets, logos,
+and icons) are proprietary and subject to strict All Rights Reserved copyright.
+You may NOT extract, repurpose, adapt, reuse, or redistribute any Art Assets in
+other mods, games, software, or media without express written authorization.
+
+d. No Clones, Rebranding, or Verbatim Forks:
+You may NOT publish public forks, rebadged clones, re-named derivatives, or
+repackaged versions of the Software that duplicate core functionality or present
+the Software as a distinct or competing product.
+
+e. No Decompilation or Reverse-Engineering for Redistribution:
+You may NOT decompile, disassemble, reverse engineer, or extract proprietary
+code from compiled binaries of the Software for the purpose of re-distributing,
+cloning, or bypassing copyright controls.
+
+4. Contributions & Pull Requests
+
+---
+
+By submitting a Pull Request, patch, bug fix, or contribution to the official
+repository of the Software, you agree to assign or grant to the Licensor a
+perpetual, irrevocable, worldwide, royalty-free, non-exclusive license to use,
+modify, merge, sublicense, and distribute your contribution as part of the
+Software under this License or any subsequent license adopted by the Author.
+
+5. Trademarks & Attribution
+
+---
+
+The names "Sovereign: Arcane Strategy & Engineering", "Sovereign Simulator", and associated
+distinctive logos, emblems, and iconography are trademarks of the Author. This
+License does not grant permission to use the trade names, trademarks, service marks,
+or product names of the Licensor, except as required for reasonable and customary
+use in describing the origin of the Software and citing compatibility.
+
+6. Termination
+
+---
+
+Any violation of the terms, conditions, or restrictions of this License
+automatically terminates your rights hereunder immediately. Upon termination,
+you must cease all use, reproduction, and distribution of the Software and
+destroy all copies in your possession.
+
+7. Disclaimer of Warranty
+
+---
+
+THE SOFTWARE AND ART ASSETS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT SHALL
+THE AUTHOR, COPYRIGHT HOLDERS, OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM, DAMAGES,
+LOSS OF DATA, WORLD CORRUPTION, CLIENT/SERVER CRASHES, OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+8. Reservation of Rights
+
+---
+
+All rights, title, and interest in and to the Software, source code, binaries,
+and Art Assets not expressly granted in this License are reserved exclusively
+by the Author (Mino).
