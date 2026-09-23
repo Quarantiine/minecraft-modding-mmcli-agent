@@ -204,6 +204,9 @@ public class MinionBuildGoal extends Goal {
 		this.hoverStationVec = null;
 		this.minion.clearActiveTraversalDestination();
 		this.minion.touchConstructionActivity();
+		if (this.currentSession != null) {
+			this.currentSession.registerParticipant(this.minion.getUuid());
+		}
 
 		if (this.currentTask != null) {
 			this.minion.setActivelyBuilding(true);
@@ -307,25 +310,25 @@ public class MinionBuildGoal extends Goal {
 			restoreHeldWeapon();
 			// Tasks finished and still levitating: consult active destination for builders, or gently glide down to ground
 			if (this.minion.isArcaneLevitating() && !this.minion.isExitingBuilding()) {
-				boolean isDismantleSession = this.currentSession != null && this.currentSession.isDismantle();
-				Vec3d activeDest = !isDismantleSession ? this.minion.resolveActiveTargetDestination() : null;
-				if (activeDest == null) {
-					BlockPos feet = this.minion.getBlockPos();
-					BlockPos below = feet.down();
-					BlockState belowState = serverWorld.getBlockState(below);
-					boolean overSolid = this.minion.isOnGround()
-							|| belowState.isSolidBlock(serverWorld, below)
-							|| this.minion.hasSolidGroundBeneath(serverWorld);
-					if (!overSolid && feet.getY() > serverWorld.getBottomY()) {
-						this.minion.setVelocity(0.0D, -0.22D, 0.0D);
-						this.minion.velocityModified = true;
-					} else {
-						this.minion.setArcaneLevitating(false);
-						this.minion.setNoGravity(false);
-						this.minion.setVelocity(0.0D, 0.0D, 0.0D);
-						this.minion.velocityModified = true;
-					}
+				// Evaluate target destination invariant
+				Vec3d activeDest = this.minion.resolveActiveTargetDestination();
+				// Both builders and miners gently glide straight down to solid ground upon task completion
+				BlockPos feet = this.minion.getBlockPos();
+				BlockPos below = feet.down();
+				BlockState belowState = serverWorld.getBlockState(below);
+				boolean overSolid = this.minion.isOnGround()
+						|| belowState.isSolidBlock(serverWorld, below)
+						|| this.minion.hasSolidGroundBeneath(serverWorld);
+				if (!overSolid && feet.getY() > serverWorld.getBottomY()) {
+					this.minion.setVelocity(0.0D, -0.22D, 0.0D);
+					this.minion.velocityModified = true;
+				} else {
+					this.minion.setArcaneLevitating(false);
+					this.minion.setNoGravity(false);
+					this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+					this.minion.velocityModified = true;
 				}
+				this.minion.tickGentleDescent(serverWorld);
 			}
 			return;
 		}
@@ -504,9 +507,6 @@ public class MinionBuildGoal extends Goal {
 				// Distance-dampened velocity prevents overshooting and oscillation
 				double speed = Math.min(0.35D, Math.max(0.08D, distToHover * 0.5D));
 				Vec3d vel = delta.normalize().multiply(speed);
-				if (!isDismantle && delta.y > 0.1D && (this.minion.horizontalCollision || targetPos.getY() > this.minion.getBlockY())) {
-					vel = new Vec3d(vel.x * 0.4D, Math.max(vel.y, 0.40D), vel.z * 0.4D);
-				}
 
 				// Vertical velocity ceiling clamping: clamp vel.y <= 0 when solid blocks are within 1.9D overhead (unless phasing blocks)
 				if (!this.minion.isPhasingBlocks() && hasCeilingAboveMinion(serverWorld, 2) && vel.y > 0.0D) {

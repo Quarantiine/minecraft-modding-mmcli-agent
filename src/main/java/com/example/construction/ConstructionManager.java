@@ -449,12 +449,30 @@ public class ConstructionManager {
 			0.3
 		);
 
-		// Signal all builder/miner minions working nearby to complete, station at perimeter waypoints, and egress structure
+		// Signal only builder/miner minions that actually participated in this construction session to complete,
+		// station at perimeter waypoints, and egress the structure.
+		// Minions of other roles (Warriors, Sentinels) or builders who never worked on this build are NEVER hijacked.
+		boolean hasTrackedParticipants = session.hasParticipants();
 		Box searchBox = new Box(box.getMinX() - 16, box.getMinY() - 8, box.getMinZ() - 16, box.getMaxX() + 16, box.getMaxY() + 16, box.getMaxZ() + 16);
 		List<com.example.entity.custom.MinionEntity> nearbyMinions = world.getEntitiesByClass(
 			com.example.entity.custom.MinionEntity.class,
 			searchBox,
-			m -> m.isAlive() && (session.getOwnerUuid() == null || session.getOwnerUuid().equals(m.getOwnerUuid()))
+			m -> {
+				if (!m.isAlive() || (session.getOwnerUuid() != null && !session.getOwnerUuid().equals(m.getOwnerUuid()))) {
+					return false;
+				}
+				// Non-builder roles (Warriors, Sentinels) are NEVER affected by construction completion
+				if (!m.matchesRole(MinionRole.BUILDER)) {
+					return false;
+				}
+				// If participants are tracked, minion MUST be a recorded participant
+				if (hasTrackedParticipants) {
+					return session.isParticipant(m.getUuid());
+				}
+				// Fallback when no participants were recorded (e.g. instant creative complete or test mocks):
+				// Minion must be actively building or physically inside the structure
+				return m.isActivelyBuilding() || m.isInsideStructure(box);
+			}
 		);
 
 		List<BlockPos> perimeterWaypoints = new ArrayList<>();
@@ -702,11 +720,23 @@ public class ConstructionManager {
 
 			BlockPos anchor = session.getAnchorPos();
 			BlockBox box = session.getWorldBoundingBox();
+			boolean hasTrackedParticipants = session.hasParticipants();
 			Box searchBox = new Box(box.getMinX() - 12, box.getMinY() - 6, box.getMinZ() - 12, box.getMaxX() + 12, box.getMaxY() + 10, box.getMaxZ() + 12);
 			List<com.example.entity.custom.MinionEntity> nearbyMinions = world.getEntitiesByClass(
 				com.example.entity.custom.MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && (session.getOwnerUuid() == null || session.getOwnerUuid().equals(m.getOwnerUuid()))
+				m -> {
+					if (!m.isAlive() || (session.getOwnerUuid() != null && !session.getOwnerUuid().equals(m.getOwnerUuid()))) {
+						return false;
+					}
+					if (!m.matchesRole(MinionRole.BUILDER)) {
+						return false;
+					}
+					if (hasTrackedParticipants) {
+						return session.isParticipant(m.getUuid()) || m.isInsideStructure(box);
+					}
+					return m.isActivelyBuilding() || m.isInsideStructure(box);
+				}
 			);
 			for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
 				minion.setActivelyBuilding(false);

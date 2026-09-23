@@ -19,20 +19,28 @@ import org.junit.jupiter.api.Test;
 public class MinerFlyAwayAndFallDamageTest {
 
 	@Test
-	@DisplayName("Validate MinionEntity builders/miners return early in tickUniversalArcaneLevitation")
+	@DisplayName("Validate MinionEntity builders/miners return early in tickUniversalArcaneLevitation and clear levitation outside construction")
 	void testMinionEntityBuilderUniversalLevitationSuppression() throws IOException {
 		Path path = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
 		Assertions.assertTrue(Files.exists(path), "MinionEntity.java must exist");
 		String content = Files.readString(path);
 
 		Assertions.assertTrue(
+			content.contains("if (this.activelyBuilding || this.exitingBuilding)"),
+			"tickUniversalArcaneLevitation must gate activelyBuilding and exitingBuilding"
+		);
+		Assertions.assertTrue(
 			content.contains("else if (this.matchesRole(MinionRole.BUILDER)) {"),
 			"tickUniversalArcaneLevitation must check this.matchesRole(MinionRole.BUILDER)"
 		);
 		Assertions.assertTrue(
-			content.contains("MinionBuildGoal handles all task navigation, hovering, and controlled landing.")
-				&& content.contains("return;"),
-			"tickUniversalArcaneLevitation must return immediately for builders/miners"
+			content.contains("if (this.arcaneLevitating && !com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this))"),
+			"tickUniversalArcaneLevitation must clear levitation for builders not engaged in construction"
+		);
+		Assertions.assertTrue(
+			content.contains("this.setArcaneLevitating(false);")
+				&& content.contains("this.setNoGravity(false);"),
+			"tickUniversalArcaneLevitation must restore gravity to unengaged builders"
 		);
 	}
 
@@ -95,16 +103,22 @@ public class MinerFlyAwayAndFallDamageTest {
 	}
 
 	@Test
-	@DisplayName("Validate MinionBuildGoal kinematics and stall handling for dismantle mining")
+	@DisplayName("Validate MinionBuildGoal kinematics, stall handling, and gentle landing descent")
 	void testMinionBuildGoalDismantleKinematicsAndStalls() throws IOException {
 		Path path = Path.of("src/main/java/com/example/entity/ai/goal/MinionBuildGoal.java");
 		Assertions.assertTrue(Files.exists(path), "MinionBuildGoal.java must exist");
 		String content = Files.readString(path);
 
-		// Upward collision velocity gated behind !isDismantle
+		// Upward collision velocity completely excised
+		Assertions.assertFalse(
+			content.contains("Math.max(vel.y, 0.40D)"),
+			"MinionBuildGoal must never impart upward collision rocket velocity to builders or miners"
+		);
+
+		// Gentle landing descent on task completion
 		Assertions.assertTrue(
-			content.contains("if (!isDismantle && delta.y > 0.1D && (this.minion.horizontalCollision || targetPos.getY() > this.minion.getBlockY()))"),
-			"MinionBuildGoal must never impart upward collision rocket velocity to miners"
+			content.contains("this.minion.tickGentleDescent(serverWorld);"),
+			"MinionBuildGoal must invoke tickGentleDescent for controlled landing on task completion"
 		);
 
 		// Dismantle stall phase-shift directly to hover station

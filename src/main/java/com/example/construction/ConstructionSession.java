@@ -64,6 +64,7 @@ public class ConstructionSession {
 	private int completedCount = 0;
 	private final long createdTick;
 	private long lastActivityTick;
+	private final Set<UUID> participatingMinions = ConcurrentHashMap.newKeySet();
 
 
 	/**
@@ -388,6 +389,7 @@ public class ConstructionSession {
 				if (isTaskReady(task, world)) {
 					if (task.claim(minionUuid, currentTick)) {
 						this.lastActivityTick = currentTick;
+						this.participatingMinions.add(minionUuid);
 						return task;
 					}
 				}
@@ -631,6 +633,9 @@ public class ConstructionSession {
 	 */
 	public synchronized void completeTask(ConstructionTask task, ServerWorld world) {
 		if (task != null && this.tasks.contains(task) && !task.isCompleted()) {
+			if (task.getClaimedBy() != null) {
+				this.participatingMinions.add(task.getClaimedBy());
+			}
 			task.complete();
 			this.completedCount++;
 			this.lastActivityTick = world.getTime();
@@ -731,5 +736,44 @@ public class ConstructionSession {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Registers a minion UUID as a verified contributor/worker for this session.
+	 *
+	 * @param minionUuid The minion UUID to register.
+	 */
+	public void registerParticipant(UUID minionUuid) {
+		if (minionUuid != null) {
+			this.participatingMinions.add(minionUuid);
+		}
+	}
+
+	/**
+	 * Checks whether the specified minion actively claimed a task or contributed work to this session.
+	 *
+	 * @param minionUuid The minion UUID to test.
+	 * @return True if the minion contributed to this session.
+	 */
+	public boolean isParticipant(UUID minionUuid) {
+		return minionUuid != null && this.participatingMinions.contains(minionUuid);
+	}
+
+	/**
+	 * Checks whether any minions have been registered as participants in this session.
+	 *
+	 * @return True if at least one minion participated.
+	 */
+	public boolean hasParticipants() {
+		return !this.participatingMinions.isEmpty();
+	}
+
+	/**
+	 * Returns an unmodifiable set of all minion UUIDs that participated in this session.
+	 *
+	 * @return The set of participant minion UUIDs.
+	 */
+	public Set<UUID> getParticipatingMinions() {
+		return Collections.unmodifiableSet(this.participatingMinions);
 	}
 }

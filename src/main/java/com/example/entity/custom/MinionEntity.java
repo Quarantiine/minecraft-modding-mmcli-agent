@@ -1378,21 +1378,25 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		// causes the levitation-teleport loop (goal applies velocity → this method overwrites it → stall watchdog
 		// fires → requestTeleport → repeat). Fall-safety particles are handled separately at the tick() call-site.
 		if (this.activelyBuilding || this.exitingBuilding) {
-			if (this.activelyBuilding) {
-				return;
-			}
-			// Egress mode: builder levitation state is maintained, velocity is controlled by tickBuildingEgress()
+			// Actively building or egressing: velocity is strictly controlled by MinionBuildGoal or tickBuildingEgress()
+			return;
 		} else if (this.matchesRole(MinionRole.BUILDER)) {
-			// Builder/miner minions are managed exclusively by MinionBuildGoal.
-			// MinionBuildGoal handles all task navigation, hovering, and controlled landing.
-			// This method must NEVER apply universal traversal velocities or hole-escape launches to builders.
+			// Builder/miner minions are managed exclusively by MinionBuildGoal during active construction.
+			// Outside of active construction sessions, builders navigate on foot like normal players (1.25D step height).
+			// If not engaged in an active build/dismantle session, levitation must be cleared immediately.
+			if (this.arcaneLevitating && !com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this)) {
+				this.setArcaneLevitating(false);
+				this.setNoGravity(false);
+			}
 			return;
 		} else {
 			if (this.arcaneLevitating) {
 				this.setArcaneLevitating(false);
 				this.setNoGravity(false);
 			}
-			return;
+			if (this.getId() >= 0) {
+				return;
+			}
 		}
 
 		// Passive sitting thralls or dead entities do not levitate
