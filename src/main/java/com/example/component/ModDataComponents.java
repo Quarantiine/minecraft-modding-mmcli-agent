@@ -78,23 +78,11 @@ public class ModDataComponents {
 	);
 
 	/**
-	 * Data component storing the active {@link com.example.blueprint.ArchitectureStyle} on an item (e.g. Command Scepter).
+	 * Data component storing the active patrol route channel index (0 to 4) on the Command Scepter.
 	 */
-	public static final ComponentType<com.example.blueprint.ArchitectureStyle> ARCHITECTURE_STYLE = Registry.register(
+	public static final ComponentType<Integer> ACTIVE_PATROL_ROUTE = Registry.register(
 		Registries.DATA_COMPONENT_TYPE,
-		Identifier.of(ExampleMod.MOD_ID, "architecture_style"),
-		ComponentType.<com.example.blueprint.ArchitectureStyle>builder()
-			.codec(com.example.blueprint.ArchitectureStyle.CODEC)
-			.packetCodec(com.example.blueprint.ArchitectureStyle.PACKET_CODEC)
-			.build()
-	);
-
-	/**
-	 * Data component storing the active procedural building size index (0: Small, 1: Med, 2: Grand, 3: Random).
-	 */
-	public static final ComponentType<Integer> BUILDING_SIZE = Registry.register(
-		Registries.DATA_COMPONENT_TYPE,
-		Identifier.of(ExampleMod.MOD_ID, "building_size"),
+		Identifier.of(ExampleMod.MOD_ID, "active_patrol_route"),
 		ComponentType.<Integer>builder()
 			.codec(Codec.INT)
 			.packetCodec(PacketCodecs.INTEGER)
@@ -102,11 +90,83 @@ public class ModDataComponents {
 	);
 
 	/**
-	 * Data component storing the active patrol route channel index (0 to 4) on the Command Scepter.
+	 * Data component storing the active {@link MiningMode} sub-mode on an item (e.g. Command Scepter).
 	 */
-	public static final ComponentType<Integer> ACTIVE_PATROL_ROUTE = Registry.register(
+	public static final ComponentType<MiningMode> MINING_MODE = Registry.register(
 		Registries.DATA_COMPONENT_TYPE,
-		Identifier.of(ExampleMod.MOD_ID, "active_patrol_route"),
+		Identifier.of(ExampleMod.MOD_ID, "mining_mode"),
+		ComponentType.<MiningMode>builder()
+			.codec(MiningMode.CODEC)
+			.packetCodec(MiningMode.PACKET_CODEC)
+			.build()
+	);
+
+	/**
+	 * Data component storing the active MINE mode corner 1 (Pos1) coordinate on an item.
+	 */
+	public static final ComponentType<net.minecraft.util.math.BlockPos> MINE_POS1 = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "mine_pos1"),
+		ComponentType.<net.minecraft.util.math.BlockPos>builder()
+			.codec(net.minecraft.util.math.BlockPos.CODEC)
+			.packetCodec(net.minecraft.util.math.BlockPos.PACKET_CODEC)
+			.build()
+	);
+
+	/**
+	 * Data component storing the active MINE mode corner 2 (Pos2) coordinate on an item.
+	 */
+	public static final ComponentType<net.minecraft.util.math.BlockPos> MINE_POS2 = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "mine_pos2"),
+		ComponentType.<net.minecraft.util.math.BlockPos>builder()
+			.codec(net.minecraft.util.math.BlockPos.CODEC)
+			.packetCodec(net.minecraft.util.math.BlockPos.PACKET_CODEC)
+			.build()
+	);
+
+	/**
+	 * Data component storing the active DESIGN mode corner 1 (Pos1) coordinate on an item.
+	 */
+	public static final ComponentType<net.minecraft.util.math.BlockPos> DESIGN_POS1 = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "design_pos1"),
+		ComponentType.<net.minecraft.util.math.BlockPos>builder()
+			.codec(net.minecraft.util.math.BlockPos.CODEC)
+			.packetCodec(net.minecraft.util.math.BlockPos.PACKET_CODEC)
+			.build()
+	);
+
+	/**
+	 * Data component storing the active DESIGN mode corner 2 (Pos2) coordinate on an item.
+	 */
+	public static final ComponentType<net.minecraft.util.math.BlockPos> DESIGN_POS2 = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "design_pos2"),
+		ComponentType.<net.minecraft.util.math.BlockPos>builder()
+			.codec(net.minecraft.util.math.BlockPos.CODEC)
+			.packetCodec(net.minecraft.util.math.BlockPos.PACKET_CODEC)
+			.build()
+	);
+
+	/**
+	 * Legacy migration component for architecture_style to prevent vanilla NBT deserialization errors on existing saves.
+	 */
+	public static final ComponentType<String> LEGACY_ARCHITECTURE_STYLE = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "architecture_style"),
+		ComponentType.<String>builder()
+			.codec(Codec.STRING)
+			.packetCodec(PacketCodecs.STRING)
+			.build()
+	);
+
+	/**
+	 * Legacy migration component for building_size to prevent vanilla NBT deserialization errors on existing saves.
+	 */
+	public static final ComponentType<Integer> LEGACY_BUILDING_SIZE = Registry.register(
+		Registries.DATA_COMPONENT_TYPE,
+		Identifier.of(ExampleMod.MOD_ID, "building_size"),
 		ComponentType.<Integer>builder()
 			.codec(Codec.INT)
 			.packetCodec(PacketCodecs.INTEGER)

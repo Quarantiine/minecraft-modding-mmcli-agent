@@ -1,7 +1,6 @@
 package com.example.client;
 
 import com.example.blueprint.BlueprintRegistry;
-import com.example.blueprint.BuildingCategory;
 import com.example.blueprint.StructureBlueprint;
 import com.example.component.CommandMode;
 import com.example.item.ModItems;
@@ -88,11 +87,10 @@ public class BuildFlightManager {
 
 		if (shouldFly) {
 			String bpId = CommandScepterItem.getBlueprintId(heldStack);
-			int size = CommandScepterItem.getBuildingSize(heldStack);
 
 			if (!flightActive) {
 				initialGroundY = findGroundBelow(world, player.getBlockPos());
-				int bpHeight = resolveBlueprintHeight(bpId, size);
+				int bpHeight = resolveBlueprintHeight(bpId);
 				double targetY = initialGroundY + Math.max(6.0D, bpHeight + 3.0D);
 				double ceilingClamp = checkCeilingClearance(world, player, player.getEyePos(), targetY);
 				lockedHoverY = Math.min(targetY, ceilingClamp);
@@ -100,7 +98,6 @@ public class BuildFlightManager {
 				flightActive = true;
 				descending = false;
 				lastBlueprintId = bpId;
-				lastSize = size;
 
 				player.getAbilities().allowFlying = true;
 				player.getAbilities().flying = true;
@@ -111,9 +108,8 @@ public class BuildFlightManager {
 				);
 				statusMessageCooldown = 40;
 			} else {
-				if (!bpId.equalsIgnoreCase(lastBlueprintId) || size != lastSize) {
+				if (!bpId.equalsIgnoreCase(lastBlueprintId)) {
 					lastBlueprintId = bpId;
-					lastSize = size;
 				}
 
 				// Enforce flight abilities and zero fall distance for free survival flight
@@ -217,23 +213,18 @@ public class BuildFlightManager {
 	}
 
 	/**
-	 * Resolves vertical height for the specified blueprint ID and procedural size.
+	 * Resolves vertical height for the specified blueprint ID.
 	 */
-	public static int resolveBlueprintHeight(String blueprintId, int size) {
+	public static int resolveBlueprintHeight(String blueprintId) {
 		if (blueprintId == null || blueprintId.isBlank()) {
 			return 8;
 		}
 
-		for (BuildingCategory cat : BuildingCategory.values()) {
-			if (cat.getId().equalsIgnoreCase(blueprintId)) {
-				StructureBlueprint bp = cat.createBlueprint(size, 42L);
-				if (bp != null) {
-					return bp.getSizeY();
-				}
-			}
-		}
+		StructureBlueprint bp = BlueprintRegistry.get(blueprintId).orElse(null);
+		return bp != null ? Math.max(1, bp.getSizeY()) : 8;
+	}
 
-		StructureBlueprint bp = BlueprintRegistry.getOrDefault(blueprintId);
-		return bp != null ? bp.getSizeY() : 8;
+	public static int resolveBlueprintHeight(String blueprintId, int size) {
+		return resolveBlueprintHeight(blueprintId);
 	}
 }

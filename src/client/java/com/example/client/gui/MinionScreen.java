@@ -52,6 +52,7 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 	private ButtonWidget teleportBtn;
 	private ButtonWidget destroyBtn;
 	private ButtonWidget cancelBtn;
+	private boolean confirmingDestroy = false;
 
 	// Smart Shift-to-close & interaction state controller (Refinement 4)
 	private final SmartCloseHandler closeHandler = new SmartCloseHandler();
@@ -177,6 +178,12 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 		this.destroyBtn = ButtonWidget.builder(
 			Text.literal("§c✖ ").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.destroy")),
 			button -> {
+				if (!this.confirmingDestroy) {
+					this.confirmingDestroy = true;
+					this.destroyBtn.setMessage(Text.literal("§c⚠ Confirm?"));
+					this.destroyBtn.setTooltip(Tooltip.of(Text.literal("§cClick again to confirm decommission.")));
+					return;
+				}
 				int id = this.resolveMinionId();
 				if (id >= 0) {
 					ModClientNetworking.sendDismissMinion(id);
@@ -432,6 +439,11 @@ public class MinionScreen extends HandledScreen<MinionScreenHandler> {
 	protected void drawForeground(DrawContext context, int mouseX, int mouseY) {
 		// Category header: bold, high-contrast Inventory label
 		context.drawText(this.textRenderer, Text.literal("§8§l").append(Text.translatable("gui.modid-mmcli-agent-modding.minion.inventory")), 116, 5, 0x1E293B, false);
+	}
+
+	@Override
+	protected void applyBlur(float delta) {
+		// Disable background world blur post-processing shader while keeping screen darkening and UI elements crisp
 	}
 
 	@Override

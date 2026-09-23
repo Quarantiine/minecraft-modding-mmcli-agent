@@ -58,7 +58,7 @@ public class ModItems {
 				.maxCount(1)
 				.rarity(Rarity.EPIC)
 				.component(ModDataComponents.COMMAND_MODE, CommandMode.FOLLOW)
-				.component(ModDataComponents.ACTIVE_BLUEPRINT, BlueprintRegistry.WATCHTOWER_ID)
+				.component(ModDataComponents.ACTIVE_BLUEPRINT, "")
 				.component(ModDataComponents.TARGET_SQUAD, SquadGroup.ALL)
 		)
 	);

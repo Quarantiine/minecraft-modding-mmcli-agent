@@ -105,24 +105,133 @@ public record PatrolRoute(
 	);
 
 	/**
+	 * Parses a hex color string into a 24-bit RGB integer (0xRRGGBB).
+	 * Accepts formats such as "#FFD700", "0xFFD700", or "FFD700".
+	 *
+	 * @param hex The hex color string.
+	 * @return Parsed RGB integer, or default 0xFFD700 if invalid or empty.
+	 */
+	public static int parseHexColor(String hex) {
+		if (hex == null || hex.trim().isEmpty()) {
+			return 0xFFD700;
+		}
+		String clean = hex.trim();
+		if (clean.startsWith("#")) {
+			clean = clean.substring(1);
+		} else if (clean.startsWith("0x") || clean.startsWith("0X")) {
+			clean = clean.substring(2);
+		}
+		try {
+			long parsed = Long.parseLong(clean, 16);
+			return (int) (parsed & 0xFFFFFF);
+		} catch (NumberFormatException e) {
+			return 0xFFD700;
+		}
+	}
+
+	/**
+	 * Formats a 24-bit RGB integer as a 6-digit uppercase hex code with leading '#'.
+	 *
+	 * @param colorRgb The 24-bit RGB color.
+	 * @return Hex color string (e.g. "#FFD700").
+	 */
+	public static String toHexCode(int colorRgb) {
+		return String.format("#%06X", (0xFFFFFF & colorRgb));
+	}
+
+	/**
+	 * Returns the hex code string for this route's color.
+	 */
+	public String toHexCode() {
+		return toHexCode(this.colorRgb);
+	}
+
+	/**
 	 * Creates a default empty patrol route for the specified channel ID.
 	 *
 	 * @param routeId Channel index (0 to 4).
 	 * @return A new empty PatrolRoute.
 	 */
 	public static PatrolRoute createDefault(int routeId) {
-		int id = Math.max(0, Math.min(CHANNEL_COUNT - 1, routeId));
-		return new PatrolRoute(id, CHANNEL_NAMES[id], CHANNEL_COLORS[id], new ArrayList<>(), PatrolMode.LOOP);
+		if (routeId >= 0 && routeId < CHANNEL_COUNT) {
+			return new PatrolRoute(routeId, CHANNEL_NAMES[routeId], CHANNEL_COLORS[routeId], new ArrayList<>(), PatrolMode.LOOP);
+		}
+		int color = CHANNEL_COLORS[Math.floorMod(routeId, CHANNEL_COLORS.length)];
+		return new PatrolRoute(routeId, "Route " + (routeId + 1), color, new ArrayList<>(), PatrolMode.LOOP);
+	}
+
+	/**
+	 * Creates a custom patrol route with the specified ID, custom name, and hex color.
+	 *
+	 * @param routeId  The unique route channel ID.
+	 * @param name     Custom display name.
+	 * @param colorRgb 24-bit RGB color integer.
+	 * @return A new custom PatrolRoute.
+	 */
+	public static PatrolRoute createCustom(int routeId, String name, int colorRgb) {
+		String cleanName = (name != null && !name.trim().isEmpty()) ? name.trim() : ("Route " + (routeId + 1));
+		return new PatrolRoute(routeId, cleanName, colorRgb & 0xFFFFFF, new ArrayList<>(), PatrolMode.LOOP);
+	}
+
+	/**
+	 * Creates a custom patrol route with the specified ID, custom name, and hex color string.
+	 *
+	 * @param routeId  The unique route channel ID.
+	 * @param name     Custom display name.
+	 * @param hexColor Hex color string (e.g. "#FFD700").
+	 * @return A new custom PatrolRoute.
+	 */
+	public static PatrolRoute createCustom(int routeId, String name, String hexColor) {
+		return createCustom(routeId, name, parseHexColor(hexColor));
 	}
 
 	/**
 	 * Returns the formatted display name of this route with color codes.
 	 */
 	public String getFormattedName() {
-		if (routeId >= 0 && routeId < CHANNEL_FORMATTED_NAMES.length) {
+		if (routeId >= 0 && routeId < CHANNEL_FORMATTED_NAMES.length && name != null && name.equals(CHANNEL_NAMES[routeId])) {
 			return CHANNEL_FORMATTED_NAMES[routeId];
 		}
-		return name;
+		return name != null ? name : "Route " + (routeId + 1);
+	}
+
+	/**
+	 * Returns a stylized Text component using the route's dynamic RGB color.
+	 */
+	public net.minecraft.text.Text getFormattedText() {
+		String displayName = (name != null && !name.isEmpty()) ? name : ("Route " + (routeId + 1));
+		return net.minecraft.text.Text.literal(displayName).styled(style ->
+			style.withColor(net.minecraft.text.TextColor.fromRgb(this.colorRgb))
+		);
+	}
+
+	/**
+	 * Creates a copy of this route with a new name.
+	 */
+	public PatrolRoute withName(String newName) {
+		String cleanName = (newName != null && !newName.trim().isEmpty()) ? newName.trim() : ("Route " + (this.routeId + 1));
+		return new PatrolRoute(this.routeId, cleanName, this.colorRgb, new ArrayList<>(this.waypoints), this.patrolMode);
+	}
+
+	/**
+	 * Creates a copy of this route with a new 24-bit RGB color.
+	 */
+	public PatrolRoute withColor(int newColorRgb) {
+		return new PatrolRoute(this.routeId, this.name, newColorRgb & 0xFFFFFF, new ArrayList<>(this.waypoints), this.patrolMode);
+	}
+
+	/**
+	 * Creates a copy of this route with a new 24-bit RGB color (alias for withColor).
+	 */
+	public PatrolRoute withColorRgb(int newColorRgb) {
+		return withColor(newColorRgb);
+	}
+
+	/**
+	 * Creates a copy of this route with a new color from hex string.
+	 */
+	public PatrolRoute withColor(String newHexColor) {
+		return withColor(parseHexColor(newHexColor));
 	}
 
 	/**

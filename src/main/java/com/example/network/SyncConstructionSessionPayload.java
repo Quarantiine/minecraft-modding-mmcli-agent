@@ -19,32 +19,62 @@ import net.minecraft.util.math.BlockPos;
  * @param blueprintId  Identifier of the blueprint being constructed or dismantled.
  * @param rotation     Quadrant rotation (0..3).
  * @param isDismantle  True if this is a deconstruction session.
+ * @param sizeX        Bounding box size along X axis.
+ * @param sizeY        Bounding box size along Y axis.
+ * @param sizeZ        Bounding box size along Z axis.
  */
 public record SyncConstructionSessionPayload(
 	UUID sessionId,
 	BlockPos anchorPos,
 	String blueprintId,
 	int rotation,
-	boolean isDismantle
+	boolean isDismantle,
+	int sizeX,
+	int sizeY,
+	int sizeZ
 ) implements CustomPayload {
+
+	public SyncConstructionSessionPayload(
+		UUID sessionId,
+		BlockPos anchorPos,
+		String blueprintId,
+		int rotation,
+		boolean isDismantle
+	) {
+		this(sessionId, anchorPos, blueprintId, rotation, isDismantle, 0, 0, 0);
+	}
 
 	public static final CustomPayload.Id<SyncConstructionSessionPayload> ID = new CustomPayload.Id<>(
 		Identifier.of(ExampleMod.MOD_ID, "sync_construction_session")
 	);
 
-	public static final PacketCodec<RegistryByteBuf, SyncConstructionSessionPayload> PACKET_CODEC = PacketCodec.tuple(
-		Uuids.PACKET_CODEC,
-		SyncConstructionSessionPayload::sessionId,
-		BlockPos.PACKET_CODEC,
-		SyncConstructionSessionPayload::anchorPos,
-		PacketCodecs.STRING,
-		SyncConstructionSessionPayload::blueprintId,
-		PacketCodecs.INTEGER,
-		SyncConstructionSessionPayload::rotation,
-		PacketCodecs.BOOL,
-		SyncConstructionSessionPayload::isDismantle,
-		SyncConstructionSessionPayload::new
-	);
+	public static final PacketCodec<RegistryByteBuf, SyncConstructionSessionPayload> PACKET_CODEC = new PacketCodec<>() {
+		@Override
+		public void encode(RegistryByteBuf buf, SyncConstructionSessionPayload payload) {
+			Uuids.PACKET_CODEC.encode(buf, payload.sessionId());
+			BlockPos.PACKET_CODEC.encode(buf, payload.anchorPos());
+			PacketCodecs.STRING.encode(buf, payload.blueprintId());
+			PacketCodecs.INTEGER.encode(buf, payload.rotation());
+			PacketCodecs.BOOL.encode(buf, payload.isDismantle());
+			PacketCodecs.INTEGER.encode(buf, payload.sizeX());
+			PacketCodecs.INTEGER.encode(buf, payload.sizeY());
+			PacketCodecs.INTEGER.encode(buf, payload.sizeZ());
+		}
+
+		@Override
+		public SyncConstructionSessionPayload decode(RegistryByteBuf buf) {
+			return new SyncConstructionSessionPayload(
+				Uuids.PACKET_CODEC.decode(buf),
+				BlockPos.PACKET_CODEC.decode(buf),
+				PacketCodecs.STRING.decode(buf),
+				PacketCodecs.INTEGER.decode(buf),
+				PacketCodecs.BOOL.decode(buf),
+				PacketCodecs.INTEGER.decode(buf),
+				PacketCodecs.INTEGER.decode(buf),
+				PacketCodecs.INTEGER.decode(buf)
+			);
+		}
+	};
 
 	@Override
 	public CustomPayload.Id<? extends CustomPayload> getId() {

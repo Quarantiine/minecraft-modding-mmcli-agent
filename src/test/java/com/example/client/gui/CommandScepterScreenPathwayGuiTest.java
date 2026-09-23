@@ -29,6 +29,67 @@ public class CommandScepterScreenPathwayGuiTest {
 	}
 
 	@Test
+	@DisplayName("Source contract: Pathway route selection triggers network synchronization to server")
+	void testSelectActiveRouteNetworkSynchronizationContract() throws IOException {
+		Path screenPath = Path.of("src/client/java/com/example/client/gui/CommandScepterScreen.java");
+		String screenContent = Files.readString(screenPath);
+
+		// selectActiveRoute must update activePatrolRouteId, update stack, call syncToServer(false), and refresh labels
+		Assertions.assertTrue(
+			screenContent.contains("public void selectActiveRoute(int routeId) {\n\t\tthis.activePatrolRouteId = routeId;"),
+			"selectActiveRoute must store routeId into activePatrolRouteId"
+		);
+		Assertions.assertTrue(
+			screenContent.contains("CommandScepterItem.setActivePatrolRoute(this.scepterStack, routeId);"),
+			"selectActiveRoute must update scepterStack active patrol route"
+		);
+		Assertions.assertTrue(
+			screenContent.contains("syncToServer(false);"),
+			"selectActiveRoute must invoke syncToServer(false)"
+		);
+
+		// syncToServer must transmit activePatrolRouteId
+		Assertions.assertTrue(
+			screenContent.contains("this.activePatrolRouteId,"),
+			"syncToServer must pass this.activePatrolRouteId to ModClientNetworking.sendUpdateScepter"
+		);
+
+		// close must invoke syncToServer(false)
+		Assertions.assertTrue(
+			screenContent.contains("public void close() {\n\t\tthis.closed = true;\n\t\tsyncToServer(false);"),
+			"close() must invoke syncToServer(false) to guarantee client-server scepter synchronization on GUI dismissal"
+		);
+	}
+
+	@Test
+	@DisplayName("Source contract: ModNetworking persists activePatrolRoute from UpdateScepterPayload")
+	void testModNetworkingPersistsActivePatrolRouteContract() throws IOException {
+		Path networkingPath = Path.of("src/main/java/com/example/network/ModNetworking.java");
+		String networkingContent = Files.readString(networkingPath);
+
+		Assertions.assertTrue(
+			networkingContent.contains("int activePatrolRoute = payload.activePatrolRoute();"),
+			"handleUpdateScepter must read activePatrolRoute from payload"
+		);
+		Assertions.assertTrue(
+			networkingContent.contains("CommandScepterItem.setActivePatrolRoute(scepterStack, activePatrolRoute);"),
+			"handleUpdateScepter must store activePatrolRoute onto the server scepter ItemStack"
+		);
+	}
+
+	@Test
+	@DisplayName("Source contract: Selecting PATHWAY mode resets activePatrolRouteId to Route 1 (0)")
+	void testSelectingPathwayModeDefaultsRoute1() throws IOException {
+		Path screenPath = Path.of("src/client/java/com/example/client/gui/CommandScepterScreen.java");
+		String screenContent = Files.readString(screenPath);
+
+		Assertions.assertTrue(
+			screenContent.contains("if (mode == CommandMode.PATHWAY) {\n\t\t\tthis.activePatrolRouteId = 0;"),
+			"selectMode must reset activePatrolRouteId to 0 when switching to PATHWAY mode"
+		);
+	}
+
+	@Test
 	@DisplayName("Source contract: CommandScepterScreen enforces pathway visibility and prevents blueprint overlap")
 	void testPathwayVisibilitySourceContract() throws IOException {
 		Path screenPath = Path.of("src/client/java/com/example/client/gui/CommandScepterScreen.java");
@@ -64,28 +125,40 @@ public class CommandScepterScreenPathwayGuiTest {
 		Path screenPath = Path.of("src/client/java/com/example/client/gui/CommandScepterScreen.java");
 		String screenContent = Files.readString(screenPath);
 
-		// Channel select button: 94px width starting at startX + 165 -> ends at 259
+		// Pathway page size 4
 		Assertions.assertTrue(
-			screenContent.contains(".dimensions(startX + 165, rowY, 94, 20)"),
-			"selectBtn dimensions must be 94px wide at startX + 165"
+			screenContent.contains("public static final int PATHWAY_PAGE_SIZE = 4;"),
+			"CommandScepterScreen must define PATHWAY_PAGE_SIZE = 4"
 		);
 
-		// Mode toggle button: 38px width starting at startX + 262 -> ends at 300
+		// Channel select button: 70px width starting at startX + 165 -> ends at 235
 		Assertions.assertTrue(
-			screenContent.contains(".dimensions(startX + 262, rowY, 38, 20)"),
-			"modeBtn dimensions must be 38px wide at startX + 262"
+			screenContent.contains(".dimensions(startX + 165, rowY, 70, 20)"),
+			"selectBtn dimensions must be 70px wide at startX + 165"
 		);
 
-		// Clear button: 22px width starting at startX + 303 -> ends at 325
+		// Mode toggle button: 26px width starting at startX + 237 -> ends at 263
 		Assertions.assertTrue(
-			screenContent.contains(".dimensions(startX + 303, rowY, 22, 20)"),
-			"clearBtn dimensions must be 22px wide at startX + 303"
+			screenContent.contains(".dimensions(startX + 237, rowY, 26, 20)"),
+			"modeBtn dimensions must be 26px wide at startX + 237"
 		);
 
-		// Route button labels use concise formatting without long names: "Route X [N]"
+		// Edit button: 18px width starting at startX + 265 -> ends at 283
 		Assertions.assertTrue(
-			screenContent.contains("\"Route \" + (routeId + 1) + \" §8[\" + waypointCount + \"]\""),
-			"Route channel button text must use concise format to avoid overflowing"
+			screenContent.contains(".dimensions(startX + 265, rowY, 18, 20)"),
+			"editBtn dimensions must be 18px wide at startX + 265"
+		);
+
+		// Clear button: 18px width starting at startX + 285 -> ends at 303
+		Assertions.assertTrue(
+			screenContent.contains(".dimensions(startX + 285, rowY, 18, 20)"),
+			"clearBtn dimensions must be 18px wide at startX + 285"
+		);
+
+		// Delete button: 20px width starting at startX + 305 -> ends at 325
+		Assertions.assertTrue(
+			screenContent.contains(".dimensions(startX + 305, rowY, 20, 20)"),
+			"delBtn dimensions must be 20px wide at startX + 305"
 		);
 
 		// Mode button uses clean text labels "Loop" and "Ping"

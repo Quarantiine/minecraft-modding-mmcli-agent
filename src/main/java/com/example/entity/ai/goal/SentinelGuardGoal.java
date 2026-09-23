@@ -138,10 +138,6 @@ public class SentinelGuardGoal extends Goal {
 			}
 			Vec3d anchorVec = new Vec3d(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D);
 			this.minion.setActiveTraversalDestination(anchorVec);
-			double dy = anchor.getY() - this.minion.getY();
-			if (dy > 1.25D || dy < -1.5D) {
-				this.minion.setArcaneLevitating(true);
-			}
 			this.minion.getNavigation().startMovingTo(
 				anchorVec.x,
 				anchorVec.y,
@@ -176,11 +172,7 @@ public class SentinelGuardGoal extends Goal {
 
 		double distSq = this.minion.squaredDistanceTo(anchorCenterX, anchorCenterY, anchorCenterZ);
 		if (distSq > ARRIVAL_TOLERANCE_SQ) {
-			double dy = anchorCenterY - this.minion.getY();
-			if (dy > 1.25D || dy < -1.5D) {
-				this.minion.setArcaneLevitating(true);
-			}
-			if (!this.minion.isArcaneLevitating() && this.minion.getNavigation().isIdle()) {
+			if (this.minion.getNavigation().isIdle()) {
 				this.minion.getNavigation().startMovingTo(anchorCenterX, anchorCenterY, anchorCenterZ, SPRINT_SPEED);
 			}
 		} else {

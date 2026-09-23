@@ -1,7 +1,6 @@
 package com.example.client.camera;
 
 import com.example.blueprint.BlueprintRegistry;
-import com.example.blueprint.BuildingCategory;
 import com.example.blueprint.StructureBlueprint;
 import com.example.component.CommandMode;
 import com.example.item.ModItems;

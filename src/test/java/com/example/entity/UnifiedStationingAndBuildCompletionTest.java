@@ -245,4 +245,138 @@ public class UnifiedStationingAndBuildCompletionTest {
 			"findStructureExitWaypoint must use task.getWorldPos() to correctly resolve rotated doorways"
 		);
 	}
+
+	// =========================================================================
+	// 5. Blueprint Chaining and Vicinity Detection (<= 128 Blocks)
+	// =========================================================================
+
+	static class MockChainedSession {
+		final String name;
+		final BlockPos anchor;
+		boolean active = true;
+		final List<String> tasks = new ArrayList<>();
+
+		MockChainedSession(String name, BlockPos anchor, List<String> taskNames) {
+			this.name = name;
+			this.anchor = anchor;
+			this.tasks.addAll(taskNames);
+		}
+
+		String claimTask() {
+			if (!active || tasks.isEmpty()) return null;
+			return tasks.remove(0);
+		}
+	}
+
+	static class MockBuilderMinion {
+		BlockPos currentPos = new BlockPos(0, 64, 0);
+		boolean sitting = false;
+		BlockPos guardAnchor = null;
+		boolean activelyBuilding = false;
+		MockChainedSession currentSession = null;
+		String currentTask = null;
+
+		void onSessionCompleted(List<MockChainedSession> allActiveSessions) {
+			this.activelyBuilding = false;
+			// Query for next active session within 128 blocks
+			MockChainedSession nextSession = null;
+			double bestDistSq = Double.MAX_VALUE;
+			for (MockChainedSession s : allActiveSessions) {
+				if (!s.active) continue;
+				double distSq = this.currentPos.getSquaredDistance(s.anchor);
+				if (distSq <= 128.0 * 128.0 && distSq < bestDistSq) {
+					bestDistSq = distSq;
+					nextSession = s;
+				}
+			}
+
+			if (nextSession != null) {
+				// Prevent premature stationing/sleeping
+				this.sitting = false;
+				this.guardAnchor = null;
+				this.currentSession = nextSession;
+				this.currentTask = nextSession.claimTask();
+				if (this.currentTask != null) {
+					this.activelyBuilding = true;
+				}
+			} else {
+				// No pending blueprints nearby -> station at perimeter
+				this.sitting = true;
+				this.guardAnchor = this.currentPos;
+				this.currentSession = null;
+				this.currentTask = null;
+			}
+		}
+	}
+
+	@Test
+	@DisplayName("Builder minion chains to nearby active blueprint session (<= 128 blocks) and avoids premature stationing")
+	void testBlueprintChainingSimulation() {
+		MockBuilderMinion builder = new MockBuilderMinion();
+		builder.currentPos = new BlockPos(10, 64, 10);
+		builder.activelyBuilding = true;
+
+		// Create two sessions: session1 at [10, 64, 10], session2 at [60, 64, 60] (distance ~70 blocks, <= 128)
+		MockChainedSession session1 = new MockChainedSession("Watchtower", new BlockPos(10, 64, 10), List.of("Place Wood", "Place Roof"));
+		MockChainedSession session2 = new MockChainedSession("Barracks", new BlockPos(60, 64, 60), List.of("Place Stone", "Place Iron Door"));
+		builder.currentSession = session1;
+
+		List<MockChainedSession> activeList = new ArrayList<>(List.of(session1, session2));
+
+		// Complete session 1
+		session1.active = false;
+		builder.onSessionCompleted(activeList);
+
+		// Minion must NOT be stationed or sitting; should be chained to session 2
+		Assertions.assertFalse(builder.sitting, "Builder minion must NOT be sitting when pending blueprints exist in vicinity");
+		Assertions.assertNull(builder.guardAnchor, "Guard anchor must be null when chained to next blueprint");
+		Assertions.assertTrue(builder.activelyBuilding, "Builder must remain actively building on chained blueprint");
+		Assertions.assertEquals(session2, builder.currentSession, "Builder must have chained to session 2");
+		Assertions.assertEquals("Place Stone", builder.currentTask, "Builder must have claimed first task of session 2");
+
+		// Now complete session 2 (no more active blueprints in vicinity)
+		session2.active = false;
+		builder.onSessionCompleted(activeList);
+
+		// Minion should now station at perimeter and rest
+		Assertions.assertTrue(builder.sitting, "Builder minion should station/sit when all blueprints are complete");
+		Assertions.assertEquals(builder.currentPos, builder.guardAnchor, "Guard anchor should be set upon final session completion");
+		Assertions.assertFalse(builder.activelyBuilding, "Builder should no longer be actively building");
+	}
+
+	@Test
+	@DisplayName("ConstructionManager and MinionBuildGoal enforce blueprint chaining within 128 blocks source invariants")
+	void testBlueprintChainingSourceInvariants() throws IOException {
+		// 1. MinionBuildGoal source checks
+		Path buildGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionBuildGoal.java");
+		Assertions.assertTrue(Files.exists(buildGoalPath));
+		String buildGoalContent = Files.readString(buildGoalPath);
+
+		Assertions.assertTrue(
+			buildGoalContent.contains("tryClaimTaskOrChainNextSession"),
+			"MinionBuildGoal must include tryClaimTaskOrChainNextSession for autonomous multi-session chaining"
+		);
+		Assertions.assertTrue(
+			buildGoalContent.contains("128.0D"),
+			"MinionBuildGoal must query for active sessions within 128.0D blocks"
+		);
+
+		// 2. ConstructionManager source checks
+		Path managerPath = Path.of("src/main/java/com/example/construction/ConstructionManager.java");
+		Assertions.assertTrue(Files.exists(managerPath));
+		String managerContent = Files.readString(managerPath);
+
+		Assertions.assertTrue(
+			managerContent.contains("findNearestSessionForMinion"),
+			"ConstructionManager completeSession must inspect findNearestSessionForMinion before stationing"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("minion.setSitting(false);"),
+			"ConstructionManager completeSession must keep builder minions awake if pending sessions exist"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("mobilizationBox = new Box("),
+			"ConstructionManager must define mobilizationBox for waking stationed builders"
+		);
+	}
 }

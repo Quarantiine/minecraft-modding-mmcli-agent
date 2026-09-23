@@ -193,4 +193,65 @@ public class MinerAreaAndAirSafeguardTest {
 		int mineAnchorY = clickedY; // clickedPos directly
 		Assertions.assertEquals(64, mineAnchorY);
 	}
+
+	@Test
+	@DisplayName("Custom Area Blueprint: createAreaBlueprint computes exact bounds and dimensions")
+	public void testCreateAreaBlueprintBoundsAndDimensions() {
+		net.minecraft.util.math.BlockPos p1 = new net.minecraft.util.math.BlockPos(10, 60, -5);
+		net.minecraft.util.math.BlockPos p2 = new net.minecraft.util.math.BlockPos(15, 68, 2);
+
+		com.example.blueprint.StructureBlueprint bp = com.example.blueprint.StructureBlueprint.createAreaBlueprint(
+			null, p1, p2, "test_area", "Test Area", "Testing custom area blueprint"
+		);
+
+		Assertions.assertEquals("test_area", bp.getId());
+		Assertions.assertEquals("Test Area", bp.getName());
+		Assertions.assertEquals("Testing custom area blueprint", bp.getDescription());
+		Assertions.assertEquals(6, bp.getSizeX()); // 15 - 10 + 1 = 6
+		Assertions.assertEquals(9, bp.getSizeY()); // 68 - 60 + 1 = 9
+		Assertions.assertEquals(8, bp.getSizeZ()); // 2 - (-5) + 1 = 8
+
+		net.minecraft.util.math.BlockBox box = bp.getBoundingBox();
+		Assertions.assertEquals(0, box.getMinX());
+		Assertions.assertEquals(0, box.getMinY());
+		Assertions.assertEquals(0, box.getMinZ());
+		Assertions.assertEquals(5, box.getMaxX());
+		Assertions.assertEquals(8, box.getMaxY());
+		Assertions.assertEquals(7, box.getMaxZ());
+	}
+
+	@Test
+	@DisplayName("Custom Area Blueprint: Inverted corner order normalizes dimensions properly")
+	public void testCreateAreaBlueprintInvertedCorners() {
+		net.minecraft.util.math.BlockPos pMax = new net.minecraft.util.math.BlockPos(30, 80, 50);
+		net.minecraft.util.math.BlockPos pMin = new net.minecraft.util.math.BlockPos(20, 70, 40);
+
+		com.example.blueprint.StructureBlueprint bp = com.example.blueprint.StructureBlueprint.createAreaBlueprint(
+			null, pMax, pMin, "inverted_quarry", "Inverted Quarry", ""
+		);
+
+		Assertions.assertEquals(11, bp.getSizeX());
+		Assertions.assertEquals(11, bp.getSizeY());
+		Assertions.assertEquals(11, bp.getSizeZ());
+	}
+
+	@Test
+	@DisplayName("Deep subterranean area excavation handles negative Y coordinates")
+	public void testSubterraneanNegativeYAreaExcavation() {
+		MockWorldVolume world = new MockWorldVolume();
+
+		// Set deepslate ore blocks at negative Y levels (-58 to -60)
+		world.setBlock(0, -58, 0, "minecraft:deepslate_diamond_ore", 4.5F);
+		world.setBlock(0, -59, 0, "minecraft:deepslate_iron_ore", 4.5F);
+		world.setBlock(0, -60, 0, "minecraft:deepslate_redstone_ore", 4.5F);
+		world.setBlock(0, -61, 0, "minecraft:bedrock", -1.0F);
+
+		List<TestBlock> scanned = world.scanAreaTopDown(0, -64, 0, 0, -50, 0);
+
+		// Bedrock at -61 excluded, non-air blocks at -58, -59, -60 included top-down
+		Assertions.assertEquals(3, scanned.size());
+		Assertions.assertEquals(-58, scanned.get(0).y());
+		Assertions.assertEquals(-59, scanned.get(1).y());
+		Assertions.assertEquals(-60, scanned.get(2).y());
+	}
 }

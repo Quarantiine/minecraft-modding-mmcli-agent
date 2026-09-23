@@ -20,6 +20,94 @@ import org.junit.jupiter.api.Test;
 public class PatrolRouteAndHierarchyTest {
 
 	@Test
+	@DisplayName("Validate dynamic hex color parsing, formatting, and custom route factory")
+	void testDynamicHexColorAndCustomRoute() {
+		Assertions.assertEquals(0xFFD700, PatrolRoute.parseHexColor("#FFD700"));
+		Assertions.assertEquals(0x00E5FF, PatrolRoute.parseHexColor("0x00E5FF"));
+		Assertions.assertEquals(0x00FF66, PatrolRoute.parseHexColor("00FF66"));
+		Assertions.assertEquals(0xB300FF, PatrolRoute.parseHexColor("#b300ff"));
+		Assertions.assertEquals(0xFFD700, PatrolRoute.parseHexColor("invalid_hex"));
+		Assertions.assertEquals(0xFFD700, PatrolRoute.parseHexColor(null));
+
+		Assertions.assertEquals("#FFD700", PatrolRoute.toHexCode(0xFFD700));
+		Assertions.assertEquals("#00E5FF", PatrolRoute.toHexCode(0x00E5FF));
+		Assertions.assertEquals("#00FF66", PatrolRoute.toHexCode(0x00FF66));
+
+		PatrolRoute custom = PatrolRoute.createCustom(5, "Perimeter Watch", 0xFF5500);
+		Assertions.assertEquals(5, custom.routeId());
+		Assertions.assertEquals("Perimeter Watch", custom.name());
+		Assertions.assertEquals(0xFF5500, custom.colorRgb());
+		Assertions.assertEquals("#FF5500", custom.toHexCode());
+		Assertions.assertEquals("Perimeter Watch", custom.getFormattedName());
+		Assertions.assertNotNull(custom.getFormattedText());
+
+		PatrolRoute customHex = PatrolRoute.createCustom(6, "North Gate", "#123456");
+		Assertions.assertEquals(6, customHex.routeId());
+		Assertions.assertEquals("North Gate", customHex.name());
+		Assertions.assertEquals(0x123456, customHex.colorRgb());
+
+		PatrolRoute renamed = custom.withName("Southern Outpost");
+		Assertions.assertEquals("Southern Outpost", renamed.name());
+		Assertions.assertEquals(0xFF5500, renamed.colorRgb());
+
+		PatrolRoute recolored = custom.withColor(0x00AAFF);
+		Assertions.assertEquals(0x00AAFF, recolored.colorRgb());
+
+		PatrolRoute recoloredHex = custom.withColor("#AABBCC");
+		Assertions.assertEquals(0xAABBCC, recoloredHex.colorRgb());
+	}
+
+	@Test
+	@DisplayName("Validate PatrolRouteManager dynamic custom route creation, update, and deletion")
+	void testPatrolRouteManagerDynamicRouteManagement() {
+		PatrolRouteManager manager = PatrolRouteManager.getInstance();
+		UUID player = UUID.randomUUID();
+
+		PatrolRoute created = manager.createRoute(player, "Bastion Patrol", 0x112233);
+		Assertions.assertNotNull(created);
+		Assertions.assertEquals("Bastion Patrol", created.name());
+		Assertions.assertEquals(0x112233, created.colorRgb());
+		Assertions.assertEquals(created, manager.getRoute(player, created.routeId()));
+
+		PatrolRoute updated = manager.updateRouteConfig(player, created.routeId(), "Bastion Wall", 0x445566, PatrolRoute.PatrolMode.PING_PONG);
+		Assertions.assertEquals("Bastion Wall", updated.name());
+		Assertions.assertEquals(0x445566, updated.colorRgb());
+		Assertions.assertEquals(PatrolRoute.PatrolMode.PING_PONG, updated.patrolMode());
+
+		boolean deleted = manager.deleteRoute(player, created.routeId());
+		Assertions.assertTrue(deleted);
+		Assertions.assertFalse(manager.getAllRoutes(player).stream().anyMatch(r -> r.routeId() == created.routeId()));
+	}
+
+	@Test
+	@DisplayName("Source contract: ModNetworking and PatrolRouteManager handle ConfigurePatrolRoutePayload actions")
+	void testConfigurePatrolRoutePayloadSourceContract() throws java.io.IOException {
+		String networkingContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/network/ModNetworking.java"));
+		Assertions.assertTrue(
+			networkingContent.contains("ConfigurePatrolRoutePayload.ID"),
+			"ModNetworking must register receiver for ConfigurePatrolRoutePayload"
+		);
+		Assertions.assertTrue(
+			networkingContent.contains("PatrolRouteManager.getInstance().setRoute("),
+			"ModNetworking must call setRoute on SAVE action"
+		);
+		Assertions.assertTrue(
+			networkingContent.contains("PatrolRouteManager.getInstance().deleteRoute("),
+			"ModNetworking must call deleteRoute on DELETE action"
+		);
+
+		String managerContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/patrol/PatrolRouteManager.java"));
+		Assertions.assertTrue(
+			managerContent.contains("public boolean deleteRoute(UUID playerUuid, int routeId, ServerWorld world, ServerPlayerEntity player)"),
+			"PatrolRouteManager must provide deleteRoute overload with ServerWorld to unbind patrolling minions"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("m.setPatrolRouteId(-1);") && managerContent.contains("m.setSitting(true);"),
+			"PatrolRouteManager.deleteRoute must reset minion route ID to -1 and station them sitting"
+		);
+	}
+
+	@Test
 	@DisplayName("Validate PatrolRoute channel constants, defaults, and formatted names")
 	void testPatrolRouteDefaults() {
 		Assertions.assertEquals(5, PatrolRoute.CHANNEL_COUNT);
@@ -120,9 +208,10 @@ public class PatrolRouteAndHierarchyTest {
 		Assertions.assertEquals(CommandMode.STAY, current.next());
 		Assertions.assertEquals(CommandMode.MINE, current.next().next());
 		Assertions.assertEquals(CommandMode.BUILD, current.next().next().next());
-		Assertions.assertEquals(CommandMode.RECRUIT, current.next().next().next().next());
-		Assertions.assertEquals(CommandMode.PATHWAY, current.next().next().next().next().next());
-		Assertions.assertEquals(CommandMode.FOLLOW, current.next().next().next().next().next().next());
+		Assertions.assertEquals(CommandMode.DESIGN, current.next().next().next().next());
+		Assertions.assertEquals(CommandMode.RECRUIT, current.next().next().next().next().next());
+		Assertions.assertEquals(CommandMode.PATHWAY, current.next().next().next().next().next().next());
+		Assertions.assertEquals(CommandMode.FOLLOW, current.next().next().next().next().next().next().next());
 	}
 
 	@Test
@@ -546,8 +635,8 @@ public class PatrolRouteAndHierarchyTest {
 	void testMinionEntityEscortMutualExclusivityContract() throws java.io.IOException {
 		String minionContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/entity/custom/MinionEntity.java"));
 		Assertions.assertTrue(
-			minionContent.contains("if (selected) {\n\t\t\tthis.clearLeader();\n\t\t}"),
-			"MinionEntity.setSelected(true) must automatically clear leader minion so followers detach upon following player"
+			minionContent.contains("if (selected) {\n\t\t\tthis.clearLeader();\n\t\t\tthis.setPatrolRouteId(-1);\n\t\t}"),
+			"MinionEntity.setSelected(true) must automatically clear leader minion and patrol route so followers detach upon following player"
 		);
 		Assertions.assertTrue(
 			minionContent.contains("if (uuid != null) {\n\t\t\tthis.dataTracker.set(SELECTED, false);"),
@@ -683,6 +772,18 @@ public class PatrolRouteAndHierarchyTest {
 			followLeaderContent.contains("TELEPORT_DISTANCE_THRESHOLD_SQ"),
 			"MinionFollowLeaderGoal must define TELEPORT_DISTANCE_THRESHOLD_SQ to recall estranged escorts"
 		);
+		Assertions.assertEquals(
+			32.0D,
+			com.example.entity.ai.goal.MinionFollowLeaderGoal.TELEPORT_DISTANCE_THRESHOLD,
+			0.001D,
+			"TELEPORT_DISTANCE_THRESHOLD must be 32 blocks"
+		);
+		Assertions.assertEquals(
+			1024.0D,
+			com.example.entity.ai.goal.MinionFollowLeaderGoal.TELEPORT_DISTANCE_THRESHOLD_SQ,
+			0.001D,
+			"TELEPORT_DISTANCE_THRESHOLD_SQ must be 1024.0 sq distance (32 blocks squared)"
+		);
 
 		String minionContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/entity/custom/MinionEntity.java"));
 		Assertions.assertTrue(
@@ -706,8 +807,8 @@ public class PatrolRouteAndHierarchyTest {
 
 		String scepterContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/item/custom/CommandScepterItem.java"));
 		Assertions.assertTrue(
-			scepterContent.contains("!m.hasLeader() && filterSquad.matches(m.getSquad())"),
-			"CommandScepterItem.broadcastFollow and executeRetreat must exclude escorts from direct player recall"
+			scepterContent.contains("!m.hasLeader() && m.getPatrolRouteId() < 0 && filterSquad.matches(m.getSquad())"),
+			"CommandScepterItem.broadcastFollow and executeRetreat must exclude escorts and patrolling units from direct player recall"
 		);
 	}
 
@@ -759,6 +860,48 @@ public class PatrolRouteAndHierarchyTest {
 		Assertions.assertTrue(
 			modContent.contains("CommandScepterItem.toggleMinionSelection(player, minion);"),
 			"AttackEntityCallback must continue to toggle minion selection on left-click punch"
+		);
+	}
+
+	@Test
+	@DisplayName("Source contract: MinionPatrolGoal breach alarm eliminates horn sound and yields to active healing")
+	void testMinionPatrolBreachAlarmNoHornAndHealingYieldContract() throws java.io.IOException {
+		String patrolGoalContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/entity/ai/goal/MinionPatrolGoal.java"));
+		Assertions.assertFalse(
+			patrolGoalContent.contains("GOAT_HORN"),
+			"MinionPatrolGoal must not play goat horn sound in breach alarm"
+		);
+		Assertions.assertTrue(
+			patrolGoalContent.contains("this.minion.isActivelyHealing()"),
+			"MinionPatrolGoal must check minion.isActivelyHealing() to yield to sentinel healing"
+		);
+	}
+
+	@Test
+	@DisplayName("Source contract: Tactical retreat R-key regroups minions in structured formation stations")
+	void testTacticalRetreatRegroupsInFormationContract() throws java.io.IOException {
+		String scepterContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/item/custom/CommandScepterItem.java"));
+		Assertions.assertTrue(
+			scepterContent.contains("MinionFormationFollowGoal.calculateFormationStation(player, minion.getEffectiveRole(), rank)"),
+			"executeRetreat must calculate formation stations for each minion rather than crowding onto a single block"
+		);
+		Assertions.assertTrue(
+			scepterContent.contains("MinionFormationFollowGoal.resolveWalkableY("),
+			"executeRetreat must resolve walkable Y coordinates for formation stations"
+		);
+	}
+
+	@Test
+	@DisplayName("Source contract: MinionEntity enforces route detachment on selection and route persistence post-combat")
+	void testMinionEntityRouteInvariantsContract() throws java.io.IOException {
+		String minionContent = java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/entity/custom/MinionEntity.java"));
+		Assertions.assertTrue(
+			minionContent.contains("this.setPatrolRouteId(-1);"),
+			"MinionEntity.setSelected must detach minion from patrol route when selected"
+		);
+		Assertions.assertTrue(
+			minionContent.contains("if (this.getPatrolRouteId() >= 0) {\n\t\t\t\treturn;\n\t\t\t}"),
+			"MinionEntity.returnToOwnerPostCombat must return early if minion is on a patrol route"
 		);
 	}
 }

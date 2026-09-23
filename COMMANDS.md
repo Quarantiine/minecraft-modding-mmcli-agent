@@ -1,62 +1,72 @@
-# 📜 Overlord's Command Guide
+# 📜 Sovereign: Arcane Strategy & Engineering — Command & Tactics Guide
 
-A comprehensive, quick-reference manual for all minion commands, controls, squad directives, and scepter abilities.
+A comprehensive, quick-reference manual for all minion commands, controls, squad directives, and scepter abilities in **Sovereign: Arcane Strategy & Engineering**.
 
 ---
 
 ## ⚡ Quick Controls Cheat Sheet
 
-| Input                              | Target / Context         | Action                                                                                                                                                          |
-| :--------------------------------- | :----------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Right-Click** _(Quick Tap)_      | Hostile Mob              | **Focus-Fire Attack Ping**: Selected minions charge and attack this entity.                                                                                     |
-| **Right-Click** _(Quick Tap)_      | Ground Block (up to 64m) | **RTS Waypoint Ping**: Deploys minions into ranked army battle lines and automatically puts them into a **Stationed** position (`holdingPosition`), auto-deselecting them. (In **BUILD** mode: anchors construction; in **MINE** mode: anchors dismantle session). |
-| **Right-Click** _(Quick Tap)_      | Owned Minion             | **Individual Follow**: Toggles follow order on this specific minion. If stationed (via waypoint or manual sit/guard), a **single click** immediately orders them to follow. |
-| **Right-Click** _(Quick Tap)_      | Ground in **BUILD** Mode | **Anchor Construction**: Places the selected blueprint at the targeted ground block (seamless from elevated tactical camera or ground up to 96m away). Builders construct persistently with zero timeout halts until 100% complete. |
-| **Right-Click** _(Quick Tap)_      | Sky in **BUILD** Mode    | **Cycle Blueprint**: Cycles to next structure preset (Watchtower, Cottage, etc.) when looking into open air or sky.                                            |
-| **Right-Click** _(Quick Tap)_      | Ground in **MINE** Mode  | **Anchor Dismantle**: Initiates structure deconstruction or area clearance at the targeted position (up to 96m away).                                          |
-| **Right-Click** _(Quick Tap)_      | Open Air / Sky           | **Broadcast Directive**: Broadcasts current mode directive to active squad.                                                                                     |
-| **Hold Right-Click** _(≥ 8 ticks)_ | All Modes *(incl. PATHWAY)* | **Banner of Courage (90° Forward Sector)**: Real-time unit highlight; on release rallies and selects all enclosed minions into your squad. Any escorts caught in the sweep automatically detach and follow you! |
-| **Shift + Hold Right-Click**       | In **PATHWAY** Mode      | **Sector Pathway Dispatch (90° Forward Sector)**: On release dispatches all enclosed minions (or active selection) directly to the active patrol route! |
-| **Shift + Right-Click**            | In Air / On Block        | **Cycle Command Mode**: Cycles `FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT` → `PATHWAY`.                                  |
-| **Keybind `R`**                    | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise (North → East → South → West).                                            |
-| **Keybind `R`**                    | Any Other Mode           | **Tactical Squad Retreat**: Recalls active squad members within 64m, cancels combat, and resumes formation ranks.              |
-| **Shift + Keybind `R`**            | Anywhere                 | **Emergency Citadel Call**: Fortress-wide emergency muster across 128m! Unbinds all patrol routes, sounds raid horn & bell, and sprints all units home. |
-| **Left-Click**                     | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise (on air, terrain, or block, without requiring Shift).                     |
-| **Left-Click**                     | Owned Minion             | **Toggle Selection**: Select/deselect minion without friendly-fire damage. If the minion was escorting another minion, selecting it **automatically detaches** it from its squad leader to follow you! |
-| **Left-Click**                     | Waypoint Block in **PATHWAY** | **Delete Waypoint Tile**: Punches/removes the targeted waypoint tile cleanly with sound and smoke particles across any of the 5 route channels without breaking the block! |
-| **Shift + Left-Click**             | Owned Minion             | **Designate Squad Leader / Untether**: With 1+ minions selected, designates this minion as the **Squad Leader** that all selected minions will escort! With 0 minions selected on an escort, dissolves its escort bond so it follows you. |
-| **Right-Click** _(Quick Tap)_      | Block in **PATHWAY**     | **Add / Remove Waypoint (Zero-Overlap)**: Places a waypoint on top of the surface. If *any* route channel (Color 1–5) already has a waypoint at that position, clicking removes/undoes it from that route instead of creating an overlap! |
-| **Shift + Right-Click**            | Block in **PATHWAY**     | **Remove Waypoint**: Removes clicked waypoint across all route channels (bypasses Command Hub GUI).                           |
-| **Right-Click Air**                | In **PATHWAY** Mode      | **Cycle Route Channel**: Cycles active patrol route (Route 1 🟡 Gold → Route 2 🔵 Cyan → Route 3 🟢 Emerald → Route 4 🟣 Purple → Route 5 🔴 Crimson). |
-| **Shift + Right-Click Air**        | In **PATHWAY** Mode      | **Clear Route**: Clears all waypoints from active patrol route channel.                                                         |
-| **Right-Click Minion** _(without Shift)_ | In **PATHWAY** Mode      | **Assign Minion to Route**: Assigns target minion (or all currently selected minions) to the active patrol route channel, deselecting them from following the master so they begin patrolling immediately. If already on this route with no others selected, removes them from patrol. |
-| **Shift + Left-Click**             | In **BUILD** Mode        | **Rotate Blueprint**: Rotates hologram 90° clockwise.                                                                           |
-| **Shift + Left-Click**             | Any Other Mode (Air/Ground) | **Deselect All**: Instantly clears selection on all minions when clicking air or terrain.                                       |
-| **Keybind `H`**                    | In **BUILD** Mode        | **Tactical Zoom**: Cycles tactical camera zoom presets (0.75x, 1.0x default, 1.5x, 2.0x).                                      |
-| **Arcane Build Flight**             | In **BUILD** Mode        | **Free Survival Build Flight**: Enjoy unconstrained 3D vanilla flight in Survival mode while holding the Scepter in **BUILD** mode (Space to ascend, Shift to descend, full WASD mobility). Flying over water automatically cancels construction and revokes flight! |
-| **Ctrl + Scroll**                  | In **BUILD** Mode        | **Smooth Camera Zoom**: Smoothly zooms tactical view in and out without hotbar cycling conflicts.                                 |
-| **Keybind `V`**                    | Anywhere (with Scepter)  | **Command Hub GUI**: Tactical screen for squads, modes, blueprints, 4-role archetypes (`AUTO`), **Architecture Style**, **Size**, and **Patrol Route Dashboard**. |
-| **Shift + Right-Click**            | In Air / On Block        | **Open Command Hub GUI**: Instant access to Command Hub GUI (works while walking or in Arcane Build Flight).                    |
-| **Shift + Right-Click**            | Owned Minion             | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots (passes through in all modes including `PATHWAY`).    |
-| **Empty Hand Right-Click**         | Owned Minion             | **Unified Station / Follow**: Toggles minion stationing. If stationed (via waypoint or up-close guard), a **single click** immediately orders them to follow. If following, stations them in place. |
-| **Gold Ingot Right-Click**         | Untamed Minion           | **Bind / Tame**: Binds the minion permanently to your will (consumes 1 Gold Ingot in Survival).                                                                 |
-| **Food / Gold Right-Click**        | Wounded Minion           | **Heal**: Restores minion health (consumes food/gold in Survival; infinite in Creative).                                                                        |
-| **Right-Click** _(TNT Stick)_      | Open Air / Blocks        | **Throw Explosive Stick**: Launches projectile detonating on impact with 4.0F blast (5-tick cooldown).                                                          |
-| **Right-Click** _(Frost Grenade)_  | Open Air / Blocks        | **Throw Frost Grenade**: Launches cryogenic grenade turning blocks into snow, flash-freezing fluids, placing powder snow ring, and freezing enemies (10-tick cooldown). |
+| Input                                    | Target / Context              | Action                                                                                                                                                                                                                                                                                 |
+| :--------------------------------------- | :---------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Right-Click** _(Quick Tap)_            | Hostile Mob                   | **Focus-Fire Attack Ping**: Selected minions charge and attack this entity.                                                                                                                                                                                                            |
+| **Right-Click** _(Quick Tap)_            | Ground Block (up to 64m)      | **RTS Waypoint Ping**: Deploys minions into ranked army battle lines and automatically puts them into a **Stationed** position (`holdingPosition`), auto-deselecting them. (In **BUILD** mode: anchors construction; in **MINE** mode: anchors dismantle session).                     |
+| **Right-Click** _(Quick Tap)_            | Owned Minion                  | **Individual Follow**: Toggles follow order on this specific minion. If stationed (via waypoint or manual sit/guard), a **single click** immediately orders them to follow.                                                                                                            |
+| **Right-Click** _(Quick Tap)_            | Ground in **BUILD** Mode      | **Anchor Construction**: Places the selected blueprint at the targeted ground block (seamless from elevated tactical camera or ground up to 96m away). Builders construct persistently with zero timeout halts until 100% complete.                                                    |
+| **Right-Click** _(Quick Tap)_            | Sky in **BUILD** Mode         | **Cycle Blueprint**: Cycles to next custom blueprint in catalog when looking into open air or sky.                                                                                                                                                                    |
+| **Right-Click** _(Quick Tap)_            | Ground in **MINE** Mode       | **Anchor Dismantle / Confirm Modal**: Default mode is **AREA** mode: opens the **Mining Area Confirmation Modal** when boundary corners (`Pos1` & `Pos2`) are set, working identically to `DESIGN` mode grid selections to remove blocks top-to-bottom. In **DIRECT** mode: initiates structure/point deconstruction up to 96m away. |
+| **Left-Click**                           | In **MINE** Mode (AREA Mode)  | **Set Corner Pos1 / Pos2 (Sequential)**: 1st Left-Click sets Corner 1 (`Pos1`) anchored to the targeted block face; 2nd Left-Click sets Corner 2 (`Pos2`), rendering fiery orange/amber ghost grid wireframes. |
+| **Ctrl + Mouse Scroll**                  | In **MINE** Mode (AREA Mode)  | **In-World Mining Height Adjustment**: Scroll up/down with Ctrl to expand or contract 3D excavation boundary height in real time (Shift for $\pm 5$ fast stepping, or keys `[` / `]`). |
+| **Shift + Left-Click**                   | In **MINE** Mode (AREA Mode)  | **Reset Mining Corners**: Clears both `Pos1` and `Pos2` excavation boundary corners with a bass tone, ensuring the next Left-Click places `Pos1` afresh. |
+| **Right-Click** _(Quick Tap)_            | Open Air / Sky                | **Broadcast Directive**: Broadcasts current mode directive to active squad (excluding minions on patrol routes).                                                                                                                                                                                                            |
+| **Hold Right-Click** _(≥ 8 ticks)_       | All Modes _(incl. PATHWAY)_   | **Banner of Courage (90° Forward Sector)**: Real-time unit highlight; on release rallies and selects all enclosed minions into your squad. Any escorts or patrolling units caught in the sweep automatically detach and follow you!                                                                        |
+| **Shift + Hold Right-Click**             | In **PATHWAY** Mode           | **Sector Pathway Dispatch (90° Forward Sector)**: On release dispatches all enclosed minions (or active selection) directly to the active patrol route!                                                                                                                                |
+| **Shift + Right-Click**                  | In Air / On Block             | **Cycle Command Mode**: Cycles `FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT` → `PATHWAY`.                                                                                                                                                                                           |
+| **Keybind `R`**                          | In **BUILD** Mode             | **Rotate Blueprint**: Rotates hologram 90° clockwise (North → East → South → West).                                                                                                                                                                                                    |
+| **Keybind `R`**                          | Any Other Mode                | **Tactical Squad Retreat**: Recalls active squad members within 64m into their **structured formation stations** (Warriors front, Sentinels mid, Builders rear) rather than crowding onto a single block. Cancels combat, clears targets, and preserves minions on patrol routes.                                                                                                                                                                      |
+| **Shift + Keybind `R`**                  | Anywhere                      | **Emergency Citadel Call**: Fortress-wide emergency muster across 128m! Unbinds all patrol routes, sounds raid horn & bell, and sprints all units home.                                                                                                                                |
+| **Left-Click**                           | In **BUILD** Mode             | **Rotate Blueprint**: Rotates hologram 90° clockwise (on air, terrain, or block, without requiring Shift).                                                                                                                                                                             |
+| **Left-Click**                           | In **DESIGN** Mode            | **Set Corner Pos1 / Pos2 (Sequential)**: 1st Left-Click sets Corner 1 (`Pos1`) anchored **on top of the clicked block face** (excluding terrain dirt beneath); 2nd Left-Click sets Corner 2 (`Pos2`), completing the footprint and rendering full holographic ghost grid blocks. |
+| **Ctrl + Mouse Scroll**                  | In **DESIGN** Mode            | **In-World Height Adjustment (No Blocks Needed)**: Scroll up to raise the top boundary, scroll down to lower it (hold Shift for $\pm 5$ fast stepping). Dynamically expands the 3D box live without needing temporary scaffolding or air clicks! (Keys: `[` / `]` or `PageUp` / `PageDown`). |
+| **Shift + Left-Click**                   | In **DESIGN** Mode            | **Reset Corners to Pos1**: Clears both `Pos1` and `Pos2` selection corners and held scepter components with a bass tone. Guarantees the very next Left-Click will place `Pos1` afresh. |
+| **Right-Click** _(Quick Tap)_            | In **DESIGN** Mode            | **Capture Custom Blueprint Modal**: Opens the Spatial Blueprint Capture modal when corners (`Pos1` & `Pos2`) are set to name, categorize, fine-tune height (`[ - ]` / `[ + ]`), and save the blueprint (works without Shift on ground or air). |
+| **Shift + Right-Click**                  | In **DESIGN** Mode            | **Capture Modal / Command Hub**: Opens the Spatial Blueprint Capture modal when corners are set, or opens Command Hub GUI.                                                                                               |
+| **Left-Click**                           | Owned Minion                  | **Toggle Selection**: Select/deselect minion without friendly-fire damage. If the minion was on a **patrol route** or escorting another minion, selecting it **automatically detaches** it from its route or squad leader to follow you!                                                   |
+| **Left-Click**                           | Waypoint Block in **PATHWAY** | **Delete Waypoint Tile**: Punches/removes the targeted waypoint tile cleanly with sound and smoke particles across any of the 5 route channels without breaking the block!                                                                                                             |
+| **Shift + Left-Click**                   | Owned Minion                  | **Designate Squad Leader / Untether**: With 1+ minions selected, designates this minion as the **Squad Leader** that all selected minions will escort! With 0 minions selected on an escort, dissolves its escort bond so it follows you.                                              |
+| **Right-Click** _(Quick Tap)_            | Block in **PATHWAY**          | **Add / Remove Waypoint (Zero-Overlap)**: Places a waypoint on top of the surface. If _any_ route channel (Color 1–5) already has a waypoint at that position, clicking removes/undoes it from that route instead of creating an overlap!                                              |
+| **Shift + Right-Click**                  | Block in **PATHWAY**          | **Remove Waypoint**: Removes clicked waypoint across all route channels (bypasses Command Hub GUI).                                                                                                                                                                                    |
+| **Right-Click Air**                      | In **PATHWAY** Mode           | **Cycle Route Channel**: Cycles active patrol route (Route 1 🟡 Gold → Route 2 🔵 Cyan → Route 3 🟢 Emerald → Route 4 🟣 Purple → Route 5 🔴 Crimson).                                                                                                                                 |
+| **Shift + Right-Click Air**              | In **PATHWAY** Mode           | **Clear Route**: Clears all waypoints from active patrol route channel.                                                                                                                                                                                                                |
+| **Right-Click Minion** _(without Shift)_ | In **PATHWAY** Mode           | **Assign Minion to Route**: Assigns target minion (or all currently selected minions) to the active patrol route channel, deselecting them from following the master so they begin patrolling immediately. If already on this route with no others selected, removes them from patrol. |
+| **Shift + Left-Click**                   | In **BUILD** Mode             | **Rotate Blueprint**: Rotates hologram 90° clockwise.                                                                                                                                                                                                                                  |
+| **Shift + Left-Click**                   | Any Other Mode (Air/Ground)   | **Deselect All**: Instantly clears selection on all minions when clicking air or terrain.                                                                                                                                                                                              |
+| **Keybind `H`**                          | In **BUILD** Mode             | **Tactical Zoom**: Cycles tactical camera zoom presets (0.75x, 1.0x default, 1.5x, 2.0x).                                                                                                                                                                                              |
+| **Arcane Build Flight**                  | In **BUILD** Mode             | **Free Survival Build Flight**: Enjoy unconstrained 3D vanilla flight in Survival mode while holding the Scepter in **BUILD** mode (Space to ascend, Shift to descend, full WASD mobility). Flying over water automatically cancels construction and revokes flight!                   |
+| **Ctrl + Scroll**                        | In **BUILD** Mode             | **Smooth Camera Zoom**: Smoothly zooms tactical view in and out without hotbar cycling conflicts.                                                                                                                                                                                      |
+| **Keybind `V`**                          | Anywhere (with Scepter)       | **Command Hub GUI**: Tactical screen for squads, modes, custom blueprint catalog, 4-role archetypes (`AUTO`), rotation controls, and **Patrol Route Dashboard**.                                                                                        |
+| **Catalog Delete `[✕]`** _(in Command Hub)_ | In **BUILD** Mode         | **Delete Custom Blueprint**: Click the `[✕]` button beside any player-authored blueprint in the catalog. Opens a safety confirmation modal to permanently delete the blueprint across all clients and world storage.                                                                   |
+| **Dismiss / Destroy** _(in Command Hub)_ | Anywhere (with Scepter)       | **Decommission Minions with Confirmation**: Opens a confirmation dialog. If minions are currently selected, prompts whether to destroy only **Selected** minions or **All** minions. Also features a 2-step confirmation toggle in the Minion screen.                                |
+| **Shift + Right-Click**                  | In Air / On Block             | **Open Command Hub GUI**: Instant access to Command Hub GUI (works while walking or in Arcane Build Flight).                                                                                                                                                                           |
+| **Shift + Right-Click**                  | Owned Minion                  | **Open Minion GUI**: Access minion's 9-slot backpack and equipment slots (passes through in all modes including `PATHWAY`).                                                                                                                                                            |
+| **Empty Hand Right-Click**               | Owned Minion                  | **Unified Station / Follow**: Toggles minion stationing. If stationed (via waypoint or up-close guard), a **single click** immediately orders them to follow. If following, stations them in place.                                                                                    |
+| **Gold Ingot Right-Click**               | Untamed Minion                | **Bind / Tame**: Binds the minion permanently to your will (consumes 1 Gold Ingot in Survival).                                                                                                                                                                                        |
+| **Food / Gold Right-Click**              | Wounded Minion                | **Heal**: Restores minion health (consumes food/gold in Survival; infinite in Creative).                                                                                                                                                                                               |
+| **Right-Click** _(TNT Stick)_            | Open Air / Blocks             | **Throw Explosive Stick**: Launches projectile detonating on impact with 4.0F blast (5-tick cooldown).                                                                                                                                                                                 |
+| **Right-Click** _(Frost Grenade)_        | Open Air / Blocks             | **Throw Frost Grenade**: Launches cryogenic grenade turning blocks into snow, flash-freezing fluids, placing powder snow ring, and freezing enemies (10-tick cooldown).                                                                                                                |
 
 ---
 
-## 🗡️ 1. The Loki Command Scepter
+## 🗡️ 1. The Sovereign Command Scepter
 
-The **Command Scepter** is your primary instrument of tactical command. It operates in 3 distinct click profiles:
+The **Sovereign Command Scepter** is your primary instrument of tactical command. It operates in 3 distinct click profiles:
 
 ### A. Quick Tap (Right-Click < 8 ticks)
 
 - **Targeting an Enemy**: Commands all selected squad members to focus-fire that target. Plays a war drum sound and spawns angry villager & crit particles.
-- **Targeting the Ground (up to 64 blocks)**: Drops an RTS waypoint marker with a golden beacon beam. Minions march, levitate across cliffs/gaps if needed, form up in **Ranked Army Lines** facing the objective, and enter the **Unified Stationed** position (`guardAnchorPos` set, `holdingPosition == true`), automatically deselecting so you can issue fresh commands without re-clicking.
+- **Targeting the Ground (up to 64 blocks)**: Drops an RTS waypoint marker with a golden beacon beam. Minions march smoothly on the ground, form up in **Ranked Army Lines** facing the objective, and enter the **Unified Stationed** position (`guardAnchorPos` set, `holdingPosition == true`), automatically deselecting so you can issue fresh commands without re-clicking.
 - **Targeting an Owned Minion**: Orders that individual minion to toggle between stationed and following. If the minion was stationed (via waypoint ping or close-up right-click), a **single click** immediately orders them to follow without any extra clicks!
 - **Aiming into Open Air**: Broadcasts your current mode directive to your entire active squad.
-- **In BUILD Mode**: Cycles through your blueprint catalog (Watchtower, Cottage, Barracks, Workshop, etc.).
+- **In BUILD Mode**: Cycles through your custom blueprint catalog.
 
 ### B. Channeled Banner of Courage (Hold Right-Click ≥ 8 ticks)
 
@@ -91,6 +101,7 @@ Cycle through operating modes using **Shift + Right-Click** or by pressing **`V`
 | **`STAY`**    | 🟡 Gold Yellow   | Minions hold position at their current location and guard the immediate perimeter.                         |
 | **`MINE`**    | 🟠 Blaze Orange  | Anchors full 3D area mining & deconstruction. Minions clear all blocks top-to-bottom with zero air-mining. |
 | **`BUILD`**   | 🔵 Diamond Cyan  | Activates 3D neon cyan blueprint holograms. Builders construct multiblocks using Arcane Levitation flight. |
+| **`DESIGN`**  | 🌸 Arcane Magenta| In-world spatial capture: sequential left-clicks (Pos1 → Pos2) with holographic ghost grid block rendering to capture custom blueprints.|
 | **`RECRUIT`** | 🟣 Arcane Purple | Quick-tap living mobs to transfigure them into loyal minions.                                              |
 | **`PATHWAY`** | 🔷 Deep Aqua     | Place waypoint outlines and assign minions to autonomous patrol routes with 5 unique color channels.       |
 
@@ -120,19 +131,31 @@ To switch squads:
 
 ## 🛡️ 4. Visual Pathway Patrol & Minion Escort Hierarchy
 
-### A. 5 Color-Coded Route Channels
-Patrol pathways are organized into 5 independent, color-coded channels:
-- **Route 1**: 🟡 **Gold / Amber** (`0xFFD700`) — Base perimeter & main gates.
-- **Route 2**: 🔵 **Azure / Cyan** (`0x00E5FF`) — Castle battlements & ramparts.
-- **Route 3**: 🟢 **Emerald Green** (`0x00FF66`) — Farms, village borders & gardens.
-- **Route 4**: 🟣 **Arcane Purple** (`0xB300FF`) — Nether portals & mine shafts.
-- **Route 5**: 🔴 **Crimson Red** (`0xFF2244`) — Forward defensive trenches & killzones.
+### A. Dynamic Custom Hex Colors & Route Channels
 
-### B. Designing a Patrol Route in PATHWAY Mode
+Patrol pathways can be customized with arbitrary 24-bit hex colors or selected from built-in channels:
+
+- **Route 1**: 🟡 **Gold / Amber** (`#FFD700`) — Base perimeter & main gates (Default Route).
+- **Route 2**: 🔵 **Azure / Cyan** (`#00E5FF`) — Castle battlements & ramparts.
+- **Route 3**: 🟢 **Emerald Green** (`#00FF66`) — Farms, village borders & gardens.
+- **Route 4**: 🟣 **Arcane Purple** (`#B300FF`) — Nether portals & mine shafts.
+- **Route 5**: 🔴 **Crimson Red** (`#FF2244`) — Forward defensive trenches & killzones.
+- **Custom Hex Routes**: Create and configure unlimited dynamic routes with custom names and exact RGB hex codes (e.g. `#FF5500`, `#00AAFF`).
+
+### B. Configuring & Designing Routes in the Command Hub & PATHWAY Mode
+
 1. Switch to **`PATHWAY`** mode (**Shift + Right-Click** or in the Command Hub **`V`**).
-2. **Right-Click Air** to cycle to your desired route channel (e.g. Route 1 Gold).
-3. **Right-Click Ground Blocks** along your perimeter:
-   - Each clicked block places a waypoint tile resting cleanly **on top of the surface** with a 3D holographic bounding wireframe.
+2. **Paginated Route Dashboard (`V` Menu)**:
+   - Browse routes 4 per page with **`[ ◀ Prev ]`** and **`[ Next ▶ ]`** navigation buttons.
+   - Click **`[ + New Route ]`** to create a fresh custom patrol route on the fly.
+   - Click **`[ Edit ]`** on any route to open the **Patrol Route Configuration Modal** (`PatrolRouteEditModalScreen`):
+     - Edit custom display name.
+     - Pick from 5 quick preset color swatches or type an exact hex color (`#RRGGBB` / `0xRRGGBB`) with live preview.
+     - Click **`[ ✔ Save Route ]`** to persist across server and world saves.
+     - Click **`[ ✖ Delete Route ]`** to safely delete the route; all patrolling minions assigned to that route safely detach (`routeId = -1`) and hold position.
+3. **Right-Click Air** to cycle to your desired route channel (e.g. Route 1 Gold).
+4. **Right-Click Ground Blocks** along your perimeter:
+   - Each clicked block places a waypoint tile resting cleanly **on top of the surface** with a 3D holographic bounding wireframe tinted to the route's exact hex color.
    - An animated numbered billboarding badge hovers above the tile: `[ 1 ]`, `[ 2 ]`, `[ 3 ]`, etc.
    - Luminous 3D laser tether lines float directly on top of the block surface, connecting consecutive waypoints in order.
    - **Zero-Overlap Protection**: A waypoint position can only belong to **one** route channel. You can never accidentally place two route colors on the same block.
@@ -145,6 +168,7 @@ Patrol pathways are organized into 5 independent, color-coded channels:
 6. **Persistent Across Game Reloads**: All routes are automatically stored in world save data (`data/minion_patrol_routes.dat`) and reload seamlessly when joining the world!
 
 ### C. Assigning Minions to a Patrol Route
+
 You have three intuitive ways to deploy minions onto a pathway:
 
 1. **Direct Right-Click Without Shifting (Individual or Group Route Assignment)**:
@@ -153,17 +177,17 @@ You have three intuitive ways to deploy minions onto a pathway:
    - **Right-Click directly on an owned minion without shifting** (works up-close or aiming at it with crosshairs up to 32m away).
    - **With minions selected**: Assigns all currently selected minions plus the clicked minion to the active route, automatically deselecting them from following you so they begin patrolling immediately!
    - **With 0 minions selected**: Toggles the targeted minion on/off the active route. When assigned, the minion salutes, displays an overhead badge `[ 🟡 Route # ]`, and immediately begins marching along the pathway.
-   - *(Note: Shift + Right-Click on an owned minion passes through to open the Minion Inventory GUI screen).*
-   - *(Note: Left-Click remains standard selection/punch — use normal Left-Click or 90° cone sweep to select your minions first, then Right-Click to assign them all to the route!).*
+   - _(Note: Shift + Right-Click on an owned minion passes through to open the Minion Inventory GUI screen)._
+   - _(Note: Left-Click remains standard selection/punch — use normal Left-Click or 90° cone sweep to select your minions first, then Right-Click to assign them all to the route!)._
 
 2. **90° Forward Sector Sweep (`Shift + Hold Right-Click` in PATHWAY Mode)**:
    - Hold the Command Scepter in **`PATHWAY`** mode.
    - **Shift + Hold Right-Click** for $\ge 0.4\text{s}$ (8 ticks) aiming at your group of minions.
    - An expanding 90° forward arcane sector appears in front of you (growing from 3m to 16m), highlighting all minions inside the arc.
    - **Release Right-Click**: All minions inside the 90° sector are assigned to the active route, burst with celebration particles, and march out together!
-   - *(Tip: Normal Hold Right-Click without Shift performs the standard 90° cone sweep to select minions into your squad).*
-   - *(Note: Assigning to an empty route with 0 waypoints is prevented with an informative warning).*
-   - *(Direct Command Precedence: Interacting with a minion using an empty hand to follow or hold position will immediately unbind it from patrol routes and escort chains).*
+   - _(Tip: Normal Hold Right-Click without Shift performs the standard 90° cone sweep to select minions into your squad)._
+   - _(Note: Assigning to an empty route with 0 waypoints is prevented with an informative warning)._
+   - _(Direct Command Precedence: Interacting with a minion using an empty hand to follow or hold position will immediately unbind it from patrol routes and escort chains)._
 
 3. **Command Hub Mass Squad Dispatch (`V` Menu)**:
    - Press **`V`** to open the Command Hub.
@@ -177,24 +201,28 @@ You have three intuitive ways to deploy minions onto a pathway:
   - Minions march sequentially through each tile from first placed `[ 1 ]` to last `[ N ]`.
   - **Smooth Traversal (No Intermediate Stopping)**: Minions continuously march through intermediate pathway tiles without stopping.
   - **End-Only Vigilant Linger**: When reaching the **end** of a pathway (terminal waypoint before reversing in `PING_PONG`, or final waypoint before looping back in `LOOP`), minions halt and perform a **10s–15s (200–300 ticks)** vigilant sentry wait, turning to scan for threats like a watchman.
-  - Over cliffs or walls, minions automatically engage Arcane Levitation / Obstacle Vaulting to never get stuck.
-  - **Smart Combat Resume**: If a hostile approaches, the minion breaks off patrol to engage. Once the threat is eliminated, the minion snaps to the nearest waypoint and seamlessly resumes the patrol cycle!
+  - Over terrain variations, minions utilize player-like $1.25\text{D}$ step height and ground pathfinding to seamlessly step over slabs, stairs, and 1-block steps.
+  - **Smart Combat & Task Resume (No Horn Sound)**: If hostiles approach, a blueprint is placed nearby, or an ally requires healing, the minion yields patrol duties (Warriors fight, Builders construct, Sentinels heal) without blaring horn audio. Once the combat or task resolves, the minion snaps to the nearest waypoint and seamlessly resumes the patrol cycle! Patrolling minions strictly follow their routes and never return to or follow the commander unless explicitly selected (which cleanly detaches them from their route).
 
 ### D. Linear Ping-Pong vs. Closed Loop Patrol (`[ 🔁 / 🏓 ]`)
+
 - **Closed Loop (`LOOP`)**: Checkpoints connect continuously ($1 \to 2 \to 3 \to 1$). Ideal for perimeter walls, moat boundaries, and circular courtyard patrols.
 - **Linear Ping-Pong (`PING_PONG`)**: Checkpoints traverse sequentially forward and reverse upon reaching terminal ends ($1 \to 2 \to 3 \to 2 \to 1$). Ideal for linear hallways, trench battle lines, bridge checkpoints, and battlement walks without minions cutting through the middle of the base!
 - **Toggling**: Switch mode via the Command Hub (`V` key) Route Dashboard using the `[ 🔁 / 🏓 ]` button.
 
 ### E. Patrol Breach Alarm & Mobilization
+
 - When a patrolling sentry detects a hostile mob crossing its route:
   - **Audible Sentry Alarm**: Sounds a deep goat horn blast and resonant raid bell (`ITEM_GOAT_HORN_SOUND_0` / `BLOCK_BELL_USE`).
   - **Visual Alarm**: Emits angry villager particles above the sentry's head.
   - **Allied Mobilization**: Instantly alerts all nearby allied minions within a **16-block radius**, calling them to break idling and converge on the breach to eliminate the intruder!
 
 ### F. Minion Escort Hierarchy (Squad Leaders & Bodyguards)
+
 You can command minions to escort and protect another minion in two seamless ways:
 
 #### Method 1: Shift-Punch to Designate Squad Leader (Instant Escort Assignment)
+
 1. **Select Minions**: Left-click (punch without Shift) or use the 90° cone sweep (`Hold Right-Click`) to select one or more minions (even in **PATHWAY** mode) so they are selected and following you (e.g. two Sentinels).
 2. **Shift + Punch the Leader Minion**: While holding the Command Scepter, **Shift + Left-Click (Shift + Punch)** the minion you want them to escort (e.g. a frontline Warrior).
 3. **Automatic Deselection & Mutual Exclusivity**:
@@ -205,21 +233,23 @@ You can command minions to escort and protect another minion in two seamless way
    - A resonant chime sounds (`BLOCK_NOTE_BLOCK_CHIME` & `BLOCK_AMETHYST_BLOCK_RESONATE`) and celebratory particles burst!
 
 #### Method 2: Scepter Escort Priming
+
 1. Hold the Command Scepter with 0 minions selected and **Shift + Left-Click** an unassigned minion.
-   - HUD: *"🛡 Sentinel primed as Escort! Right-click another minion to assign as Leader."*
+   - HUD: _"🛡 Sentinel primed as Escort! Right-click another minion to assign as Leader."_
 2. **Right-Click** the leader minion.
    - The follower is automatically deselected from you and tethers to the leader!
 
 #### Escort Formations & Dedicated Leader Defense:
+
 - **Escort Arcane Tether Beam**: Holding the Command Scepter renders a luminous cyan-to-magenta particle vector beam streaming from the escort to their squad leader.
 - **Dynamic Army Formation Ranks (Any Squad Size)**:
   - **No Matter the Squad Size**: Whether 1, 2, 5, 10, or 20 minions escort a squad leader, every escort dynamically computes a unique, non-overlapping battle rank station.
   - **Role-Based Tactical Layout**:
-    - **Sentinels**: Flank on lateral shoulders and outer wings ($\pm 1.35\text{D}$ to $\pm 3.60\text{D}$, $+1.8\text{D}$ forward), casting *Aegis of Restoration* whenever their leader drops below 70% HP.
+    - **Sentinels**: Flank on lateral shoulders and outer wings ($\pm 1.35\text{D}$ to $\pm 3.60\text{D}$, $+1.8\text{D}$ forward), casting _Aegis of Restoration_ whenever their leader drops below 70% HP.
     - **Warriors**: Form frontline shock lines ($+4.0\text{D}$ forward, $-2.0\text{D}$ per subsequent row), screening their leader in battle.
     - **Builders & Miners**: Guard the rear support column ($-2.0\text{D}$ rearward).
-  - **Surface & Obstacle Vaulting**: Automatically resolves walkable surface elevation (`resolveWalkableY`) and engages Arcane Levitation flight to scale obstacles and ledges smoothly.
-  - **Emergency Teleport**: If an escort is separated from their squad leader by >64 blocks, they immediately teleport to the leader with ender portal particles.
+  - **Surface & Ground Navigation**: Automatically resolves walkable surface elevation (`resolveWalkableY`) and navigates terrain with player-like $1.25\text{D}$ step height.
+  - **Companion Catch-Up Teleport**: If separated from the leader by $>24$ blocks, or navigationally stuck for $\ge 40$ ticks ($2.0\text{s}$) while $>10$ blocks away, escorts immediately teleport to their squad leader with ender portal particles.
 - **Dedicated Squad Leader Combat AI**:
   - **Defends the Leader, Not the Master**: Escorts automatically attack whoever damages their squad leader (`TrackLeaderAttackerGoal`) and coordinate attacks on whatever their leader attacks (`AttackWithLeaderGoal`), completely ignoring distant player skirmishes.
   - **16-Block Combat Leash**: If an enemy tries to lure an escort more than 16 blocks away from the squad leader, the escort breaks aggro and sprints back to formation.
@@ -231,7 +261,9 @@ You can command minions to escort and protect another minion in two seamless way
   - Mass squad follow commands and normal panic retreats (`R`) preserve escort bonds; only **Emergency Citadel Call (`Shift + R`)** unbinds all escorts fortress-wide.
 
 ### G. Overhead Badge Status Indicators
+
 Minions display real-time tactical overhead badges above their heads:
+
 - `[ 🟡 Route 1 ]` / `[ 🔵 Route 2 ]`: Indicates active patrol channel assignment (only visible when the assigned route has active waypoints).
 - `[ 🛡 Escort ]`: Indicates the minion is tethered to a squad leader as a dedicated bodyguard.
 - `[ ⚙ AUTO: <Role> ]`: Indicates an autonomous agent displaying its currently adapted dynamic role (`Warrior`, `Sentinel`, or `Builder`).
@@ -246,23 +278,24 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 - **Mode Bar**: Direct buttons for `FOLLOW`, `STAY`, `MINE`, `BUILD`, `RECRUIT`, and `PATHWAY`.
 - **4-Role Archetype Bar**: Select an active role (`⚔ Warrior`, `🛡 Sentinel`, `🏗 Builder`, `⚙ AUTO`). When primed, your next **Banner of Courage** rally transfigures all gathered minions into this archetype!
 - **Patrol Route Dashboard (in `PATHWAY` Mode)**:
+  - Defaults to **Route 1 (Channel 1 🟡 Gold)** automatically upon switching to `PATHWAY` mode or opening the hub in `PATHWAY` mode, syncing immediately with the held Scepter stack.
   - Displays 5 route channel selection rows (`Route 1` through `Route 5`) with live waypoint counters (`[ 4 pts ]`).
   - Active channel is marked with `§e✦`.
   - **`[ 🔁 / 🏓 ]` Patrol Mode Toggle**: Instant one-click switching between **Closed Loop** ($1 \to 2 \to 3 \to 1$) and **Linear Ping-Pong** ($1 \to 2 \to 3 \to 2 \to 1$).
   - **`[ ✕ ]` Quick Clear**: Instantly purges all waypoints from the chosen channel.
 - **Blueprint Browser (in `BUILD` Mode)**: Browse multiblock structure blueprints, view required resources, and project 3D wireframe holograms.
-- **Deconstruction Mode (in `MINE` Mode)**: Toggle between construction and reverse top-down deconstruction.
+- **Deconstruction & Mining Modes (in `MINE` Mode)**: Toggle between **`[ ⛏ Direct ]`** (instant point-and-click structure/ground dismantle) and **`[ 🔲 Custom Area ]`** (configurable 3D boundary box quarrying with sequential corners `Pos1`/`Pos2`, live height adjustment, `[ ⛏ Confirm Area ]` modal opener, and `[ ⌫ Reset ]`).
 
 ---
 
 ## 🛡️ 5. Minion Archetypes & Ranks
 
-| Archetype      | Preferred Weapon / Gear                                                        | Formation Position | Tactical Role                                                                                            |
-| :------------- | :----------------------------------------------------------------------------- | :----------------- | :------------------------------------------------------------------------------------------------------- |
-| **`WARRIOR`**  | Swords, Axes, Maces, Tridents **OR** Bows, Crossbows, Thrown Sticks (Frost/TNT) | Frontline Rank 1   | **Versatile Combatant & Hunter**: Frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** ($\le 5\text{D}$ melee thrust, $5\text{D}\text{--}20\text{D}$ thrown spear) and executes **Mob Procurement Contracts** for builders. |
-| **`SENTINEL`** | Shield, Mace + Heavy Armor                                                     | Bulwark Rank 2     | **Defensive Guardian & Combat Medic**: Absorbs damage, holds fortified posts within an expanded 128-block leash, and channels the **Aegis of Restoration** to heal wounded players (commander priority) and allied minions under 70% HP. |
-| **`BUILDER`**  | Pickaxes, Axes, Shovels + Toolset                                              | Rearguard Rank 3   | **Architect, Excavator & Supply Specialist**: 3D levitation flight to construct or dismantle multiblocks at any height. Autonomously quarries natural stone, harvests timber via agro-forestry (using bone meal for rapid growth), self-crafts tools, shares blocks via peer energy beams, deploys supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived resources. |
-| **`AUTO`**     | Any Weapon / Tool (Universal Auto-Equip)                                        | Dynamic Rank       | **Autonomous Agent**: Continuously evaluates current tactical context. Morphs dynamically into **Sentinel** (if any ally < 70% HP), **Warrior** (if hostiles < 16m), or **Builder** (if blueprints active or peaceful). Shows live adapted role on overhead badge (`[ ⚙ AUTO: <Role> ]`). |
+| Archetype      | Preferred Weapon / Gear                                                         | Formation Position | Tactical Role                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| :------------- | :------------------------------------------------------------------------------ | :----------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`WARRIOR`**  | Swords, Axes, Maces, Tridents **OR** Bows, Crossbows, Thrown Sticks (Frost/TNT) | Frontline Rank 1   | **Versatile Combatant & Hunter**: Frontline melee swordsman, ranged archer, or thrown javelin specialist. Features **Trident Duality** ($\le 5\text{D}$ melee thrust, $5\text{D}\text{--}20\text{D}$ thrown spear) and executes **Mob Procurement Contracts** for builders.                                                                                                                                                    |
+| **`SENTINEL`** | Shield, Mace + Heavy Armor                                                      | Bulwark Rank 2     | **Defensive Guardian & Combat Medic**: Absorbs damage, holds fortified posts within an expanded 128-block leash, and channels the **Aegis of Restoration** to heal wounded players (commander priority), allied minions, and non-hostile **Iron Golems** under 70% HP within 10 blocks (restoring 6 HP + Regeneration II for 5s with amethyst chimes and heart VFX). Non-hostile Iron Golems are recognized as friendly teammates. |
+| **`BUILDER`**  | Pickaxes, Axes, Shovels + Toolset                                               | Rearguard Rank 3   | **Architect, Excavator & Supply Specialist**: 3D levitation flight to construct or dismantle multiblocks at any height. Autonomously quarries natural stone, harvests timber via agro-forestry (using bone meal for rapid growth), self-crafts tools, shares blocks via peer energy beams, deploys supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warriors for mob-derived resources. |
+| **`AUTO`**     | Any Weapon / Tool (Universal Auto-Equip)                                        | Dynamic Rank       | **Autonomous Agent**: Continuously evaluates current tactical context. Morphs dynamically into **Sentinel** (if any ally < 70% HP), **Warrior** (if hostiles < 16m), or **Builder** (if blueprints active or peaceful). Shows live adapted role on overhead badge (`[ ⚙ AUTO: <Role> ]`).                                                                                                                                      |
 
 ---
 
@@ -285,47 +318,30 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
      - **Utilities & Beds**: 🟣 Arcane Purple (`#9933FF`).
      - **Walls & Columns**: 🔵 Diamond Cyan (`#00D4FF`).
      - **Roof Trim & Eaves**: ❄️ Ice Blue (`#70B8FF`).
-4. **Command Hub GUI Bar Swap (`V` Key)**:
-   - When **`BUILD`** mode is active, the 3-button Minion Archetype bar dynamically transforms into the **Architecture Style** bar:
-     - **`[🌍 Biome Native]`**: Vernacular construction adapting to indigenous materials (oak/birch for plains/forest, sandstone for deserts/badlands, spruce for taigas, mangrove/mud for swamps, deepslate for subterranean caverns, blackstone for nether, purpur/end stone for end).
-     - **`[🏰 Fortress Stone]`**: Heavy stone brick masonry, mossy & cracked cobblestone, polished andesite accents, deepslate, and iron fittings.
-     - **`[🌲 Frontier Timber]`**: Rustic log framing, horizontal plank walls, stripped wood corners, fences, and lanterns.
-     - **`[🔮 Arcane Nether]`**: Polished blackstone, basalt pillars, crimson/warped timbers, and soul fire illumination.
-   - **Footprint Size Selectors**:
-     - **`[ S ]` Small**: Compact 5x5 footprint.
-     - **`[ M ]` Medium**: Balanced 7x7 footprint (default).
-     - **`[ L ]` Grand**: Expansive 9x9 multi-room estate or fortified outpost.
-     - **`[ 🎲 ]` Random**: Dynamically rolls a randomized footprint size.
-5. **Procedural Building Categories**:
-   - **`🏡 Home`**: Villager-ready residence with POIs (beds, entry door, crafting table, furnace, lantern) for natural villager habitation.
-   - **`🗼 Watchtower`**: Elevated observation post with parapets and arrow slits.
-   - **`🛡 Barricade`**: Fortified defensive rampart with firing steps.
-   - **`⚒ Workshop`**: Blacksmith forge with furnaces, anvils, and tool stations.
-   - **`📦 Supply Depot`**: Storage warehouse with chests and logistics barrels.
-   - **`🔮 Obelisk`**: Mystical monument focusing arcane energy.
-6. **Organic Noise Weathering Engine**:
-   - Eliminates sterile, repetitive block patterns using 3D spatial coordinate noise, blending cracked bricks, mossy stones, andesite, and stripped logs organically (resembling natural cobblestone/dirt variance).
-   - Deterministic hashing guarantees that client holographic wireframes and server minion placement match 1:1 down to the individual block.
-7. **Dynamic Foundation Slope Snapping**:
-   - Automatically scans perimeter and floor blocks at the base level. If placing on a hillside, cliff, or over water, automatically extends stone retaining pillars or wooden stilts downward up to 8 blocks (`MAX_FOUNDATION_DEPTH`) until solid ground is reached, eliminating floating structures!
-8. **Dimension Bed Explosion Safeguard**:
-   - In the Nether, beds automatically convert to `Blocks.RESPAWN_ANCHOR`. In the End, beds convert to `Blocks.PURPUR_BLOCK`, completely preventing accidental or intentional bed explosions!
-9. **Rotate Blueprint (3 Ways)**:
+4. **Command Hub GUI (`V` Key)**:
+   - **Active Construction Directives**: When **`BUILD`** mode is active, the Command Hub displays active directives confirming that minions construct 100% exact captured blocks without procedural alteration.
+   - **Custom Blueprint Viewport**: Clean 3-slot catalog displaying user-authored blueprints with dimensions and block counts, complete with `◀` / `▶` pagination and `Page X/Y` indicators.
+   - **Rotation Controls**: Click the **`[ ↻ Rotate ]`** button to rotate the blueprint 90° clockwise.
+5. **100% Exact Block Fidelity**:
+   - Minions place every block (stairs, slabs, glass, lanterns, masonry, containers) in the exact position, orientation, and block type captured in **`DESIGN`** mode.
+   - Retired legacy architecture styles, biome substitutions, procedural size scaling, and noise weathering to ensure full player creative fidelity.
+6. **Rotate Blueprint (3 Ways)**:
    - **Press `R`**: Directly rotates the hologram 90° clockwise (0° → 90° → 180° → 270°).
-   - **Left-Click** *(with Scepter in `BUILD` Mode)*: Directly rotates the hologram 90° clockwise (works aiming at air, terrain, or blocks, with or without Shift).
+   - **Left-Click** _(with Scepter in `BUILD` Mode)_: Directly rotates the hologram 90° clockwise (works aiming at air, terrain, or blocks, with or without Shift).
    - **Command Hub GUI (`V`)**: Click the **`[ ↻ Rotate ]`** button inside the Command Hub screen.
    - **Flight Altitude Control**: While hovering in Arcane Build Flight, hold **`Space`** to ascend or **`Shift`** to descend to your ideal vantage height.
-10. **Right-Click** on any ground block to anchor the construction session:
+7. **Right-Click** on any ground block to anchor the construction session:
     - **100% Pixel-Perfect Crosshair Alignment**: A camera-aligned raycast ensures the hologram and placement anchor match exactly where your screen crosshair points on the terrain, even from high-altitude bird's-eye views (up to 96m reach).
     - **One-Click Aerial Placement**: Instantly transmits placement packets to the server so you can drop foundations without descending to the ground.
     - **Sky Tap to Cycle**: Right-clicking into empty air or open sky cycles to the next blueprint in your catalog.
-11. Assigned **Builder** minions will activate **3D Arcane Levitation**, flying up to each layer and completing the structure bottom-to-top:
+8. Assigned **Builder** minions will activate **3D Arcane Levitation**, flying up to each layer and completing the structure bottom-to-top:
     - **Builder Block Phasing (`noClip = true`) & Zero Drift**: Builders can pass through blocks **strictly and only** while actively building or evacuating a finished structure. They fly directly through floors, walls, and ceilings in 3D straight to their work stations without getting trapped indoors or drifting towards exterior exits.
     - **Persistent Zero-Timeout Execution**: Builders never halt, give up, or freeze near the end of a build. The artificial 400-tick timeout loop and failure pauses have been completely eliminated. Builders poll tasks continuously and work without interruption until 100% of the structure is finished.
     - **Arcane Phase-Shift Resolution**: If interior detail blocks (like anvils, grindstones, blast furnaces, chests, or hanging lanterns) are enclosed by newly constructed walls or ceilings, builders do not get stuck. After 40 ticks (~2 seconds) of obstacle obstruction, they perform an **Arcane Phase-Shift**—teleporting directly to their work station with purple portal runes and SFX to place the block cleanly.
     - **Post-Construction Structure Egress**: Upon finishing a building, builders do NOT get trapped inside. They retain block phasing (`noClip = true`) and fly smoothly out of the building to the exterior perimeter. Normal collision physics are only restored once the builder is safely outside with clear headroom.
-    - **360° Perimeter Waypoints & Guaranteed Flank Spread**: When construction completes, golden beacon beams (`END_ROD` + `GLOW`) and chime audio rise around the finished build, distributed evenly across all flanks (South/Front, East Flank, North/Back, West Flank) so minions completely encircle the structure instead of stacking in one spot. Builders are teleported directly to their assigned flank station, safely positioned outside the structure, and stationed on guard at attention (`isSitting = true`, `guardAnchor` set) regardless of squad assignment.
-    - **Autonomous Stationed Mobilization**: When you place a new blueprint down nearby (within 64 blocks), stationed builder minions automatically wake up (`setSitting = false`) and mobilize to build immediately without requiring you to walk over and re-select them! A single right-click on any stationed builder still commands them to follow if desired.
+    - **360° Perimeter Waypoints & Guaranteed Flank Spread**: When construction completes with no further blueprints in the vicinity, golden beacon beams (`END_ROD` + `GLOW`) and chime audio rise around the finished build, distributed evenly across all flanks (South/Front, East Flank, North/Back, West Flank) so minions completely encircle the structure instead of stacking in one spot. Builders are teleported directly to their assigned flank station, safely positioned outside the structure, and stationed on guard at attention (`isSitting = true`, `guardAnchor` set) regardless of squad assignment.
+    - **Autonomous Blueprint Chaining & Vicinity Transition**: If you place down additional blueprints in the builders' vicinity ($\le 128$ blocks) while they are working on a build or stationed, they automatically and immediately transition to the next placed blueprint upon finishing the current structure. They never enter sitting or sleeping states when active blueprints exist nearby, seamlessly moving from build to build across your base or fortress!
+    - **Autonomous Stationed Mobilization**: When you place a new blueprint down nearby (within 112–128 blocks horizontally and vertically), stationed builder minions automatically wake up (`setSitting = false`) and mobilize to build immediately without requiring you to walk over and re-select them—easily reaching across mega structure construction sites! A single right-click on any stationed builder still commands them to follow if desired.
     - **Creative Mode**: Builders place blocks freely at zero material cost. Any existing blocks (grass, flowers, snow, dirt) are automatically pre-cleared with zero dropped items, eliminating all clutter.
     - **Survival Mode**: Builders resolve construction materials through a multi-stage logistics pipeline (Backpack → Local Containers → Peer Sharing → Autonomous Quarrying/Timber → Mob Hunting Contracts).
 
@@ -333,25 +349,78 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 
 ## ⛏️ 7. Mining & Area Clearance (`MINE` Mode)
 
-1. Select **`MINE`** mode (**Shift + Right-Click** or press **`V`**).
-2. Look at the block or ground area you want to clear to see a **Fiery Orange/Red 3D Wireframe Preview** anchored directly on the clicked block.
-3. **Right-Click** to initiate the mining/deconstruction session.
-4. Assigned **Builder** minions immediately mobilize:
-   - **Full Selected Area Clearance**: Builders mine **every** solid, destructible block within the selected volume from the highest Y level down to the lowest Y level.
-   - **Zero Air-Mining Guarantee**: Builders strictly never claim, navigate to, or swing pickaxes at air blocks. If a block was destroyed or already air, minions instantly advance to the next real block without swinging or vocalizing.
-   - **Bedrock & Indestructible Immunity**: Bedrock and indestructible blocks (negative hardness) are strictly protected and never targeted.
-   - **Survival Drops vs. Creative Demolition**: In Survival mode, broken blocks drop as collectible items for full resource recovery. In Creative mode, blocks are cleared cleanly without entity drops to avoid clutter.
-   - **Automatic Wireframe Dismissal**: The moment the entire selected area is cleared (all blocks in the volume become air or indestructible), the session finishes with celebratory particles and sound, and the highlighted wireframe **immediately disappears**!
+The **`MINE`** mode features two distinct operational sub-modes for excavation and deconstruction: **`DIRECT`** (Structure / Point Dismantle) and **`AREA`** (Custom Boundary / Box Quarry Mining). You can toggle between these modes inside the Command Hub GUI (**`V`** key) or via scepter controls.
+
+```
+                                  [MINE Operating Mode]
+                                            │
+                    ┌───────────────────────┴───────────────────────┐
+                    ▼                                               ▼
+         [DIRECT Sub-Mode]                               [AREA Sub-Mode]
+   • Instant point-and-click dismantle             • Configurable 3D boundary volume
+   • Anchors directly at clicked position          • Sequential Left-Clicks: Pos1 ➔ Pos2
+   • 96m crosshair reach                           • Fiery orange/amber ghost grid wireframes
+   • Dismantles structures or ground               • Real-time height adjustment (Ctrl + Scroll)
+   • No boundary setup required                    • Dedicated Confirmation Modal before mining
+```
+
+### A. DIRECT Mining Mode (Point & Structure Dismantle)
+
+1. Select **`MINE`** mode with **`DIRECT`** sub-mode active.
+2. Aim at the structure, ground block, or terrain you want to clear to see a **Fiery Orange/Red 3D Wireframe Preview** anchored directly on the clicked block (up to 96m reach).
+3. **Right-Click** on the ground/block to initiate the dismantle session immediately.
+4. Assigned **Builder** minions immediately take flight with 3D Arcane Levitation and excavate all solid, destructible blocks top-to-bottom.
+
+### B. AREA Mining Mode (Configurable 3D Boundary & Box Quarry Mining)
+
+The **`AREA`** mining mode allows commanders to define exact 3D excavation boundaries in the world, inspect block counts, adjust vertical depth/height in real time, and confirm mining operations via a dedicated modal:
+
+1. **Sequential Left-Click Corner Selection**:
+   - **1st Left-Click (Corner 1 / `Pos1`)**: Sets `Pos1` anchored on the targeted block surface adhering to the Unified Surface Anchoring Contract. A vibrant fiery orange anchor marker illuminates, sparkle particles burst, a note block chime sounds, and the action bar confirms `✦ Mining Pos1: [X, Y, Z]`.
+   - **Aiming Candidate Preview**: Aiming around the world dynamically renders an expanding candidate bounding wireframe and live ghost grid block outlines from `Pos1` to your crosshair.
+   - **2nd Left-Click (Corner 2 / `Pos2`)**: Sets `Pos2` on the opposite diagonal, completing the 3D volume footprint. Sparkle particles erupt, resonant chime audio plays, and the full fiery orange/amber (`1.0F, 0.45F, 0.05F`) 3D bounding wireframe and non-air block ghost grid outlines illuminate.
+   - **Subsequent Left-Clicks (Cycle)**: Left-clicking again automatically starts a new selection cycle (`Pos1` updated, `Pos2` cleared).
+   - **Shift + Left-Click (Reset)**: Instantly clears both `Pos1` and `Pos2` with a bass tone, guaranteeing the very next click places `Pos1` afresh.
+2. **In-World Real-Time Height Adjustment**:
+   - Hold **`Ctrl` + Mouse Scroll** (or use **`[`** / **`]`** or **`PageUp`** / **`PageDown`** keys) to expand or contract the excavation height in real time without placing temporary blocks (hold **`Shift`** for $\pm 5$ fast stepping).
+   - HUD actionbar displays live height updates and total bounding dimensions.
+3. **Mining Area Confirmation Modal (`MiningConfirmModalScreen`)**:
+   - Once `Pos1` and `Pos2` are set, **Right-Click** on the ground/air or click **`[ ⛏ Confirm Area ]`** in the Command Hub GUI to open the **Mining Confirmation Modal**.
+   - **Modal Inspection Details**:
+     - Displays `Pos1` and `Pos2` corner coordinates.
+     - Displays Width $\times$ Height $\times$ Depth dimensions and total volume in voxels.
+     - **Destructible Block Counter**: Analyzes and displays the exact count of destructible, non-air blocks within the boundary (excluding unbreakable bedrock).
+     - **Height Steppers**: Fine-tune the excavation height directly inside the modal with **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** buttons.
+   - **Modal Actions**:
+     - **`[ ✔ Start Mining ]`**: Dispatches `StartMiningAreaPayload` to the server, clears the client selection, plays horn & chime fanfare, and starts the top-down excavation session.
+     - **`[ ⌫ Reset ]`**: Wipes `Pos1` and `Pos2` selection corners.
+     - **`[ ✖ Cancel ]`**: Closes the modal without starting excavation, keeping your corner selection intact.
+     - **Crisp Overlay**: Completely bypasses background blur (`applyBlur` no-op) to preserve 100% battlefield situational awareness.
+
+### C. Minion Excavation & Safety Systems (Both Modes)
+
+Assigned **Builder** minions mobilize autonomously to execute the mining operation:
+- **Full Selected Area Clearance**: Builders mine **every** solid, destructible block within the selected volume from the highest Y level down to the lowest Y level.
+- **Zero Air-Mining Guarantee**: Builders strictly never claim, navigate to, or swing pickaxes at air blocks. If a block was destroyed or already air, minions instantly advance to the next real block without swinging or vocalizing.
+- **Bedrock & Indestructible Immunity**: Bedrock and indestructible blocks (negative hardness) are strictly protected and never targeted.
+- **Survival Direct Collection & Chest Storage vs. Creative Zero-Drop**: In Survival mode, broken blocks are collected directly into the builder's backpack (`drop = false`). When backpacks fill or sessions finish, builders deposit 100% of excess/surplus materials into nearby chests (within 24 blocks) or craft/deploy autonomous chests, leaving zero dropped items on the ground. In Creative mode, blocks are cleared cleanly without entity drops or chests to completely eliminate world clutter.
+- **Automatic Wireframe Dismissal**: The moment the entire selected area is cleared (all blocks in the volume become air or indestructible), the session finishes with celebratory particles and sound, and the highlighted wireframe **immediately disappears**!
 
 ---
 
 ## 🧙‍♂️ 8. 100% Universal Arcane Levitation & Obstacle Vaulting
 
 - **100% Zero-Footprint Traversal Across All Roles**: Warriors, Sentinels, and Builders traverse ravines, scale cliffs, navigate vertical terrain, and descend structures using zero-footprint 3D Arcane Levitation with zero ephemeral block generation.
+- **Universal Indoor Navigation Safeguards & Door Auto-Opening**:
+  - **Ceiling Raycast & Anti-Wedging (`hasCeilingAboveMinion`)**: In indoor rooms or beneath low ceilings ($Y+2 \to Y+4$), upward levitation is suppressed, forcing standard ground navigation to prevent head-wedging or continuous flight stalls.
+  - **Ground-First Step Priority**: Elevation changes with $\Delta Y \le 1.25\text{D}$ are traversed on foot using enhanced $1.25\text{D}$ step-height before 3D levitation is triggered, ensuring seamless transitions across interior thresholds, slabs, and stairs without jumping or floating.
+  - **Universal Door Traversal (`autoOpenNearbyDoors`)**: Minions across all roles automatically open closed non-iron wooden doors and gates within 1.5 blocks along their movement paths, enabling smooth traversal through doorways without pathing stalls.
+- **Builder Kinematics Isolation**:
+  - Builders maintain isolated 3D flight control throughout construction and deconstruction tasks (`activelyBuilding || exitingBuilding`), preventing universal travel levitation forces from conflicting with hover stationing, block phasing, or structure egress.
 - **Builders**: Maintain permanent 3D flight throughout construction and deconstruction tasks, hovering adjacent to work blocks at any height without scaffolding or temporary blocks.
 - **All Minion Types (Warriors, Sentinels, Builders)**:
-  - Responsive 2-tick obstacle stall sensitivity: when encountering walls, fences, cliffs, or ledges they cannot walk over, they instantly perform an **Arcane Obstacle Vault**, gliding smoothly over barriers with purple portal trails and landing safely on the far side.
-- **Dynamic Obstacle Clearance & Solid Ground Landing**: Minions can scale obstacles of any height (3, 5, 10, or 20+ blocks high) without artificial altitude caps or premature timers. Upward lift carries minions cleanly over barriers, and the instant a minion's feet reach solid ground without a taller obstacle ahead (e.g. stepping atop a 3-block ledge or reaching the other side), levitation deactivates immediately and restores normal ground walking and step height. In mid-air, downward glide carries minions to earth. Melee warriors in ground combat never launch into the air.
+  - **Strict 2-Condition Levitation**: Levitation activates ONLY when facing obstacles $\ge 2$ blocks high or holes/chasms $\ge 1$ block long (drop $\ge 2$ blocks deep). For all other blocks (stairs, slabs, carpets, 1-block steps), minions walk around or step over them like a player.
+- **Dynamic Obstacle Clearance & Solid Ground Landing**: Minions can scale obstacles of any height (3, 5, 10, or 20+ blocks high) without artificial altitude caps or premature timers. Upward lift carries minions cleanly over barriers, and the instant a minion's feet reach solid ground without a taller obstacle ahead (e.g. stepping atop a 3-block ledge or reaching the other side), levitation deactivates immediately and restores normal gravity, ground walking, and step height (1.25D). In mid-air, downward glide carries minions to earth. Melee warriors in ground combat never launch into the air.
 - **Formation Follow Anti-Jitter**: Allied minions suppress mutual physical collision shoving (`pushAwayFrom`) when idle, guarding, or standing in formation ranks. Consistent walkable ground elevation checks and arrival velocity zeroing eliminate endless station-hunting jitter.
 - **Operational Leash Freedom**: Stationed and held minions enjoy an expanded **128-block leash**, while unselected free workers have simulation-chunk freedom without snap-teleporting to players while working on active construction sessions.
 - **Panic Retreat (`R` key)**: Instantly dismisses all 3D holographic wireframes, cancels active construction sessions for the commander, clears combat targets, and recalls all minions to formation.
@@ -361,7 +430,9 @@ Press **`V`** with a scepter anywhere in your inventory to open the tactical com
 The mod provides two tiers of tactical emergency recall:
 
 ### A. Quick `R`: Tactical Squad Retreat
+
 Press **`R`** at any time while holding the Command Scepter (or with it in your inventory):
+
 - **Range**: Recalls active squad thralls within **64 blocks**.
 - **Combat Disengage**: Immediately clears combat targets on all active minions (`setTarget(null)`).
 - **Cancel Holding/Guarding**: Cancels stationary guard or waypoint hold positions.
@@ -370,7 +441,9 @@ Press **`R`** at any time while holding the Command Scepter (or with it in your 
 - **Audio/Visual**: Sounds a warning retreat bell (`SoundEvents.BLOCK_BELL_USE`), bursts cloud particles, and displays action bar confirmation: `§e🔔 RETREAT! [Squad] disengaging and falling back!§r`.
 
 ### B. `Shift + R`: Emergency Citadel Call (Fortress Muster)
+
 Press **`Shift + R`** when an all-out emergency threatens your citadel:
+
 - **Expanded Range**: Fortress-wide recall encompassing all owned minions within **128 blocks**!
 - **Patrol & Escort Unbinding**: Unbinds **all minions from patrol duty** (`patrolRouteId = -1`) and **unlinks all escort bodyguards** (`clearLeader()`).
 - **Stationing Override**: Overrides any sitting or holding postures regardless of squad channel.
@@ -385,44 +458,12 @@ Press **`Shift + R`** when an all-out emergency threatens your citadel:
 
 The commander's active game mode directly affects how minions handle resources, construction, demolition, and interactions:
 
-| Gameplay Mechanic                      | Survival Mode (`/gamemode survival`)                                                                                                                                                                                                                          | Creative Mode (`/gamemode creative`)                                                                                                                                                                 |
-| :------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Structure Construction (`BUILD`)**   | **Autonomous Logistics, Harvesting & Procurement**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. When mob resources (wool, bones, slime, leather, etc.) are needed, builders commission nearby Warriors on tactical hunting contracts with automatic material synthesis. They self-craft replacement tools and deposit excess materials into newly crafted/placed supply depot chests. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Pre-Clearing**: Builders construct instantly and infinitely at zero material cost without needing blocks in their inventory or nearby chests. Existing terrain (grass, flowers, snow, dirt) is automatically pre-cleared with zero dropped items, eliminating clutter. |
-| **Area Mining & Dismantling (`MINE`)** | **Resource Harvesting**: Broken blocks drop as real collectible items in the world for full resource recovery.                                                                                                                                                | **Zero-Drop Demolition**: Blocks are cleared cleanly without spawning entity drops, preventing world and inventory clutter during large excavations.                                                 |
-| **Minion Taming**                      | Consumes **1 Gold Ingot** from player hand when binding an untamed minion.                                                                                                                                                                                    | Tames the minion instantly **without consuming** the Gold Ingot.                                                                                                                                     |
-| **Minion Feeding & Healing**           | Consumes **1 food or gold item** per healing interaction.                                                                                                                                                                                                     | Restores minion health **without consuming** any items from the player's inventory.                                                                                                                  |
-| **Minion Spawn Egg**                   | Consumes **1 spawn egg** per mob spawned.                                                                                                                                                                                                                     | Spawns minions infinitely **without depleting** the held egg stack.                                                                                                                                  |
-| **Scepter Recruitment (`RECRUIT`)**    | Transfigures wild mobs into minion thralls.                                                                                                                                                                                                                   | Transfigures wild mobs into minion thralls.                                                                                                                                                          |
-| **Universal Arcane Traversal**        | 100% zero-footprint 3D Arcane Levitation across all roles. Zero ephemeral block clutter.                                                                                                                                                                     | 100% zero-footprint 3D Arcane Levitation across all roles. Zero ephemeral block clutter.                                                                                                             |
-
----
-
-## 💥 11. Tactical Ordnance & Warrior Thrown Weapon Arsenal
-
-In addition to squad command, commanders and warrior thralls have access to throwable tactical ordnance and thrown weapon mechanics:
-
-### Warrior Thrown Weapon Mastery & Trident Duality
-- **Trident Duality**: Warriors equipped with Tridents dynamically switch between melee thrusts ($\le 5\text{D}$) and long-range thrown javelins ($5\text{D}\text{--}20\text{D}$) with `DISALLOWED` pickup protection.
-- **Thrown Ordnance**: Warriors can equip and throw Frost Grenade Sticks and TNT Sticks, launching cryogenic or explosive artillery at enemy lines.
-
-### TNT Stick (`modid-mmcli-agent-modding:tnt_stick`)
-- **Type**: Single-stack throwable explosive stick (`Rarity.EPIC`).
-- **Cooldown**: 5 ticks (0.25s) anti-spam delay.
-- **Flight & Blast**: Launches at 1.5 velocity leaving smoke and flame particles; detonates on server collision with a **4.0F explosion**.
-
-### Frost Grenade Stick (`modid-mmcli-agent-modding:frost_grenade_stick`)
-- **Type**: Single-stack throwable cryogenic stick (`Rarity.RARE`).
-- **Cooldown**: 10 ticks (0.5s) anti-spam delay.
-- **Flight & VFX**: Leaves trailing snowflakes and snowball debris in flight.
-- **Zero Explosive Destruction**: Causes zero destructive block breakage while transmuting the environment into a winter wonderland.
-- **Block Transmutation to Snow ($r = 3.5\text{D}$)**:
-  - **Snow Block Conversion**: Transmutes destructible solid blocks (dirt, grass, stone, cobblestone, wood, leaves, sand, etc.) directly into solid Snow Blocks (`Blocks.SNOW_BLOCK`).
-  - **Snow Layer Coating**: Coats exposed ground and surfaces with delicate snow layers (`Blocks.SNOW`).
-  - **Indestructible & Container Protection**: Unbreakable blocks (bedrock, barrier) and block entities/containers (chests, furnaces, barrels) are strictly protected.
-- **Fluid & Fire Conversion ($r = 3.5\text{D}$)**:
-  - **Water Flash-Freeze**: Converts still and flowing water into solid ice (`Blocks.ICE`).
-  - **Lava Crystallization**: Converts still lava into obsidian (`Blocks.OBSIDIAN`) and flowing lava into cobblestone (`Blocks.COBBLESTONE`).
-  - **Fire Quenching**: Extinguishes normal fire, soul fire, and lit campfires with steam particles.
-- **Powder Snow Ring ($r \in [2.0\text{D}, 3.5\text{D}]$)**: Summons a perimeter ring of powder snow (`Blocks.POWDER_SNOW`) around the impact center on solid ground.
-- **Freezing Debuffs ($r = 5.0\text{D}$)**: Inflicts **360 freezing ticks** (full frost vignette + shivering damage) and **Slowness III** (8.0s) on caught entities, while quenching any burning targets.
-
+| Gameplay Mechanic                      | Survival Mode (`/gamemode survival`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Creative Mode (`/gamemode creative`)                                                                                 |
+| :------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Structure Construction (`BUILD`)**   | **Autonomous Logistics, Harvesting & Procurement**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. When mob resources (wool, bones, slime, leather, etc.) are needed, builders commission nearby Warriors on tactical hunting contracts with automatic material synthesis. They self-craft replacement tools, collect deconstruction drops directly into inventory, and deposit 100% of excess materials into nearby or autonomous chests upon session completion, leaving zero dropped items. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Guarantee**: Builders construct instantly and infinitely at zero material cost without needing blocks in their inventory or nearby chests. Unneeded blocks are discarded directly from inventory slots (`inv.setStack(slot, ItemStack.EMPTY)`). Multi-part blocks (tall grass, flowers, beds, doors) are cleanly pre-cleared with zero dropped items, and post-session sweeps purge stray item entities within the bounding box, leaving zero dropped items on the ground. |
+| **Area Mining & Dismantling (`MINE`)** | **Direct Backpack Collection & Chest Logistics**: Broken blocks are collected directly into builder backpacks (`drop = false`) instead of scattering onto the ground. When inventory fills or sessions finish, builders offload 100% of mined resources into nearby chests (up to 24 blocks) or craft and deploy autonomous supply chests. Only drops on the ground as an absolute fallback if no chest exists and no wood is available. | **Zero-Drop Demolition**: Blocks are cleared cleanly without spawning entity drops or requiring chests, preventing world and inventory clutter during large excavations. |
+| **Minion Taming**                      | Consumes **1 Gold Ingot** from player hand when binding an untamed minion.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Tames the minion instantly **without consuming** the Gold Ingot.                                                                                                                                                                                                                                              |
+| **Minion Feeding & Healing**           | Consumes **1 food or gold item** per healing interaction.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Restores minion health **without consuming** any items from the player's inventory.                                                                                                                                                                                                                           |
+| **Minion Spawn Egg**                   | Consumes **1 spawn egg** per mob spawned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Spawns minions infinitely **without depleting** the held egg stack.                                                                                                                                                                                                                                           |
+| **Scepter Recruitment (`RECRUIT`)**    | Transfigures wild mobs into minion thralls (defaulting to `MinionRole.AUTO`).                                                                                                        | Transfigures wild mobs into minion thralls (defaulting to `MinionRole.AUTO`).                                                                                                                |
+... (output truncated to prevent memory overflow)

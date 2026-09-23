@@ -19,6 +19,9 @@ public record DismissMinionPayload(
 	boolean dismissAll
 ) implements CustomPayload {
 
+	public static final int TARGET_ALL = -1;
+	public static final int TARGET_SELECTED = -2;
+
 	public static final CustomPayload.Id<DismissMinionPayload> ID = new CustomPayload.Id<>(
 		Identifier.of(ExampleMod.MOD_ID, "dismiss_minion")
 	);
@@ -38,6 +41,14 @@ public record DismissMinionPayload(
 	 */
 	public DismissMinionPayload(int minionId) {
 		this(minionId, minionId < 0);
+	}
+
+	public boolean isTargetSelected() {
+		return this.minionId == TARGET_SELECTED;
+	}
+
+	public boolean isTargetAll() {
+		return this.dismissAll || this.minionId == TARGET_ALL;
 	}
 
 	@Override

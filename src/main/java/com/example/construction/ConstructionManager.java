@@ -20,7 +20,9 @@ import com.example.network.SyncConstructionSessionPayload;
 import com.example.network.EndConstructionSessionPayload;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemStack;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -159,6 +161,56 @@ public class ConstructionManager {
 	}
 
 	/**
+	 * Initiates a new area deconstruction session in DISMANTLE mode between two bounding world coordinates.
+	 * Tasks will be executed in top-down reverse topological order, breaking blocks and recovering resources.
+	 *
+	 * @param world The server world where the area will be dismantled.
+	 * @param pos1  First bounding corner.
+	 * @param pos2  Second bounding corner.
+	 * @param owner The player commissioning the area mining.
+	 * @return The newly initiated ConstructionSession in DISMANTLE mode.
+	 */
+	public ConstructionSession startAreaDismantleSession(
+		ServerWorld world,
+		BlockPos pos1,
+		BlockPos pos2,
+		PlayerEntity owner
+	) {
+		Objects.requireNonNull(world, "world cannot be null");
+		Objects.requireNonNull(pos1, "pos1 cannot be null");
+		Objects.requireNonNull(pos2, "pos2 cannot be null");
+		Objects.requireNonNull(owner, "owner cannot be null");
+
+		int minX = Math.min(pos1.getX(), pos2.getX());
+		int maxX = Math.max(pos1.getX(), pos2.getX());
+		int minY = Math.min(pos1.getY(), pos2.getY());
+		int maxY = Math.max(pos1.getY(), pos2.getY());
+		int minZ = Math.min(pos1.getZ(), pos2.getZ());
+		int maxZ = Math.max(pos1.getZ(), pos2.getZ());
+
+		int sizeX = maxX - minX + 1;
+		int sizeY = maxY - minY + 1;
+		int sizeZ = maxZ - minZ + 1;
+
+		BlockPos anchorPos = new BlockPos(minX, minY, minZ);
+
+		String id = "mining_area_" + System.currentTimeMillis();
+		String name = "Mining Area (" + sizeX + "x" + sizeY + "x" + sizeZ + ")";
+		String desc = "Custom Area Mining from [" + minX + "," + minY + "," + minZ + "] to [" + maxX + "," + maxY + "," + maxZ + "]";
+
+		StructureBlueprint areaBlueprint = StructureBlueprint.createAreaBlueprint(
+			world,
+			pos1,
+			pos2,
+			id,
+			name,
+			desc
+		);
+
+		return startSession(world, anchorPos, areaBlueprint, owner, ConstructionSession.SessionMode.DISMANTLE);
+	}
+
+	/**
 	 * Initiates a new construction or deconstruction session anchored at the specified world coordinate.
 	 *
 	 * @param world     The server world where the session takes place.
@@ -231,7 +283,10 @@ public class ConstructionManager {
 			immutableAnchor,
 			blueprint.getId(),
 			blueprint.getRotationIndex(),
-			session.isDismantle()
+			session.isDismantle(),
+			blueprint.getSizeX(),
+			blueprint.getSizeY(),
+			blueprint.getSizeZ()
 		);
 		for (ServerPlayerEntity p : world.getPlayers()) {
 			ServerPlayNetworking.send(p, syncPayload);
@@ -311,10 +366,10 @@ public class ConstructionManager {
 			);
 		}
 
-		// Mobilize nearby stationed builder minions within 64 blocks of the new construction/deconstruction blueprint
+		// Mobilize nearby stationed builder minions within 128 blocks of the new construction/deconstruction blueprint
 		Box mobilizationBox = new Box(
-			immutableAnchor.getX() - 64.0D, immutableAnchor.getY() - 32.0D, immutableAnchor.getZ() - 64.0D,
-			immutableAnchor.getX() + 64.0D, immutableAnchor.getY() + 32.0D, immutableAnchor.getZ() + 64.0D
+			immutableAnchor.getX() - 128.0D, immutableAnchor.getY() - 128.0D, immutableAnchor.getZ() - 128.0D,
+			immutableAnchor.getX() + 128.0D, immutableAnchor.getY() + 128.0D, immutableAnchor.getZ() + 128.0D
 		);
 		List<com.example.entity.custom.MinionEntity> stationedBuilders = world.getEntitiesByClass(
 			com.example.entity.custom.MinionEntity.class,
@@ -447,6 +502,31 @@ public class ConstructionManager {
 		for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
 			minion.setActivelyBuilding(false);
 
+			// Check if the minion has another active blueprint session in their vicinity (<= 128 blocks)
+			Optional<ConstructionSession> nextSession = findNearestSessionForMinion(
+				world,
+				minion.getBlockPos(),
+				session.getOwnerUuid(),
+				128.0D,
+				MinionRole.BUILDER
+			);
+
+			if (nextSession.isPresent()) {
+				// Minion has another pending blueprint session nearby!
+				// Prevent premature stationing/sleeping so they seamlessly chain to the next build
+				if (minion.isInsideStructure(box)) {
+					minion.startEgressFromStructure(box, anchor, null);
+				} else {
+					if (minion.isArcaneLevitating()) {
+						minion.setArcaneLevitating(false);
+					}
+					minion.getNavigation().stop();
+				}
+				minion.setSitting(false);
+				minion.setGuardAnchorPos(null);
+				continue;
+			}
+
 			if (!session.isDismantle() && !perimeterWaypoints.isEmpty()) {
 				int ringSize = perimeterWaypoints.size();
 				int targetIdx = (startIdx + (int) Math.round(minionIdx * ((double) ringSize / (double) Math.max(1, totalMinions)))) % ringSize;
@@ -485,6 +565,36 @@ public class ConstructionManager {
 						minion.setArcaneLevitating(false);
 					}
 					minion.getNavigation().stop();
+				}
+			}
+		}
+
+		// Final site cleanup and inventory management
+		Box cleanupBox = new Box(box.getMinX() - 8, box.getMinY() - 4, box.getMinZ() - 8, box.getMaxX() + 8, box.getMaxY() + 8, box.getMaxZ() + 8);
+		if (session.isCreative()) {
+			// In Creative mode, builders discard unneeded blocks and any stray dropped items are purged
+			for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
+				com.example.entity.ai.logistics.MinionHarvestingHelper.checkAndDepositExcessMaterials(minion, world, session, true);
+			}
+			List<ItemEntity> strayItems = world.getEntitiesByClass(ItemEntity.class, cleanupBox, e -> true);
+			for (ItemEntity stray : strayItems) {
+				stray.discard();
+			}
+		} else {
+			// In Survival mode, deposit all leftover materials into chests and gather loose ground items into containers
+			for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
+				com.example.entity.ai.logistics.MinionHarvestingHelper.checkAndDepositExcessMaterials(minion, world, session, true);
+			}
+			List<ItemEntity> strayItems = world.getEntitiesByClass(ItemEntity.class, cleanupBox, e -> e.isAlive() && !e.cannotPickup());
+			for (ItemEntity item : strayItems) {
+				ItemStack stack = item.getStack();
+				if (!stack.isEmpty()) {
+					ItemStack rem = com.example.entity.ai.logistics.MinionHarvestingHelper.depositStackIntoNearbyContainer(stack, world, anchor, session, session.getOwnerUuid());
+					if (rem.isEmpty()) {
+						item.discard();
+					} else {
+						item.setStack(rem);
+					}
 				}
 			}
 		}
@@ -845,8 +955,29 @@ public class ConstructionManager {
 			}
 		}
 
-		// 2. Every 20 ticks (1 second): check active dismantle sessions for full clearance and render particles
+		// 2. Every 20 ticks (1 second): mobilize stationed builders within 128 blocks of active sessions, check active dismantle sessions for full clearance, and render particles
 		if (currentTick % 20L == 0L) {
+			for (ConstructionSession activeSession : this.activeSessions.values()) {
+				if (activeSession.isActive() && activeSession.getDimension().equals(world.getRegistryKey()) && activeSession.getOwnerUuid() != null) {
+					BlockPos anchor = activeSession.getAnchorPos();
+					Box mobilizationBox = new Box(
+						anchor.getX() - 128.0D, anchor.getY() - 128.0D, anchor.getZ() - 128.0D,
+						anchor.getX() + 128.0D, anchor.getY() + 128.0D, anchor.getZ() + 128.0D
+					);
+					List<com.example.entity.custom.MinionEntity> stationedBuilders = world.getEntitiesByClass(
+						com.example.entity.custom.MinionEntity.class,
+						mobilizationBox,
+						m -> m.isAlive() && m.isTamed() && activeSession.getOwnerUuid().equals(m.getOwnerUuid())
+							&& m.matchesRole(MinionRole.BUILDER)
+							&& (m.isSitting() || m.getGuardAnchorPos() != null)
+					);
+					for (com.example.entity.custom.MinionEntity builder : stationedBuilders) {
+						builder.setSitting(false);
+						builder.setGuardAnchorPos(null);
+					}
+				}
+			}
+
 			List<ConstructionSession> finishedDismantle = new ArrayList<>();
 			for (ConstructionSession session : this.activeSessions.values()) {
 				if (session.isActive() && session.isDismantle() && session.getDimension().equals(world.getRegistryKey())) {

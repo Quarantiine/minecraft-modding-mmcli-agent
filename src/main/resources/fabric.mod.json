@@ -2,8 +2,8 @@
 	"schemaVersion": 1,
 	"id": "modid-mmcli-agent-modding",
 	"version": "${version}",
-	"name": "Example Mod",
-	"description": "Fabric 1.21 starter mod template.",
+	"name": "Sovereign: Arcane Strategy & Engineering",
+	"description": "Tactical real-time strategy (RTS) and multiblock arcane engineering mod for Fabric 1.21.",
 	"authors": ["Mino"],
 	"contact": {
 		"homepage": "https://fabricmc.net/",

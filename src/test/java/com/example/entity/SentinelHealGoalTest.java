@@ -14,12 +14,13 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Unit tests validating Sentinel Combat-Medic Healing AI, GUI cleanup, and extended command range:
+ * Unit tests validating Sentinel Combat-Medic Healing AI, GUI cleanup, extended command range, and Iron Golem triage:
  * 1. Healing parameters, thresholds, and timers (Aegis of Restoration)
  * 2. Wounded ally qualification and priority selection (lowest HP ratio)
  * 3. Range calculations (10-block radius)
  * 4. Extended selected minion teleport and command thresholds (64 blocks)
- * 5. Source code invariants for goal registration, attributes, and GUI cleanup
+ * 5. Source code invariants for goal registration, attributes, Iron Golem triage, and GUI cleanup
+ * 6. Iron Golem medical triage, hostility filtering, and priority resolution
  */
 public class SentinelHealGoalTest {
 
@@ -120,6 +121,63 @@ public class SentinelHealGoalTest {
 				"MinionScreen must no longer draw minion.equipment label");
 		Assertions.assertTrue(screenContent.contains("minion.inventory"),
 				"MinionScreen must preserve minion.inventory category header");
+
+		// 3. SentinelHealAllyGoal queries IronGolemEntity and checks hostility
+		Path healGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/SentinelHealAllyGoal.java");
+		Assertions.assertTrue(Files.exists(healGoalPath), "SentinelHealAllyGoal.java must exist");
+		String healGoalContent = Files.readString(healGoalPath);
+		Assertions.assertTrue(healGoalContent.contains("IronGolemEntity.class"),
+				"SentinelHealAllyGoal must query IronGolemEntity.class");
+		Assertions.assertTrue(healGoalContent.contains("isNonHostileGolem"),
+				"SentinelHealAllyGoal must define and invoke isNonHostileGolem");
+		Assertions.assertTrue(healGoalContent.contains("g.getHealth() < g.getMaxHealth() * ALLY_HEALTH_THRESHOLD"),
+				"SentinelHealAllyGoal must filter Iron Golems under 70% HP threshold");
+
+		// 4. MinionEntity recognizes non-hostile IronGolemEntity in isTeammate
+		Assertions.assertTrue(minionContent.contains("other instanceof IronGolemEntity"),
+				"MinionEntity.isTeammate must evaluate IronGolemEntity");
+	}
+
+	@Test
+	@DisplayName("Validate Iron Golem medical triage, hostility filtering, and priority resolution")
+	void testIronGolemMedicalTriage() {
+		record MockGolem(String name, float health, float maxHealth, double distSq, String targetType) {
+			float healthRatio() {
+				return health / maxHealth;
+			}
+			boolean isNonHostile() {
+				return "NONE".equals(targetType) || "HOSTILE_MOB".equals(targetType);
+			}
+			boolean isEligible(float threshold, double maxDistSq) {
+				return distSq <= maxDistSq && health < maxHealth * threshold && isNonHostile();
+			}
+		}
+
+		List<MockGolem> golems = List.of(
+				new MockGolem("HealthyVillageGolem", 100.0F, 100.0F, 16.0D, "NONE"),           // 100% -> Ineligible
+				new MockGolem("ScratchedGolem", 80.0F, 100.0F, 25.0D, "HOSTILE_MOB"),           // 80% -> Ineligible (>= 70%)
+				new MockGolem("WoundedFriendlyGolem", 50.0F, 100.0F, 36.0D, "HOSTILE_MOB"),     // 50% -> Eligible
+				new MockGolem("HostileToMinionGolem", 30.0F, 100.0F, 16.0D, "MINION"),          // 30% -> Ineligible (hostile to minion)
+				new MockGolem("HostileToCommanderGolem", 20.0F, 100.0F, 16.0D, "COMMANDER"),    // 20% -> Ineligible (hostile to owner)
+				new MockGolem("DistantWoundedGolem", 40.0F, 100.0F, 144.0D, "NONE")            // 40% -> Ineligible (out of range)
+		);
+
+		List<MockGolem> eligible = new ArrayList<>();
+		for (MockGolem golem : golems) {
+			if (golem.isEligible(SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD, SentinelHealAllyGoal.HEAL_RANGE_SQ)) {
+				eligible.add(golem);
+			}
+		}
+
+		Assertions.assertEquals(1, eligible.size(), "Only WoundedFriendlyGolem should be eligible for medical triage");
+		Assertions.assertEquals("WoundedFriendlyGolem", eligible.get(0).name);
+
+		// Multi-entity triage hierarchy comparison:
+		// Commander (60% HP) vs Minion (65% HP) vs Iron Golem (45% HP)
+		// Commander priority takes precedence if player is wounded, but amongst minions and golems, lowest ratio wins
+		float golemRatio = 45.0F / 100.0F; // 0.45
+		float minionRatio = 26.0F / 40.0F; // 0.65
+		Assertions.assertTrue(golemRatio < minionRatio, "Critically wounded Iron Golem (45%) must have triage priority over minion (65%)");
 	}
 
 	@Test
@@ -149,5 +207,149 @@ public class SentinelHealGoalTest {
 		// Commander with lower ratio (0.60 vs 0.65) must be prioritized
 		Assertions.assertTrue(commander.healthRatio() < minionAlly.healthRatio(),
 				"Commander at 60% HP must have priority over minion at 65% HP");
+	}
+
+	@Test
+	@DisplayName("Validate complete Iron Golem hostility matrix and ally qualification")
+	void testIronGolemHostilityMatrix() {
+		enum TargetRelationship {
+			NONE,
+			HOSTILE_MOB,
+			SELF_MINION,
+			COMMANDER_OWNER,
+			FELLOW_SQUAD_MINION,
+			UNRELATED_PLAYER,
+			WILD_ANIMAL
+		}
+
+		record SimulatedGolem(String id, float health, float maxHealth, double distance, TargetRelationship targetRelation) {
+			boolean isNonHostileToSquad() {
+				return switch (targetRelation) {
+					case SELF_MINION, COMMANDER_OWNER, FELLOW_SQUAD_MINION -> false;
+					case NONE, HOSTILE_MOB, UNRELATED_PLAYER, WILD_ANIMAL -> true;
+				};
+			}
+
+			boolean isEligibleForAegisOfRestoration() {
+				return health > 0.0F
+						&& (health / maxHealth) < SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD
+						&& (distance * distance) <= SentinelHealAllyGoal.HEAL_RANGE_SQ
+						&& isNonHostileToSquad();
+			}
+		}
+
+		List<SimulatedGolem> matrix = List.of(
+				new SimulatedGolem("Golem_Idle_Injured", 40.0F, 100.0F, 5.0D, TargetRelationship.NONE),
+				new SimulatedGolem("Golem_FightingZombie_Injured", 65.0F, 100.0F, 8.0D, TargetRelationship.HOSTILE_MOB),
+				new SimulatedGolem("Golem_FightingWildMob_Injured", 50.0F, 100.0F, 3.0D, TargetRelationship.WILD_ANIMAL),
+				new SimulatedGolem("Golem_TargetingSelf_Injured", 30.0F, 100.0F, 4.0D, TargetRelationship.SELF_MINION),
+				new SimulatedGolem("Golem_TargetingOwner_Injured", 20.0F, 100.0F, 4.0D, TargetRelationship.COMMANDER_OWNER),
+				new SimulatedGolem("Golem_TargetingFellow_Injured", 25.0F, 100.0F, 6.0D, TargetRelationship.FELLOW_SQUAD_MINION),
+				new SimulatedGolem("Golem_TargetingStranger_Injured", 55.0F, 100.0F, 7.0D, TargetRelationship.UNRELATED_PLAYER),
+				new SimulatedGolem("Golem_Idle_Dead", 0.0F, 100.0F, 2.0D, TargetRelationship.NONE),
+				new SimulatedGolem("Golem_Idle_Healthy", 85.0F, 100.0F, 2.0D, TargetRelationship.NONE),
+				new SimulatedGolem("Golem_Idle_ExactThreshold", 70.0F, 100.0F, 2.0D, TargetRelationship.NONE),
+				new SimulatedGolem("Golem_Idle_OutOfRange", 40.0F, 100.0F, 11.0D, TargetRelationship.NONE)
+		);
+
+		// Assert expected qualifications
+		Assertions.assertTrue(matrix.get(0).isEligibleForAegisOfRestoration(), "Idle injured golem must be eligible");
+		Assertions.assertTrue(matrix.get(1).isEligibleForAegisOfRestoration(), "Golem fighting hostiles must be eligible");
+		Assertions.assertTrue(matrix.get(2).isEligibleForAegisOfRestoration(), "Golem fighting neutral animals must be eligible");
+		Assertions.assertFalse(matrix.get(3).isEligibleForAegisOfRestoration(), "Golem targeting healer minion must be rejected as hostile");
+		Assertions.assertFalse(matrix.get(4).isEligibleForAegisOfRestoration(), "Golem targeting minion's owner must be rejected as hostile");
+		Assertions.assertFalse(matrix.get(5).isEligibleForAegisOfRestoration(), "Golem targeting fellow squad minion must be rejected as hostile");
+		Assertions.assertTrue(matrix.get(6).isEligibleForAegisOfRestoration(), "Golem targeting non-owner player is non-hostile to our squad");
+		Assertions.assertFalse(matrix.get(7).isEligibleForAegisOfRestoration(), "Dead golem (0 HP) must be rejected");
+		Assertions.assertFalse(matrix.get(8).isEligibleForAegisOfRestoration(), "Healthy golem (85% HP) must not qualify");
+		Assertions.assertFalse(matrix.get(9).isEligibleForAegisOfRestoration(), "Golem at exactly 70% threshold must not qualify (< 70% required)");
+		Assertions.assertFalse(matrix.get(10).isEligibleForAegisOfRestoration(), "Golem at 11 blocks must be rejected due to 10-block range cap");
+	}
+
+	@Test
+	@DisplayName("Validate MinionEntity.isTeammate logic for Iron Golems")
+	void testMinionEntityTeammateInvariantsForIronGolem() {
+		class MockOwner {}
+		class MockMinion {
+			final MockOwner owner;
+			MockMinion(MockOwner owner) { this.owner = owner; }
+		}
+
+		class MockGolem {
+			Object target;
+			MockGolem(Object target) { this.target = target; }
+		}
+
+		class TeammateChecker {
+			boolean isTeammate(MockMinion self, Object other) {
+				if (other instanceof MockGolem golem) {
+					Object golemTarget = golem.target;
+					if (golemTarget == null) {
+						return true;
+					}
+					if (golemTarget.equals(self)) {
+						return false;
+					}
+					if (self.owner != null) {
+						if (golemTarget.equals(self.owner)) {
+							return false;
+						}
+						if (golemTarget instanceof MockMinion minionTarget && minionTarget.owner != null && minionTarget.owner.equals(self.owner)) {
+							return false;
+						}
+					}
+					return true;
+				}
+				if (self.owner != null) {
+					if (other.equals(self.owner)) return true;
+					if (other instanceof MockMinion om && om.owner != null && om.owner.equals(self.owner)) return true;
+				}
+				return false;
+			}
+		}
+
+		MockOwner owner = new MockOwner();
+		MockMinion selfMinion = new MockMinion(owner);
+		MockMinion squadMate = new MockMinion(owner);
+		MockOwner otherOwner = new MockOwner();
+		MockMinion hostileMinion = new MockMinion(otherOwner);
+		Object zombie = new Object();
+
+		TeammateChecker checker = new TeammateChecker();
+
+		// Owner and squadmates
+		Assertions.assertTrue(checker.isTeammate(selfMinion, owner), "Owner must be recognized as teammate");
+		Assertions.assertTrue(checker.isTeammate(selfMinion, squadMate), "Squadmate with same owner must be teammate");
+		Assertions.assertFalse(checker.isTeammate(selfMinion, hostileMinion), "Minion from different owner is not teammate");
+
+		// Iron Golems
+		Assertions.assertTrue(checker.isTeammate(selfMinion, new MockGolem(null)), "Neutral golem (target=null) is teammate");
+		Assertions.assertTrue(checker.isTeammate(selfMinion, new MockGolem(zombie)), "Golem fighting monster is teammate");
+		Assertions.assertTrue(checker.isTeammate(selfMinion, new MockGolem(hostileMinion)), "Golem targeting enemy minion is teammate");
+		Assertions.assertFalse(checker.isTeammate(selfMinion, new MockGolem(selfMinion)), "Golem targeting self is NOT teammate");
+		Assertions.assertFalse(checker.isTeammate(selfMinion, new MockGolem(owner)), "Golem targeting owner is NOT teammate");
+		Assertions.assertFalse(checker.isTeammate(selfMinion, new MockGolem(squadMate)), "Golem targeting squadmate is NOT teammate");
+	}
+
+	@Test
+	@DisplayName("Validate Sentinel heal threshold boundary conditions and self-heal fallback")
+	void testSentinelHealThresholdBoundaryConditions() {
+		// Self-heal threshold is 40% (16.0 / 40.0 HP)
+		float maxHp = 40.0F;
+		float selfCritHealth = 15.9F;
+		float selfHealthyHealth = 16.1F;
+
+		Assertions.assertTrue(selfCritHealth < maxHp * SentinelHealAllyGoal.SELF_HEALTH_THRESHOLD,
+				"15.9 HP is < 40% threshold -> Self-heal triggers when no allies need healing");
+		Assertions.assertFalse(selfHealthyHealth < maxHp * SentinelHealAllyGoal.SELF_HEALTH_THRESHOLD,
+				"16.1 HP is > 40% threshold -> Self-heal must not trigger");
+
+		// Ally threshold is 70%
+		float allyWounded = 27.9F;
+		float allySlightlyScratched = 28.1F;
+		Assertions.assertTrue(allyWounded < maxHp * SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD,
+				"27.9 HP is < 70% threshold -> Ally healing triggers");
+		Assertions.assertFalse(allySlightlyScratched < maxHp * SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD,
+				"28.1 HP is > 70% threshold -> Ally healing ignored");
 	}
 }

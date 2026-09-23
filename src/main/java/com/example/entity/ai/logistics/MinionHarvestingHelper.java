@@ -45,12 +45,18 @@ import net.minecraft.entity.passive.TameableEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.inventory.SimpleInventory;
+import net.minecraft.item.ArmorItem;
 import net.minecraft.item.AxeItem;
+import net.minecraft.item.BowItem;
+import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.item.MaceItem;
 import net.minecraft.item.PickaxeItem;
 import net.minecraft.item.ShovelItem;
+import net.minecraft.item.SwordItem;
+import net.minecraft.item.TridentItem;
 import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.Registries;
@@ -143,6 +149,18 @@ public final class MinionHarvestingHelper {
 	}
 
 	/**
+	 * Checks if an item can be safely discarded in Creative mode (any block or non-tool/non-weapon/non-armor).
+	 */
+	public static boolean isDiscardableCreativeItem(Item item) {
+		if (item == null || item == Items.AIR) return false;
+		if (item instanceof ArmorItem) return false;
+		if (item instanceof SwordItem || item instanceof BowItem || item instanceof CrossbowItem || item instanceof TridentItem) return false;
+		if (item instanceof PickaxeItem || item instanceof AxeItem || item instanceof ShovelItem || item instanceof MaceItem) return false;
+		if (item == com.example.item.ModItems.FROST_GRENADE_STICK || item == com.example.item.ModItems.TNT_STICK) return false;
+		return true;
+	}
+
+	/**
 	 * Checks minion inventory capacity and deposits surplus non-blueprint materials into nearby chests.
 	 * If no chest exists or nearby containers are full, crafts and places an autonomous Chest / Double Chest.
 	 *
@@ -155,11 +173,48 @@ public final class MinionHarvestingHelper {
 		ServerWorld world,
 		ConstructionSession session
 	) {
+		checkAndDepositExcessMaterials(minion, world, session, false);
+	}
+
+	/**
+	 * Checks minion inventory capacity and deposits surplus materials into nearby chests.
+	 * In Creative mode, unneeded blocks are discarded directly from inventory to keep slots clean.
+	 * In Survival mode, if forceAllExcess is true, all surplus non-blueprint items are deposited into chests.
+	 *
+	 * @param minion         The builder minion.
+	 * @param world          The server world.
+	 * @param session        The active construction session.
+	 * @param forceAllExcess True to deposit all surplus regardless of occupied slot count (e.g. upon session finish).
+	 */
+	public static void checkAndDepositExcessMaterials(
+		MinionEntity minion,
+		ServerWorld world,
+		ConstructionSession session,
+		boolean forceAllExcess
+	) {
 		if (minion == null || world == null) {
 			return;
 		}
 
 		SimpleInventory inv = minion.getInventory();
+
+		// In Creative mode, builders don't need chests; they discard unneeded blocks entirely
+		// so they have empty space to build with other types of blocks without clutter.
+		if (session != null && session.isCreative()) {
+			boolean modified = false;
+			for (int i = 0; i < inv.size(); i++) {
+				ItemStack stack = inv.getStack(i);
+				if (!stack.isEmpty() && isDiscardableCreativeItem(stack.getItem())) {
+					inv.setStack(i, ItemStack.EMPTY);
+					modified = true;
+				}
+			}
+			if (modified) {
+				inv.markDirty();
+			}
+			return;
+		}
+
 		int occupiedSlots = 0;
 		for (int i = 0; i < inv.size(); i++) {
 			if (!inv.getStack(i).isEmpty()) {
@@ -167,8 +222,8 @@ public final class MinionHarvestingHelper {
 			}
 		}
 
-		// Only deposit if inventory is near capacity (>= 7 of 9 slots full)
-		if (occupiedSlots < 7) {
+		// In survival mode, deposit if forceAllExcess is true OR inventory is near capacity (>= 7 of 9 slots full)
+		if (!forceAllExcess && occupiedSlots < 7) {
 			return;
 		}
 
@@ -177,7 +232,7 @@ public final class MinionHarvestingHelper {
 		for (int i = 0; i < inv.size(); i++) {
 			ItemStack stack = inv.getStack(i);
 			if (stack.isEmpty()) continue;
-			if (isExcessItem(stack.getItem(), session)) {
+			if (isExcessItem(stack.getItem(), session, forceAllExcess)) {
 				excessSlots.add(i);
 			}
 		}
@@ -186,9 +241,9 @@ public final class MinionHarvestingHelper {
 			return;
 		}
 
-		// 1. Look for existing container within 12 blocks
+		// 1. Look for existing container within 24 blocks
 		BlockPos minionPos = minion.getBlockPos();
-		BlockPos targetChestPos = findNearbyChestWithSpace(world, minionPos, 12);
+		BlockPos targetChestPos = findNearbyChestWithSpace(world, minionPos, 24);
 
 		// 2. If no container with space found, attempt autonomous chest crafting and deployment
 		if (targetChestPos == null) {
@@ -310,14 +365,15 @@ public final class MinionHarvestingHelper {
 		return candidate;
 	}
 
-	private static BlockPos findNearbyChestWithSpace(ServerWorld world, BlockPos center, int radius) {
-		for (BlockPos pos : BlockPos.iterateOutwards(center, radius, 3, radius)) {
+	public static BlockPos findNearbyChestWithSpace(ServerWorld world, BlockPos center, int radius) {
+		for (BlockPos pos : BlockPos.iterateOutwards(center, radius, 4, radius)) {
 			BlockState state = world.getBlockState(pos);
-			if (state.isOf(Blocks.CHEST) || state.isOf(Blocks.BARREL)) {
+			if (state.isOf(Blocks.CHEST) || state.isOf(Blocks.BARREL) || state.isOf(Blocks.TRAPPED_CHEST)) {
 				BlockEntity be = world.getBlockEntity(pos);
 				if (be instanceof Inventory inv) {
 					for (int i = 0; i < inv.size(); i++) {
-						if (inv.getStack(i).isEmpty()) {
+						ItemStack s = inv.getStack(i);
+						if (s.isEmpty() || s.getCount() < s.getMaxCount()) {
 							return pos.toImmutable();
 						}
 					}
@@ -328,8 +384,20 @@ public final class MinionHarvestingHelper {
 	}
 
 	private static boolean isExcessItem(Item item, ConstructionSession session) {
+		return isExcessItem(item, session, false);
+	}
+
+	private static boolean isExcessItem(Item item, ConstructionSession session, boolean forceAllExcess) {
 		if (item == Items.CHEST) return false;
-		if (item instanceof PickaxeItem || item instanceof AxeItem || item instanceof ShovelItem) return false;
+		if (item instanceof ArmorItem) return false;
+		if (item instanceof SwordItem || item instanceof BowItem || item instanceof CrossbowItem || item instanceof TridentItem) return false;
+		if (item instanceof PickaxeItem || item instanceof AxeItem || item instanceof ShovelItem || item instanceof MaceItem) return false;
+		if (item == com.example.item.ModItems.FROST_GRENADE_STICK || item == com.example.item.ModItems.TNT_STICK) return false;
+
+		if (forceAllExcess) {
+			return true;
+		}
+
 		// If session requires this item or it is a raw ingredient for synthesis, it is not excess
 		if (session != null) {
 			for (var task : session.getTasks()) {
@@ -342,6 +410,44 @@ public final class MinionHarvestingHelper {
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * Deposits a stack into a nearby container within range.
+	 *
+	 * @return The remaining stack that could not be deposited (or empty if fully stored).
+	 */
+	public static ItemStack depositStackIntoNearbyContainer(ItemStack stack, ServerWorld world, BlockPos searchCenter, ConstructionSession session, java.util.UUID ownerUuid) {
+		if (stack.isEmpty() || world == null || searchCenter == null) {
+			return stack;
+		}
+
+		BlockPos targetChestPos = findNearbyChestWithSpace(world, searchCenter, 24);
+		if (targetChestPos != null) {
+			BlockEntity be = world.getBlockEntity(targetChestPos);
+			if (be instanceof Inventory containerInv) {
+				for (int cSlot = 0; cSlot < containerInv.size(); cSlot++) {
+					ItemStack destStack = containerInv.getStack(cSlot);
+					if (destStack.isEmpty()) {
+						containerInv.setStack(cSlot, stack.copy());
+						stack.setCount(0);
+						containerInv.markDirty();
+						return ItemStack.EMPTY;
+					} else if (ItemStack.areItemsAndComponentsEqual(destStack, stack)) {
+						int transferable = Math.min(stack.getCount(), destStack.getMaxCount() - destStack.getCount());
+						if (transferable > 0) {
+							destStack.increment(transferable);
+							stack.decrement(transferable);
+							containerInv.markDirty();
+							if (stack.isEmpty()) {
+								return ItemStack.EMPTY;
+							}
+						}
+					}
+				}
+			}
+		}
+		return stack;
 	}
 
 	private static boolean harvestWoodOrAgroForestry(
@@ -404,12 +510,22 @@ public final class MinionHarvestingHelper {
 	}
 
 	private static void fellLog(MinionEntity minion, ServerWorld world, BlockPos pos, BlockState state) {
+		// Use loot-table-faithful drop computation so silk-touch axes and fortune yield correct items.
+		BlockEntity be = world.getBlockEntity(pos);
+		List<ItemStack> drops = Block.getDroppedStacks(state, world, pos, be, minion, minion.getMainHandStack());
 		world.breakBlock(pos, false, minion);
-		Item dropItem = state.getBlock().asItem();
-		if (dropItem == Items.AIR) {
-			dropItem = Items.OAK_LOG;
+
+		if (drops.isEmpty()) {
+			// Fallback: guaranteed at least one log unit for agro-forestry continuity
+			Item fallback = state.getBlock().asItem();
+			minion.getInventory().addStack(new ItemStack(fallback == Items.AIR ? Items.OAK_LOG : fallback, 1));
+		} else {
+			for (ItemStack drop : drops) {
+				if (!drop.isEmpty()) {
+					minion.getInventory().addStack(drop);
+				}
+			}
 		}
-		minion.getInventory().addStack(new ItemStack(dropItem, 1));
 
 		// Damage equipped axe if held
 		ItemStack mainhand = minion.getMainHandStack();
@@ -433,10 +549,22 @@ public final class MinionHarvestingHelper {
 			BlockState state = world.getBlockState(pos);
 			if (isNaturalStoneOrEarth(state) && !isProtectedBlock(world, pos, session, minion.getOwnerUuid())) {
 				if (!hasAdjacentLava(world, pos)) {
+					// Use loot-table-faithful drop computation (respects silk-touch pickaxes, fortune, etc.)
+					BlockEntity be = world.getBlockEntity(pos);
+					List<ItemStack> drops = Block.getDroppedStacks(state, world, pos, be, minion, minion.getMainHandStack());
 					world.breakBlock(pos, false, minion);
 
-					Item dropItem = resolveQuarryDrop(state, requiredItem);
-					minion.getInventory().addStack(new ItemStack(dropItem, 1));
+					if (drops.isEmpty()) {
+						// Fallback to legacy resolution for no-loot-table edge cases
+						Item dropItem = resolveQuarryDrop(state, requiredItem);
+						minion.getInventory().addStack(new ItemStack(dropItem, 1));
+					} else {
+						for (ItemStack drop : drops) {
+							if (!drop.isEmpty()) {
+								minion.getInventory().addStack(drop);
+							}
+						}
+					}
 
 					// Damage pickaxe/shovel if held
 					ItemStack mainhand = minion.getMainHandStack();
@@ -1150,7 +1278,7 @@ public final class MinionHarvestingHelper {
 			m -> m != requester
 				&& m.isAlive()
 				&& ownerUuid.equals(m.getOwnerUuid())
-				&& m.getRole() == MinionRole.WARRIOR
+				&& m.matchesRole(MinionRole.WARRIOR)
 				&& !m.isSitting()
 				&& !m.hasActiveProcurement()
 				&& !m.hasAssaultTargets()

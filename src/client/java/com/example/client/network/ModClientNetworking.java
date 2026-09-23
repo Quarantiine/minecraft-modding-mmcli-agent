@@ -42,10 +42,41 @@ public class ModClientNetworking {
 				}
 			})
 		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			com.example.network.SyncCustomBlueprintsPayload.ID,
+			(payload, context) -> context.client().execute(() -> {
+				com.example.blueprint.BlueprintRegistry.clearCustomBlueprints();
+				if (payload.blueprints() != null) {
+					for (com.example.blueprint.StructureBlueprint bp : payload.blueprints()) {
+						com.example.blueprint.BlueprintRegistry.registerCustomBlueprint(bp);
+					}
+				}
+				if (context.client().currentScreen instanceof com.example.client.gui.CommandScepterScreen screen) {
+					screen.refreshButtonLabels();
+				}
+			})
+		);
 
 		net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			com.example.client.renderer.ClientPatrolRouteTracker.clear();
+			com.example.blueprint.BlueprintRegistry.clearCustomBlueprints();
 		});
+	}
+
+	/**
+	 * Dispatches an {@link UpdateScepterPayload} from the client GUI to the server including squad filtering, rotation, target archetype role, and active patrol route channel.
+	 *
+	 * @param mode              The updated {@link CommandMode}.
+	 * @param blueprintId       The active architectural blueprint identifier.
+	 * @param targetSquad       The active target {@link SquadGroup} filter channel.
+	 * @param rotation          The structure rotation index (0 -> 0°, 1 -> 90°, 2 -> 180°, 3 -> 270°).
+	 * @param targetRole        Optional target {@link MinionRole} archetype for mass role transformation.
+	 * @param activePatrolRoute The active patrol route channel index (0 to CHANNEL_COUNT - 1).
+	 * @param executeDirective  True if immediate directive execution is requested.
+	 */
+	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, int rotation, Optional<MinionRole> targetRole, int activePatrolRoute, boolean executeDirective) {
+		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, targetSquad, rotation, targetRole, activePatrolRoute, executeDirective);
+		ClientPlayNetworking.send(payload);
 	}
 
 	/**
@@ -59,31 +90,7 @@ public class ModClientNetworking {
 	 * @param executeDirective True if immediate directive execution is requested.
 	 */
 	public static void sendUpdateScepter(CommandMode mode, String blueprintId, SquadGroup targetSquad, int rotation, Optional<MinionRole> targetRole, boolean executeDirective) {
-		UpdateScepterPayload payload = new UpdateScepterPayload(mode, blueprintId, targetSquad, rotation, targetRole, executeDirective);
-		ClientPlayNetworking.send(payload);
-	}
-
-	public static void sendUpdateScepter(
-		CommandMode mode,
-		String blueprintId,
-		SquadGroup targetSquad,
-		int rotation,
-		Optional<MinionRole> targetRole,
-		boolean executeDirective,
-		com.example.blueprint.ArchitectureStyle style,
-		int buildingSize
-	) {
-		UpdateScepterPayload payload = new UpdateScepterPayload(
-			mode,
-			blueprintId,
-			targetSquad,
-			rotation,
-			targetRole,
-			executeDirective,
-			style,
-			buildingSize
-		);
-		ClientPlayNetworking.send(payload);
+		sendUpdateScepter(mode, blueprintId, targetSquad, rotation, targetRole, 0, executeDirective);
 	}
 
 	/**
@@ -163,7 +170,15 @@ public class ModClientNetworking {
 	 * Dispatches a {@link DismissMinionPayload} to dismiss all owned minions within the command radius.
 	 */
 	public static void sendDismissAllMinions() {
-		DismissMinionPayload payload = new DismissMinionPayload(-1, true);
+		DismissMinionPayload payload = new DismissMinionPayload(DismissMinionPayload.TARGET_ALL, true);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link DismissMinionPayload} to dismiss only selected owned minions within the command radius.
+	 */
+	public static void sendDismissSelectedMinions() {
+		DismissMinionPayload payload = new DismissMinionPayload(DismissMinionPayload.TARGET_SELECTED, false);
 		ClientPlayNetworking.send(payload);
 	}
 
@@ -275,5 +290,86 @@ public class ModClientNetworking {
 
 	public static void sendClearEscort(int minionId) {
 		sendModifyPatrolRoute(com.example.network.ModifyPatrolRoutePayload.Action.CLEAR_ESCORT, -1, net.minecraft.util.math.BlockPos.ORIGIN, minionId, -1);
+	}
+
+	public static void sendSavePatrolRoute(int routeId, String name, int colorRgb, com.example.patrol.PatrolRoute.PatrolMode mode) {
+		com.example.network.ConfigurePatrolRoutePayload payload = new com.example.network.ConfigurePatrolRoutePayload(
+			com.example.network.ConfigurePatrolRoutePayload.Action.SAVE,
+			routeId,
+			name,
+			colorRgb,
+			mode != null ? mode : com.example.patrol.PatrolRoute.PatrolMode.LOOP
+		);
+		ClientPlayNetworking.send(payload);
+	}
+
+	public static void sendDeletePatrolRoute(int routeId, String name) {
+		com.example.network.ConfigurePatrolRoutePayload payload = new com.example.network.ConfigurePatrolRoutePayload(
+			com.example.network.ConfigurePatrolRoutePayload.Action.DELETE,
+			routeId,
+			name != null ? name : "",
+			0,
+			com.example.patrol.PatrolRoute.PatrolMode.LOOP
+		);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.CreateCustomBlueprintPayload} to compile and persist a custom blueprint.
+	 *
+	 * @param id          Unique blueprint identifier.
+	 * @param name        Display name.
+	 * @param description Description.
+	 * @param blocks      Blueprint blocks.
+	 */
+	public static void sendCreateCustomBlueprint(String id, String name, String description, java.util.List<com.example.blueprint.BlueprintBlock> blocks) {
+		com.example.network.CreateCustomBlueprintPayload payload = new com.example.network.CreateCustomBlueprintPayload(id, name, description, blocks);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.CreateCustomBlueprintPayload} to save a compiled StructureBlueprint.
+	 *
+	 * @param blueprint The StructureBlueprint to serialize and send.
+	 */
+	public static void sendCreateCustomBlueprint(com.example.blueprint.StructureBlueprint blueprint) {
+		com.example.network.CreateCustomBlueprintPayload payload = new com.example.network.CreateCustomBlueprintPayload(blueprint);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.CaptureSpatialBlueprintPayload} to trigger server-side
+	 * in-world spatial capture and persistence.
+	 *
+	 * @param id          Unique blueprint identifier.
+	 * @param name        Display name.
+	 * @param description Description.
+	 * @param pos1        First corner position.
+	 * @param pos2        Second corner position.
+	 */
+	public static void sendCaptureSpatialBlueprint(String id, String name, String description, net.minecraft.util.math.BlockPos pos1, net.minecraft.util.math.BlockPos pos2) {
+		com.example.network.CaptureSpatialBlueprintPayload payload = new com.example.network.CaptureSpatialBlueprintPayload(id, name, description, pos1, pos2);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.DeleteCustomBlueprintPayload} to remove a custom blueprint.
+	 *
+	 * @param blueprintId Unique blueprint identifier to delete.
+	 */
+	public static void sendDeleteCustomBlueprint(String blueprintId) {
+		com.example.network.DeleteCustomBlueprintPayload payload = new com.example.network.DeleteCustomBlueprintPayload(blueprintId);
+		ClientPlayNetworking.send(payload);
+	}
+
+	/**
+	 * Dispatches a {@link com.example.network.StartMiningAreaPayload} to initiate an area dismantle session on the server.
+	 *
+	 * @param pos1 First corner position.
+	 * @param pos2 Second corner position.
+	 */
+	public static void sendStartMiningArea(net.minecraft.util.math.BlockPos pos1, net.minecraft.util.math.BlockPos pos2) {
+		com.example.network.StartMiningAreaPayload payload = new com.example.network.StartMiningAreaPayload(pos1, pos2);
+		ClientPlayNetworking.send(payload);
 	}
 }

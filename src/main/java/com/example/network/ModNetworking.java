@@ -9,6 +9,7 @@ import com.example.entity.custom.MinionRole;
 import com.example.item.ModItems;
 import com.example.item.custom.CommandScepterItem;
 import com.example.screen.MinionScreenHandler;
+import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -20,6 +21,8 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Box;
 
 /**
@@ -43,11 +46,17 @@ public class ModNetworking {
 		PayloadTypeRegistry.playC2S().register(RetreatPayload.ID, RetreatPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(AnchorConstructionPayload.ID, AnchorConstructionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playC2S().register(ModifyPatrolRoutePayload.ID, ModifyPatrolRoutePayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(ConfigurePatrolRoutePayload.ID, ConfigurePatrolRoutePayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(CreateCustomBlueprintPayload.ID, CreateCustomBlueprintPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(CaptureSpatialBlueprintPayload.ID, CaptureSpatialBlueprintPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(DeleteCustomBlueprintPayload.ID, DeleteCustomBlueprintPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playC2S().register(StartMiningAreaPayload.ID, StartMiningAreaPayload.PACKET_CODEC);
 
 		// S2C Payloads for active blueprint wireframe and patrol route synchronization
 		PayloadTypeRegistry.playS2C().register(SyncConstructionSessionPayload.ID, SyncConstructionSessionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playS2C().register(EndConstructionSessionPayload.ID, EndConstructionSessionPayload.PACKET_CODEC);
 		PayloadTypeRegistry.playS2C().register(SyncPatrolRoutesPayload.ID, SyncPatrolRoutesPayload.PACKET_CODEC);
+		PayloadTypeRegistry.playS2C().register(SyncCustomBlueprintsPayload.ID, SyncCustomBlueprintsPayload.PACKET_CODEC);
 	}
 
 	/**
@@ -91,6 +100,26 @@ public class ModNetworking {
 			ServerPlayerEntity player = context.player();
 			context.server().execute(() -> handleModifyPatrolRoute(player, payload));
 		});
+		ServerPlayNetworking.registerGlobalReceiver(ConfigurePatrolRoutePayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleConfigurePatrolRoute(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(CreateCustomBlueprintPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleCreateCustomBlueprint(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(CaptureSpatialBlueprintPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleCaptureSpatialBlueprint(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(DeleteCustomBlueprintPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleDeleteCustomBlueprint(player, payload));
+		});
+		ServerPlayNetworking.registerGlobalReceiver(StartMiningAreaPayload.ID, (payload, context) -> {
+			ServerPlayerEntity player = context.player();
+			context.server().execute(() -> handleStartMiningArea(player, payload));
+		});
 	}
 
 	/**
@@ -126,11 +155,12 @@ public class ModNetworking {
 			return;
 		}
 
-		// 2. Apply updated CommandMode, active blueprint, target squad, and rotation
+		// 2. Apply updated CommandMode, active blueprint, target squad, rotation, and active patrol route channel
 		CommandMode mode = payload.mode();
 		String blueprintId = payload.blueprintId();
 		SquadGroup targetSquad = payload.targetSquad();
 		int rotation = payload.rotation();
+		int activePatrolRoute = payload.activePatrolRoute();
 
 		if (mode != null) {
 			CommandScepterItem.setMode(scepterStack, mode);
@@ -143,20 +173,16 @@ public class ModNetworking {
 		}
 		CommandScepterItem.setRotationIndex(scepterStack, rotation);
 
+		// Apply active patrol route channel if within valid bounds [0, PatrolRoute.CHANNEL_COUNT - 1]
+		if (activePatrolRoute >= 0 && activePatrolRoute < com.example.patrol.PatrolRoute.CHANNEL_COUNT) {
+			CommandScepterItem.setActivePatrolRoute(scepterStack, activePatrolRoute);
+		}
+
 		// Apply target role archetype if provided in payload
 		if (payload.targetRole() != null) {
 			CommandScepterItem.setTargetRole(scepterStack, payload.targetRole().orElse(null));
 		}
 
-		// Apply architectural style if provided in payload
-		if (payload.architectureStyle() != null && payload.architectureStyle().isPresent()) {
-			CommandScepterItem.setArchitectureStyle(scepterStack, payload.architectureStyle().get());
-		}
-
-		// Apply building size if provided in payload
-		if (payload.buildingSize() != null && payload.buildingSize().isPresent()) {
-			CommandScepterItem.setBuildingSize(scepterStack, payload.buildingSize().get());
-		}
 
 		// 3. Audio & actionbar feedback
 		CommandMode currentMode = CommandScepterItem.getMode(scepterStack);
@@ -242,7 +268,36 @@ public class ModNetworking {
 		ServerWorld world = player.getServerWorld();
 		int dismissedCount = 0;
 
-		if (payload.dismissAll() || payload.minionId() < 0) {
+		if (payload.minionId() == DismissMinionPayload.TARGET_SELECTED) {
+			// Dismiss only selected owned minions within command radius (64 blocks)
+			Box searchBox = player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS);
+			List<MinionEntity> selectedMinions = world.getEntitiesByClass(
+				MinionEntity.class,
+				searchBox,
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected()
+			);
+
+			for (MinionEntity minion : selectedMinions) {
+				minion.dismiss();
+				dismissedCount++;
+			}
+
+			if (player.currentScreenHandler instanceof MinionScreenHandler) {
+				player.closeHandledScreen();
+			}
+
+			if (dismissedCount > 0) {
+				player.sendMessage(
+					Text.literal("§c✦ Dismissed " + dismissedCount + " selected minion(s).§r"),
+					true
+				);
+			} else {
+				player.sendMessage(
+					Text.literal("§e⚠ No selected minions found nearby to dismiss.§r"),
+					true
+				);
+			}
+		} else if (payload.dismissAll() || payload.minionId() < 0) {
 			// Dismiss all owned minions within command radius (64 blocks)
 			Box searchBox = player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS);
 			List<MinionEntity> nearbyMinions = world.getEntitiesByClass(
@@ -304,12 +359,12 @@ public class ModNetworking {
 		int teleportedCount = 0;
 
 		if (payload.teleportAll() || payload.minionId() < 0) {
-			// Teleport all owned minions within command radius (64 blocks)
+			// Teleport only selected owned minions within command radius (64 blocks)
 			Box searchBox = player.getBoundingBox().expand(CommandScepterItem.MINION_COMMAND_RADIUS);
 			List<MinionEntity> nearbyMinions = world.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player)
+				m -> m.isAlive() && m.isOwner(player) && m.isSelected()
 			);
 
 			for (MinionEntity minion : nearbyMinions) {
@@ -328,7 +383,7 @@ public class ModNetworking {
 				);
 			} else {
 				player.sendMessage(
-					Text.translatable("message.modid-mmcli-agent-modding.no_minions_to_teleport"),
+					Text.translatable("message.modid-mmcli-agent-modding.no_selected_minions_to_teleport"),
 					true
 				);
 			}
@@ -473,6 +528,36 @@ public class ModNetworking {
 	}
 
 	/**
+	 * Handles C2S customizable patrol route configuration (saving name/hex color or deleting).
+	 */
+	private static void handleConfigurePatrolRoute(ServerPlayerEntity player, ConfigurePatrolRoutePayload payload) {
+		if (player == null || payload == null) return;
+		ServerWorld world = player.getServerWorld();
+
+		if (payload.action() == ConfigurePatrolRoutePayload.Action.DELETE) {
+			boolean deleted = com.example.patrol.PatrolRouteManager.getInstance().deleteRoute(
+				player.getUuid(), payload.routeId(), world, player
+			);
+			if (deleted) {
+				player.sendMessage(Text.literal("§c✦ Deleted Patrol Route: §f" + payload.name() + "§r"), true);
+			}
+		} else {
+			com.example.patrol.PatrolRoute existing = com.example.patrol.PatrolRouteManager.getInstance().getRoute(player.getUuid(), payload.routeId());
+			List<BlockPos> waypoints = existing != null ? existing.waypoints() : new ArrayList<>();
+			com.example.patrol.PatrolRoute updated = new com.example.patrol.PatrolRoute(
+				payload.routeId(),
+				payload.name(),
+				payload.colorRgb(),
+				waypoints,
+				payload.patrolMode() != null ? payload.patrolMode() : (existing != null ? existing.patrolMode() : com.example.patrol.PatrolRoute.PatrolMode.LOOP)
+			);
+			com.example.patrol.PatrolRouteManager.getInstance().setRoute(player.getUuid(), updated);
+			com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(player);
+			player.sendMessage(Text.literal("§6✦ Configured Patrol Route: §f" + updated.name() + " §8[" + com.example.patrol.PatrolRoute.toHexCode(updated.colorRgb()) + "]§r"), true);
+		}
+	}
+
+	/**
 	 * Handles C2S patrol route modifications and minion escort/patrol assignments.
 	 */
 	private static void handleModifyPatrolRoute(ServerPlayerEntity player, ModifyPatrolRoutePayload payload) {
@@ -599,6 +684,184 @@ public class ModNetworking {
 				com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(player);
 				player.sendMessage(Text.literal("§6✦ Set " + updated.getFormattedName() + " to §b" + updated.patrolMode().getFormattedLabel()), true);
 			}
+		}
+	}
+
+	/**
+	 * Handles C2S creation and saving of custom player-designed voxel blueprints.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The blueprint creation payload.
+	 */
+	private static void handleCreateCustomBlueprint(ServerPlayerEntity player, CreateCustomBlueprintPayload payload) {
+		if (player == null || payload == null) return;
+		if (payload.id() == null || payload.id().isBlank() || payload.name() == null || payload.name().isBlank()) {
+			player.sendMessage(Text.literal("§c⚠ Invalid blueprint metadata: ID and Name are required."), true);
+			return;
+		}
+
+		com.example.blueprint.StructureBlueprint blueprint = payload.toStructureBlueprint();
+		com.example.blueprint.CustomBlueprintManager.getInstance().saveBlueprint(player.getServer(), blueprint);
+
+		worldSoundAndMessage(player, blueprint);
+	}
+
+	private static void worldSoundAndMessage(ServerPlayerEntity player, com.example.blueprint.StructureBlueprint blueprint) {
+		player.getServerWorld().playSound(
+			null, player.getX(), player.getY(), player.getZ(),
+			SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.2F, 1.3F
+		);
+		player.getServerWorld().playSound(
+			null, player.getX(), player.getY(), player.getZ(),
+			SoundEvents.BLOCK_ENCHANTMENT_TABLE_USE, SoundCategory.PLAYERS, 0.8F, 1.1F
+		);
+		if (blueprint.getBlockCount() == 0) {
+			player.sendMessage(
+				Text.literal("§e⚠ Saved Custom Blueprint: §b" + blueprint.getName() + " §e(0 structure blocks captured - region was all air)§r"),
+				true
+			);
+		} else {
+			player.sendMessage(
+				Text.literal("§6✦ Saved Custom Blueprint: §b" + blueprint.getName() + " §7(" + blueprint.getBlockCount() + " blocks)§r"),
+				true
+			);
+		}
+	}
+
+	/**
+	 * Handles C2S spatial area capture requests in DESIGN mode.
+	 * Samples blocks within the bounding volume [pos1, pos2], normalizes coordinates
+	 * relative to the base origin, compiles a StructureBlueprint, and saves to CustomBlueprintManager.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The spatial capture payload containing corner positions and metadata.
+	 */
+	private static void handleCaptureSpatialBlueprint(ServerPlayerEntity player, CaptureSpatialBlueprintPayload payload) {
+		if (player == null || payload == null || payload.pos1() == null || payload.pos2() == null) {
+			return;
+		}
+
+		ServerWorld world = player.getServerWorld();
+		net.minecraft.util.math.BlockPos pos1 = payload.pos1();
+		net.minecraft.util.math.BlockPos pos2 = payload.pos2();
+
+		// Security: verify player is reasonably close to the captured bounds (within 128 blocks)
+		double distSq1 = player.squaredDistanceTo(pos1.toCenterPos());
+		double distSq2 = player.squaredDistanceTo(pos2.toCenterPos());
+		if (distSq1 > 128.0D * 128.0D && distSq2 > 128.0D * 128.0D) {
+			player.sendMessage(Text.literal("§c⚠ Cannot capture structure: Target region is too far away!§r"), true);
+			return;
+		}
+
+		try {
+			com.example.blueprint.StructureBlueprint blueprint = com.example.blueprint.CustomBlueprintManager.getInstance()
+				.captureAndSaveBlueprint(
+					player.getServer(),
+					world,
+					player,
+					pos1,
+					pos2,
+					payload.id(),
+					payload.name(),
+					payload.description()
+				);
+
+			worldSoundAndMessage(player, blueprint);
+		} catch (Exception e) {
+			player.sendMessage(Text.literal("§c⚠ Spatial capture failed: " + e.getMessage()), true);
+		}
+	}
+
+	/**
+	 * Handles C2S deletion of custom blueprints.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The blueprint deletion payload.
+	 */
+	private static void handleDeleteCustomBlueprint(ServerPlayerEntity player, DeleteCustomBlueprintPayload payload) {
+		if (player == null || payload == null || payload.blueprintId() == null) return;
+
+		boolean deleted = com.example.blueprint.CustomBlueprintManager.getInstance().deleteBlueprint(player.getServer(), payload.blueprintId());
+		if (deleted) {
+			player.getServerWorld().playSound(
+				null, player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), SoundCategory.PLAYERS, 1.0F, 0.8F
+			);
+			player.sendMessage(
+				Text.literal("§c✦ Deleted Custom Blueprint: §f" + payload.blueprintId() + "§r"),
+				true
+			);
+		} else {
+			player.sendMessage(
+				Text.literal("§e⚠ Custom Blueprint not found: §f" + payload.blueprintId() + "§r"),
+				true
+			);
+		}
+	}
+
+	/**
+	 * Handles C2S start custom mining area requests.
+	 * Validates coordinates, ensures bounding limits are respected, and initiates an area dismantle session.
+	 *
+	 * @param player  The commanding server player.
+	 * @param payload The start mining area payload containing pos1 and pos2.
+	 */
+	private static void handleStartMiningArea(ServerPlayerEntity player, StartMiningAreaPayload payload) {
+		if (player == null || payload == null || payload.pos1() == null || payload.pos2() == null) {
+			return;
+		}
+
+		ServerWorld world = player.getServerWorld();
+		net.minecraft.util.math.BlockPos pos1 = payload.pos1();
+		net.minecraft.util.math.BlockPos pos2 = payload.pos2();
+
+		// Security: verify player is reasonably close to the target bounds (within 128 blocks)
+		double distSq1 = player.squaredDistanceTo(pos1.toCenterPos());
+		double distSq2 = player.squaredDistanceTo(pos2.toCenterPos());
+		if (distSq1 > 128.0D * 128.0D && distSq2 > 128.0D * 128.0D) {
+			player.sendMessage(Text.literal("§c⚠ Cannot start mining: Target area is too far away!§r"), true);
+			return;
+		}
+
+		int minX = Math.min(pos1.getX(), pos2.getX());
+		int maxX = Math.max(pos1.getX(), pos2.getX());
+		int minY = Math.min(pos1.getY(), pos2.getY());
+		int maxY = Math.max(pos1.getY(), pos2.getY());
+		int minZ = Math.min(pos1.getZ(), pos2.getZ());
+		int maxZ = Math.max(pos1.getZ(), pos2.getZ());
+
+		int sizeX = maxX - minX + 1;
+		int sizeY = maxY - minY + 1;
+		int sizeZ = maxZ - minZ + 1;
+
+		if (sizeX > com.example.blueprint.StructureBlueprint.MAX_SPATIAL_DIMENSION ||
+			sizeY > com.example.blueprint.StructureBlueprint.MAX_SPATIAL_HEIGHT ||
+			sizeZ > com.example.blueprint.StructureBlueprint.MAX_SPATIAL_DIMENSION) {
+			player.sendMessage(Text.literal("§c⚠ Mining area exceeds maximum dimensions of " +
+				com.example.blueprint.StructureBlueprint.MAX_SPATIAL_DIMENSION + "x" +
+				com.example.blueprint.StructureBlueprint.MAX_SPATIAL_HEIGHT + "x" +
+				com.example.blueprint.StructureBlueprint.MAX_SPATIAL_DIMENSION + "§r"), true);
+			return;
+		}
+
+		long volume = (long) sizeX * sizeY * sizeZ;
+		if (volume > com.example.blueprint.StructureBlueprint.MAX_SPATIAL_VOLUME) {
+			player.sendMessage(Text.literal("§c⚠ Mining area volume exceeds maximum limit of " +
+				com.example.blueprint.StructureBlueprint.MAX_SPATIAL_VOLUME + " blocks!§r"), true);
+			return;
+		}
+
+		try {
+			com.example.construction.ConstructionSession session = com.example.construction.ConstructionManager.getInstance()
+				.startAreaDismantleSession(world, pos1, pos2, player);
+			if (session != null && session.isActive()) {
+				world.playSound(
+					null, player.getX(), player.getY(), player.getZ(),
+					SoundEvents.BLOCK_ANVIL_USE, SoundCategory.PLAYERS, 1.0F, 1.0F
+				);
+			}
+		} catch (Exception e) {
+			player.sendMessage(Text.literal("§c⚠ Failed to start area mining: " + e.getMessage()), true);
 		}
 	}
 }

@@ -47,6 +47,7 @@ public class MinionFormationFollowGoal extends Goal {
 	private int cachedRank = 0;
 	private int rankUpdateCooldown = 0;
 	private int navigationTimer = 0;
+	private int stuckTicks = 0;
 
 	public static final double MARCH_SPEED = 1.15D;
 	public static final double SPRINT_SPEED = 1.35D;
@@ -171,16 +172,13 @@ public class MinionFormationFollowGoal extends Goal {
 	public void start() {
 		this.navigationTimer = 0;
 		this.rankUpdateCooldown = 0;
+		this.stuckTicks = 0;
 		LivingEntity owner = this.minion.getOwner();
 		if (owner != null) {
 			Vec3d station = calculateFormationStation(owner, this.minion.getEffectiveRole(), this.cachedRank);
 			double walkableY = resolveWalkableY(this.minion.getWorld(), station.x, owner.getY(), station.z);
 			Vec3d targetStation = new Vec3d(station.x, walkableY, station.z);
 			this.minion.setActiveTraversalDestination(targetStation);
-			double dy = walkableY - this.minion.getY();
-			if (dy > 1.25D || dy < -1.5D) {
-				this.minion.setArcaneLevitating(true);
-			}
 		}
 	}
 
@@ -190,6 +188,7 @@ public class MinionFormationFollowGoal extends Goal {
 		this.minion.setVelocity(0.0D, this.minion.getVelocity().y, 0.0D);
 		this.minion.velocityModified = true;
 		this.minion.clearActiveTraversalDestination();
+		this.stuckTicks = 0;
 	}
 
 	@Override
@@ -208,10 +207,22 @@ public class MinionFormationFollowGoal extends Goal {
 
 		double distToOwnerSq = this.minion.squaredDistanceTo(owner);
 
-		// Emergency teleport when estranged beyond 64 blocks (only if not actively engaged in construction)
-		if (distToOwnerSq > TELEPORT_DISTANCE_THRESHOLD_SQ) {
+		// Follower Catch-Up & Emergency Teleport:
+		// 1. Estranged distance check (> 24 blocks / 576.0 sq)
+		// 2. Stuck / pit trap check (> 10 blocks away / 100.0 sq AND navigation idle or stuck against wall for 40+ ticks)
+		boolean separated = distToOwnerSq > 100.0D;
+		boolean navigationStuck = this.minion.getNavigation().isIdle() || (this.minion.horizontalCollision && distToOwnerSq > 100.0D);
+		if (separated && navigationStuck) {
+			this.stuckTicks++;
+		} else {
+			this.stuckTicks = Math.max(0, this.stuckTicks - 1);
+		}
+
+		boolean shouldCatchUpTeleport = distToOwnerSq > 576.0D || (this.stuckTicks >= 40 && distToOwnerSq > 100.0D);
+		if (shouldCatchUpTeleport) {
 			if (!this.minion.isActivelyBuilding() && !com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
 				if (owner instanceof ServerPlayerEntity serverPlayer) {
+					this.stuckTicks = 0;
 					this.minion.teleportToPlayer(serverPlayer);
 					return;
 				}
@@ -233,21 +244,14 @@ public class MinionFormationFollowGoal extends Goal {
 			return;
 		}
 
-		double dy = walkableY - this.minion.getY();
-		if (dy > 1.25D || dy < -1.5D) {
-			this.minion.setArcaneLevitating(true);
-		}
-
 		// Dynamic pacing: sprint at 1.35D when lagging behind (>8 blocks), else march at 1.15D
 		double speed = (distToOwnerSq > SPRINT_DISTANCE_THRESHOLD_SQ || distToStationSq > SPRINT_DISTANCE_THRESHOLD_SQ)
 			? SPRINT_SPEED
 			: MARCH_SPEED;
 
-		if (!this.minion.isArcaneLevitating()) {
-			if (--this.navigationTimer <= 0) {
-				this.navigationTimer = NAVIGATION_REPATH_INTERVAL;
-				this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, speed);
-			}
+		if (--this.navigationTimer <= 0) {
+			this.navigationTimer = NAVIGATION_REPATH_INTERVAL;
+			this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, speed);
 		}
 	}
 
@@ -405,7 +409,8 @@ public class MinionFormationFollowGoal extends Goal {
 			&& minion.isOwner(owner)
 			&& minion.isSelected()
 			&& !minion.isHoldingPosition()
-			&& minion.getGuardAnchorPos() == null;
+			&& minion.getGuardAnchorPos() == null
+			&& minion.getPatrolRouteId() < 0;
 	}
 
 	/**
@@ -450,7 +455,7 @@ public class MinionFormationFollowGoal extends Goal {
 			m -> isEligibleForFormation(m, owner)
 		);
 
-		return resolveRank(comrades, this.minion, MinionEntity::getRole, Entity::getId);
+		return resolveRank(comrades, this.minion, MinionEntity::getEffectiveRole, Entity::getId);
 	}
 
 	/**

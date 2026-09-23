@@ -41,11 +41,12 @@ public class ExampleMod implements ModInitializer {
 		ModNetworking.registerC2SPayloads();
 		ModNetworking.registerServerReceivers();
 
-		// Register server world load event to initialize persistent patrol routes
+		// Register server world load event to initialize persistent patrol routes and custom blueprints
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents.LOAD.register((server, world) -> {
 			if (world.getRegistryKey().equals(net.minecraft.world.World.OVERWORLD)) {
-				LOGGER.info("Initializing PatrolRouteManager persistent state for overworld: {}", world.getRegistryKey().getValue());
+				LOGGER.info("Initializing PatrolRouteManager and CustomBlueprintManager persistent state for overworld: {}", world.getRegistryKey().getValue());
 				com.example.patrol.PatrolRouteManager.getInstance().init(world);
+				com.example.blueprint.CustomBlueprintManager.getInstance().init(world);
 			}
 		});
 
@@ -53,19 +54,22 @@ public class ExampleMod implements ModInitializer {
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(server -> {
 			net.minecraft.server.world.ServerWorld overworld = server.getOverworld();
 			if (overworld != null) {
-				LOGGER.info("Ensuring PatrolRouteManager initialized on SERVER_STARTED for overworld");
+				LOGGER.info("Ensuring PatrolRouteManager and CustomBlueprintManager initialized on SERVER_STARTED for overworld");
 				com.example.patrol.PatrolRouteManager.getInstance().init(overworld);
+				com.example.blueprint.CustomBlueprintManager.getInstance().init(overworld);
 			}
 		});
 
-		// Register server stopping event to finalize and persist route data
+		// Register server stopping event to finalize and persist route and custom blueprint data
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			com.example.patrol.PatrolRouteManager.getInstance().onServerStopping();
+			com.example.blueprint.CustomBlueprintManager.getInstance().onServerStopping();
 		});
 
-		// Register player connect event to sync saved patrol routes immediately on world join
+		// Register player connect event to sync saved patrol routes and custom blueprints immediately on world join
 		net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			com.example.patrol.PatrolRouteManager.getInstance().syncToPlayer(handler.getPlayer());
+			com.example.blueprint.CustomBlueprintManager.getInstance().syncToPlayer(handler.getPlayer());
 		});
 
 		// Register server tick event to update construction sessions and holograms
@@ -75,6 +79,7 @@ public class ExampleMod implements ModInitializer {
 
 		// Register attack block callback for the Command Scepter:
 		// In BUILD mode: cycles blueprint rotation
+		// In DESIGN mode: steps corner coordinates (Pos1 -> Pos2 -> restart)
 		// In PATHWAY mode: left-click (punch) an existing waypoint block removes it
 		// In other modes: sneak + left-click deselects all minions
 		AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
@@ -84,6 +89,30 @@ public class ExampleMod implements ModInitializer {
 				if (mode == CommandMode.BUILD) {
 					if (!world.isClient()) {
 						CommandScepterItem.cycleRotation(stack, player);
+					}
+					return ActionResult.SUCCESS;
+				} else if (mode == CommandMode.DESIGN) {
+					if (world.isClient()) {
+						boolean sneaking = player.isSneaking();
+						BlockPos effectivePos = world.getBlockState(pos).isReplaceable()
+							? pos
+							: ((direction != null) ? pos.offset(direction) : pos.up());
+						CommandScepterItem.handleDesignClick(player, world, stack, effectivePos, sneaking);
+						if (CommandScepterItem.DESIGN_CLICK_CONSUMER != null) {
+							CommandScepterItem.DESIGN_CLICK_CONSUMER.run();
+						}
+					}
+					return ActionResult.SUCCESS;
+				} else if (mode == CommandMode.MINE && CommandScepterItem.getMiningMode(stack) == com.example.component.MiningMode.AREA) {
+					if (world.isClient()) {
+						boolean sneaking = player.isSneaking();
+						BlockPos effectivePos = world.getBlockState(pos).isReplaceable()
+							? pos
+							: ((direction != null) ? pos.offset(direction) : pos.up());
+						CommandScepterItem.handleMineClick(player, world, stack, effectivePos, sneaking);
+						if (CommandScepterItem.MINE_CLICK_CONSUMER != null) {
+							CommandScepterItem.MINE_CLICK_CONSUMER.run();
+						}
 					}
 					return ActionResult.SUCCESS;
 				} else if (mode == CommandMode.PATHWAY) {
@@ -164,6 +193,26 @@ public class ExampleMod implements ModInitializer {
 				if (mode == CommandMode.BUILD) {
 					if (!world.isClient()) {
 						CommandScepterItem.cycleRotation(stack, player);
+					}
+					return ActionResult.SUCCESS;
+				} else if (mode == CommandMode.DESIGN) {
+					if (world.isClient()) {
+						BlockPos entityPos = entity.getBlockPos();
+						boolean sneaking = player.isSneaking();
+						CommandScepterItem.handleDesignClick(player, world, stack, entityPos, sneaking);
+						if (CommandScepterItem.DESIGN_CLICK_CONSUMER != null) {
+							CommandScepterItem.DESIGN_CLICK_CONSUMER.run();
+						}
+					}
+					return ActionResult.SUCCESS;
+				} else if (mode == CommandMode.MINE && CommandScepterItem.getMiningMode(stack) == com.example.component.MiningMode.AREA) {
+					if (world.isClient()) {
+						BlockPos entityPos = entity.getBlockPos();
+						boolean sneaking = player.isSneaking();
+						CommandScepterItem.handleMineClick(player, world, stack, entityPos, sneaking);
+						if (CommandScepterItem.MINE_CLICK_CONSUMER != null) {
+							CommandScepterItem.MINE_CLICK_CONSUMER.run();
+						}
 					}
 					return ActionResult.SUCCESS;
 				} else if (player.isSneaking()) {

@@ -362,7 +362,7 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 			return getRoleCrest(MinionRole.WARRIOR, false);
 		}
 		MinionRole role = entity.getRole();
-		if (role == null) role = MinionRole.WARRIOR;
+		if (role == null) role = MinionRole.AUTO;
 
 		StringBuilder sb = new StringBuilder();
 		if (role == MinionRole.AUTO) {
@@ -378,9 +378,11 @@ public class MinionOverheadBadgeFeatureRenderer extends FeatureRenderer<MinionEn
 
 		// Route Badge
 		int routeId = entity.getPatrolRouteId();
-		if (routeId >= 0 && routeId < com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES.length) {
+		if (routeId >= 0) {
 			com.example.patrol.PatrolRoute clientRoute = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
 			if (clientRoute != null && !clientRoute.waypoints().isEmpty()) {
+				sb.append(" §8[").append(clientRoute.getFormattedName()).append("§8]");
+			} else if (routeId < com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES.length) {
 				sb.append(" §8[").append(com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId]).append("§8]");
 			}
 		}

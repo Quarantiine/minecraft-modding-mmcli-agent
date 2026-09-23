@@ -4,6 +4,7 @@ import com.example.blueprint.BlueprintBlock;
 import com.example.blueprint.BlueprintRegistry;
 import com.example.blueprint.StructureBlueprint;
 import com.example.component.CommandMode;
+import com.example.component.MiningMode;
 import com.example.component.ModDataComponents;
 import com.example.component.SquadGroup;
 import com.example.construction.ConstructionManager;
@@ -16,6 +17,7 @@ import com.example.patrol.PatrolRoute;
 import com.example.patrol.PatrolRouteManager;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -93,6 +95,50 @@ public class CommandScepterItem extends Item {
 	}
 
 	public static ScreenOpener SCREEN_OPENER = null;
+
+	@FunctionalInterface
+	public interface CaptureModalOpener {
+		void openCaptureModal(PlayerEntity player, Hand hand, ItemStack stack, BlockPos pos1, BlockPos pos2);
+	}
+
+	public static CaptureModalOpener CAPTURE_MODAL_OPENER = null;
+
+	@FunctionalInterface
+	public interface MineModalOpener {
+		void openMineModal(PlayerEntity player, Hand hand, ItemStack stack, BlockPos pos1, BlockPos pos2);
+	}
+
+	public static MineModalOpener MINE_MODAL_OPENER = null;
+
+	@FunctionalInterface
+	public interface DesignCornerStepper {
+		int stepCorner(BlockPos pos);
+	}
+
+	public static DesignCornerStepper DESIGN_CORNER_STEPPER = null;
+
+	@FunctionalInterface
+	public interface DesignCornerResetter {
+		void resetCorners();
+	}
+
+	public static DesignCornerResetter DESIGN_CORNER_RESETTER = null;
+	public static Runnable DESIGN_CLICK_CONSUMER = null;
+
+	@FunctionalInterface
+	public interface MineCornerStepper {
+		int stepCorner(BlockPos pos);
+	}
+
+	public static MineCornerStepper MINE_CORNER_STEPPER = null;
+
+	@FunctionalInterface
+	public interface MineCornerResetter {
+		void resetCorners();
+	}
+
+	public static MineCornerResetter MINE_CORNER_RESETTER = null;
+	public static Runnable MINE_CLICK_CONSUMER = null;
 
 	@FunctionalInterface
 	public interface ClientTargetResolver {
@@ -193,6 +239,58 @@ public class CommandScepterItem extends Item {
 	}
 
 	/**
+	 * Resolves the active {@link MiningMode} stored in the item's data component.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The active MiningMode, defaulting to {@link MiningMode#AREA}.
+	 */
+	public static MiningMode getMiningMode(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return MiningMode.AREA;
+		return stack.getOrDefault(ModDataComponents.MINING_MODE, MiningMode.AREA);
+	}
+
+	/**
+	 * Sets the active {@link MiningMode} on the item stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param mode  The MiningMode to assign.
+	 */
+	public static void setMiningMode(ItemStack stack, MiningMode mode) {
+		if (stack == null || stack.isEmpty()) return;
+		stack.set(ModDataComponents.MINING_MODE, Objects.requireNonNull(mode, "mining mode cannot be null"));
+	}
+
+	/**
+	 * Cycles to the next {@link MiningMode} in sequence (DIRECT -> AREA -> DIRECT),
+	 * playing audio feedback and projecting an action-bar overlay notification.
+	 *
+	 * @param stack  The scepter ItemStack.
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @return The newly assigned MiningMode.
+	 */
+	public static MiningMode cycleMiningMode(ItemStack stack, PlayerEntity player, World world) {
+		MiningMode nextMode = getMiningMode(stack).next();
+		setMiningMode(stack, nextMode);
+
+		if (world != null && player != null) {
+			world.playSound(
+				null,
+				player.getX(),
+				player.getY(),
+				player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_HARP.value(),
+				SoundCategory.PLAYERS,
+				1.0F,
+				nextMode == MiningMode.AREA ? 1.4F : 1.0F
+			);
+
+			player.sendMessage(Text.literal("§6✦ Mining Sub-Mode: §r" + nextMode.getFormattedName()), true);
+		}
+		return nextMode;
+	}
+
+	/**
 	 * Cycles to the next target {@link SquadGroup} filter channel in sequence,
 	 * playing harp audio feedback and projecting an action-bar notification.
 	 *
@@ -282,13 +380,703 @@ public class CommandScepterItem extends Item {
 	}
 
 	// -----------------------------------------------------------------------------------------
+	// DESIGN MODE SPATIAL CORNER SELECTION & COORDINATE TRACKING
+	// -----------------------------------------------------------------------------------------
+
+	/**
+	 * Resolves the active DESIGN mode corner 1 (Pos1) stored on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The first corner BlockPos, or null if unassigned.
+	 */
+	public static BlockPos getDesignPos1(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return null;
+		return stack.get(ModDataComponents.DESIGN_POS1);
+	}
+
+	/**
+	 * Sets or clears the active DESIGN mode corner 1 (Pos1) on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param pos   The corner position to assign, or null to clear.
+	 */
+	public static void setDesignPos1(ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty()) return;
+		if (pos == null) {
+			stack.remove(ModDataComponents.DESIGN_POS1);
+		} else {
+			stack.set(ModDataComponents.DESIGN_POS1, pos.toImmutable());
+		}
+	}
+
+	/**
+	 * Resolves the active DESIGN mode corner 2 (Pos2) stored on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The second corner BlockPos, or null if unassigned.
+	 */
+	public static BlockPos getDesignPos2(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return null;
+		return stack.get(ModDataComponents.DESIGN_POS2);
+	}
+
+	/**
+	 * Sets or clears the active DESIGN mode corner 2 (Pos2) on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param pos   The corner position to assign, or null to clear.
+	 */
+	public static void setDesignPos2(ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty()) return;
+		if (pos == null) {
+			stack.remove(ModDataComponents.DESIGN_POS2);
+		} else {
+			stack.set(ModDataComponents.DESIGN_POS2, pos.toImmutable());
+		}
+	}
+
+	/**
+	 * Sets both DESIGN mode corners on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param p1    The first corner BlockPos, or null to clear.
+	 * @param p2    The second corner BlockPos, or null to clear.
+	 */
+	public static void setDesignCorners(ItemStack stack, BlockPos p1, BlockPos p2) {
+		setDesignPos1(stack, p1);
+		setDesignPos2(stack, p2);
+	}
+
+	/**
+	 * Clears both DESIGN mode corners on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 */
+	public static void clearDesignCorners(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return;
+		stack.remove(ModDataComponents.DESIGN_POS1);
+		stack.remove(ModDataComponents.DESIGN_POS2);
+	}
+
+	/**
+	 * Checks if both Pos1 and Pos2 are selected on the scepter.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return true if both corner coordinates are non-null.
+	 */
+	public static boolean hasCompleteDesignSelection(ItemStack stack) {
+		return getDesignPos1(stack) != null && getDesignPos2(stack) != null;
+	}
+
+	/**
+	 * Handles selecting Corner 1 (Pos1) in DESIGN mode.
+	 * Updates the data component, plays resonant chime SFX, spawns particle cues, and sends actionbar feedback.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @param stack  The scepter ItemStack.
+	 * @param pos    The selected corner position.
+	 */
+	public static void handleDesignPos1(PlayerEntity player, World world, ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty() || pos == null) return;
+		setDesignPos1(stack, pos);
+
+		// Audio feedback
+		world.playSound(
+			null,
+			pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
+			SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME,
+			SoundCategory.PLAYERS,
+			1.2F,
+			1.4F
+		);
+		if (player != null) {
+			world.playSound(
+				null,
+				player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value(),
+				SoundCategory.PLAYERS,
+				0.8F,
+				1.4F
+			);
+		}
+
+		// Corner 1 particles: AMETHYST / END_ROD / ENCHANT column
+		if (world instanceof ServerWorld serverWorld) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			serverWorld.spawnParticles(ParticleTypes.END_ROD, cx, cy + 0.3D, cz, 6, 0.15D, 0.25D, 0.15D, 0.02D);
+			serverWorld.spawnParticles(ParticleTypes.ENCHANT, cx, cy + 0.5D, cz, 12, 0.25D, 0.35D, 0.25D, 0.1D);
+		} else if (world.isClient()) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			for (int i = 0; i < 6; i++) {
+				world.addParticle(ParticleTypes.END_ROD, cx, cy + 0.3D, cz, 0.0D, 0.02D, 0.0D);
+				world.addParticle(ParticleTypes.ENCHANT, cx, cy + 0.5D, cz, 0.0D, 0.05D, 0.0D);
+			}
+		}
+
+		// Actionbar feedback with dimensions if Pos2 is present
+		if (player != null) {
+			BlockPos pos2 = getDesignPos2(stack);
+			if (pos2 != null) {
+				int sx = Math.abs(pos.getX() - pos2.getX()) + 1;
+				int sy = Math.abs(pos.getY() - pos2.getY()) + 1;
+				int sz = Math.abs(pos.getZ() - pos2.getZ()) + 1;
+				int volume = sx * sy * sz;
+				player.sendMessage(
+					Text.literal("§d✦ Pos1 (Corner 1) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §8(§e" + sx + "x" + sy + "x" + sz + " §7" + volume + "b§8) §a[Right-Click to Capture]§r"),
+					true
+				);
+			} else {
+				player.sendMessage(
+					Text.literal("§d✦ Pos1 (Corner 1) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §7(Left-click next block for Pos2)§r"),
+					true
+				);
+			}
+		}
+	}
+
+	private static volatile long lastDesignClickTimestamp = 0L;
+	public static final long DESIGN_CLICK_DEBOUNCE_MS = 350L;
+
+	/**
+	 * Checks whether the DESIGN mode click is currently debounced.
+	 */
+	public static boolean isDesignClickDebounced() {
+		return System.currentTimeMillis() - lastDesignClickTimestamp < DESIGN_CLICK_DEBOUNCE_MS;
+	}
+
+	/**
+	 * Records a design click timestamp to enforce debounce against held attack key repeats.
+	 */
+	public static void recordDesignClick() {
+		lastDesignClickTimestamp = System.currentTimeMillis();
+	}
+
+	/**
+	 * Resets debounce timestamp (primarily for tests).
+	 */
+	public static void resetDesignClickDebounce() {
+		lastDesignClickTimestamp = 0L;
+	}
+
+	/**
+	 * Sequentially handles selecting corners (Pos1 -> Pos2 -> restart) in DESIGN mode with a left-click.
+	 * If sneaking, resets both corners and prepares for Pos1.
+	 *
+	 * @param player     The commanding player.
+	 * @param world      The world instance.
+	 * @param stack      The scepter ItemStack.
+	 * @param pos        The selected corner position.
+	 * @param isSneaking True if player is sneaking (Shift + Left-Click) to reset corners.
+	 * @return 1 if Pos1 was set, 2 if Pos2 was set, 0 if reset or null.
+	 */
+	public static int handleDesignClick(PlayerEntity player, World world, ItemStack stack, BlockPos pos, boolean isSneaking) {
+		if (stack == null || stack.isEmpty()) return 0;
+		if (isSneaking) {
+			handleDesignReset(player, world, stack);
+			return 0;
+		}
+		if (pos == null) return 0;
+
+		long now = System.currentTimeMillis();
+		if (now - lastDesignClickTimestamp < DESIGN_CLICK_DEBOUNCE_MS) {
+			return 0; // Debounced: ignore repeated tick invocations from held attack key
+		}
+		lastDesignClickTimestamp = now;
+
+		int step;
+		if (DESIGN_CORNER_STEPPER != null) {
+			step = DESIGN_CORNER_STEPPER.stepCorner(pos);
+		} else {
+			BlockPos currentPos1 = getDesignPos1(stack);
+			BlockPos currentPos2 = getDesignPos2(stack);
+			if (currentPos1 == null) {
+				step = 1;
+			} else if (currentPos2 == null) {
+				step = 2;
+			} else if (pos.equals(currentPos2)) {
+				step = 2;
+			} else {
+				step = 1;
+			}
+		}
+
+		if (step == 1) {
+			setDesignPos2(stack, null);
+			handleDesignPos1(player, world, stack, pos);
+			return 1;
+		} else {
+			handleDesignPos2(player, world, stack, pos);
+			return 2;
+		}
+	}
+
+	public static int handleDesignClick(PlayerEntity player, World world, ItemStack stack, BlockPos pos) {
+		return handleDesignClick(player, world, stack, pos, player != null && player.isSneaking());
+	}
+
+	/**
+	 * Clears both DESIGN mode corners, plays reset audio feedback, and informs the player.
+	 * Resets state so the next click will place Pos1 first.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @param stack  The scepter ItemStack.
+	 */
+	public static void handleDesignReset(PlayerEntity player, World world, ItemStack stack) {
+		if (DESIGN_CORNER_RESETTER != null) {
+			try {
+				DESIGN_CORNER_RESETTER.resetCorners();
+			} catch (Throwable ignored) {}
+		}
+		clearDesignCorners(stack);
+
+		if (world != null && player != null) {
+			world.playSound(
+				null,
+				player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(),
+				SoundCategory.PLAYERS,
+				1.0F,
+				0.8F
+			);
+		}
+		if (player != null) {
+			player.sendMessage(
+				Text.literal("§6✦ Cleared DESIGN corner selections (Pos1 & Pos2) - Ready for Pos1!§r"),
+				true
+			);
+		}
+	}
+
+	/**
+	 * Handles selecting Corner 2 (Pos2) in DESIGN mode.
+	 * Updates the data component, plays resonant chime SFX, spawns particle cues, and sends actionbar feedback.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @param stack  The scepter ItemStack.
+	 * @param pos    The selected corner position.
+	 */
+	public static void handleDesignPos2(PlayerEntity player, World world, ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty() || pos == null) return;
+		setDesignPos2(stack, pos);
+
+		// Audio feedback
+		world.playSound(
+			null,
+			pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
+			SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE,
+			SoundCategory.PLAYERS,
+			1.2F,
+			1.6F
+		);
+		if (player != null) {
+			world.playSound(
+				null,
+				player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(),
+				SoundCategory.PLAYERS,
+				0.8F,
+				1.6F
+			);
+		}
+
+		// Corner 2 particles: HAPPY_VILLAGER / GLOW / PORTAL column
+		if (world instanceof ServerWorld serverWorld) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			serverWorld.spawnParticles(ParticleTypes.HAPPY_VILLAGER, cx, cy + 0.3D, cz, 6, 0.15D, 0.25D, 0.15D, 0.02D);
+			serverWorld.spawnParticles(ParticleTypes.GLOW, cx, cy + 0.5D, cz, 10, 0.25D, 0.35D, 0.25D, 0.05D);
+		} else if (world.isClient()) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			for (int i = 0; i < 6; i++) {
+				world.addParticle(ParticleTypes.HAPPY_VILLAGER, cx, cy + 0.3D, cz, 0.0D, 0.02D, 0.0D);
+				world.addParticle(ParticleTypes.GLOW, cx, cy + 0.5D, cz, 0.0D, 0.05D, 0.0D);
+			}
+		}
+
+		// Actionbar feedback with dimensions if Pos1 is present
+		if (player != null) {
+			BlockPos pos1 = getDesignPos1(stack);
+			if (pos1 != null) {
+				int sx = Math.abs(pos1.getX() - pos.getX()) + 1;
+				int sy = Math.abs(pos1.getY() - pos.getY()) + 1;
+				int sz = Math.abs(pos1.getZ() - pos.getZ()) + 1;
+				int volume = sx * sy * sz;
+				player.sendMessage(
+					Text.literal("§d✦ Pos2 (Corner 2) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §8(§e" + sx + "x" + sy + "x" + sz + " §7" + volume + "b§8) §a[Right-Click to Capture]§r"),
+					true
+				);
+			} else {
+				player.sendMessage(
+					Text.literal("§d✦ Pos2 (Corner 2) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §7(Left-click block for Pos1)§r"),
+					true
+				);
+			}
+		}
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// MINE MODE SPATIAL CORNER SELECTION & COORDINATE TRACKING (AREA MINING)
+	// -----------------------------------------------------------------------------------------
+
+	/**
+	 * Resolves the active MINE mode corner 1 (Pos1) stored on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The first corner BlockPos, or null if unassigned.
+	 */
+	public static BlockPos getMinePos1(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return null;
+		return stack.get(ModDataComponents.MINE_POS1);
+	}
+
+	/**
+	 * Sets or clears the active MINE mode corner 1 (Pos1) on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param pos   The corner position to assign, or null to clear.
+	 */
+	public static void setMinePos1(ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty()) return;
+		if (pos == null) {
+			stack.remove(ModDataComponents.MINE_POS1);
+		} else {
+			stack.set(ModDataComponents.MINE_POS1, pos.toImmutable());
+		}
+	}
+
+	/**
+	 * Resolves the active MINE mode corner 2 (Pos2) stored on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return The second corner BlockPos, or null if unassigned.
+	 */
+	public static BlockPos getMinePos2(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return null;
+		return stack.get(ModDataComponents.MINE_POS2);
+	}
+
+	/**
+	 * Sets or clears the active MINE mode corner 2 (Pos2) on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param pos   The corner position to assign, or null to clear.
+	 */
+	public static void setMinePos2(ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty()) return;
+		if (pos == null) {
+			stack.remove(ModDataComponents.MINE_POS2);
+		} else {
+			stack.set(ModDataComponents.MINE_POS2, pos.toImmutable());
+		}
+	}
+
+	/**
+	 * Sets both MINE mode corners on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @param p1    The first corner BlockPos, or null to clear.
+	 * @param p2    The second corner BlockPos, or null to clear.
+	 */
+	public static void setMineCorners(ItemStack stack, BlockPos p1, BlockPos p2) {
+		setMinePos1(stack, p1);
+		setMinePos2(stack, p2);
+	}
+
+	/**
+	 * Clears both MINE mode corners on the scepter stack.
+	 *
+	 * @param stack The scepter ItemStack.
+	 */
+	public static void clearMineCorners(ItemStack stack) {
+		if (stack == null || stack.isEmpty()) return;
+		stack.remove(ModDataComponents.MINE_POS1);
+		stack.remove(ModDataComponents.MINE_POS2);
+	}
+
+	/**
+	 * Checks if both Pos1 and Pos2 are selected for MINE mode on the scepter.
+	 *
+	 * @param stack The scepter ItemStack.
+	 * @return true if both corner coordinates are non-null.
+	 */
+	public static boolean hasCompleteMineSelection(ItemStack stack) {
+		return getMinePos1(stack) != null && getMinePos2(stack) != null;
+	}
+
+	/**
+	 * Handles selecting Corner 1 (Pos1) in MINE AREA mode.
+	 * Updates the data component, plays resonant chime SFX, spawns particle cues, and sends actionbar feedback.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @param stack  The scepter ItemStack.
+	 * @param pos    The selected corner position.
+	 */
+	public static void handleMinePos1(PlayerEntity player, World world, ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty() || pos == null) return;
+		setMinePos1(stack, pos);
+
+		// Audio feedback
+		world.playSound(
+			null,
+			pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
+			SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME,
+			SoundCategory.PLAYERS,
+			1.2F,
+			1.2F
+		);
+		if (player != null) {
+			world.playSound(
+				null,
+				player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value(),
+				SoundCategory.PLAYERS,
+				0.8F,
+				1.2F
+			);
+		}
+
+		// Corner 1 particles: FLAME / CRIT column
+		if (world instanceof ServerWorld serverWorld) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			serverWorld.spawnParticles(ParticleTypes.FLAME, cx, cy + 0.3D, cz, 6, 0.15D, 0.25D, 0.15D, 0.02D);
+			serverWorld.spawnParticles(ParticleTypes.CRIT, cx, cy + 0.5D, cz, 10, 0.25D, 0.35D, 0.25D, 0.05D);
+		} else if (world.isClient()) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			for (int i = 0; i < 6; i++) {
+				world.addParticle(ParticleTypes.FLAME, cx, cy + 0.3D, cz, 0.0D, 0.02D, 0.0D);
+				world.addParticle(ParticleTypes.CRIT, cx, cy + 0.5D, cz, 0.0D, 0.05D, 0.0D);
+			}
+		}
+
+		// Actionbar feedback with dimensions if Pos2 is present
+		if (player != null) {
+			BlockPos pos2 = getMinePos2(stack);
+			if (pos2 != null) {
+				int sx = Math.abs(pos.getX() - pos2.getX()) + 1;
+				int sy = Math.abs(pos.getY() - pos2.getY()) + 1;
+				int sz = Math.abs(pos.getZ() - pos2.getZ()) + 1;
+				int volume = sx * sy * sz;
+				player.sendMessage(
+					Text.literal("§6✦ Mine Pos1 (Corner 1) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §8(§e" + sx + "x" + sy + "x" + sz + " §7" + volume + "b§8) §a[Right-Click to Confirm Area]§r"),
+					true
+				);
+			} else {
+				player.sendMessage(
+					Text.literal("§6✦ Mine Pos1 (Corner 1) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §7(Left-click next block for Pos2)§r"),
+					true
+				);
+			}
+		}
+	}
+
+	/**
+	 * Handles selecting Corner 2 (Pos2) in MINE AREA mode.
+	 * Updates the data component, plays resonant chime SFX, spawns particle cues, and sends actionbar feedback.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @param stack  The scepter ItemStack.
+	 * @param pos    The selected corner position.
+	 */
+	public static void handleMinePos2(PlayerEntity player, World world, ItemStack stack, BlockPos pos) {
+		if (stack == null || stack.isEmpty() || pos == null) return;
+		setMinePos2(stack, pos);
+
+		// Audio feedback
+		world.playSound(
+			null,
+			pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D,
+			SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE,
+			SoundCategory.PLAYERS,
+			1.2F,
+			1.4F
+		);
+		if (player != null) {
+			world.playSound(
+				null,
+				player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(),
+				SoundCategory.PLAYERS,
+				0.8F,
+				1.4F
+			);
+		}
+
+		// Corner 2 particles: LAVA / FLAME column
+		if (world instanceof ServerWorld serverWorld) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			serverWorld.spawnParticles(ParticleTypes.FLAME, cx, cy + 0.3D, cz, 8, 0.15D, 0.25D, 0.15D, 0.02D);
+			serverWorld.spawnParticles(ParticleTypes.LAVA, cx, cy + 0.5D, cz, 4, 0.25D, 0.35D, 0.25D, 0.02D);
+		} else if (world.isClient()) {
+			double cx = pos.getX() + 0.5D;
+			double cy = pos.getY() + 0.5D;
+			double cz = pos.getZ() + 0.5D;
+			for (int i = 0; i < 6; i++) {
+				world.addParticle(ParticleTypes.FLAME, cx, cy + 0.3D, cz, 0.0D, 0.02D, 0.0D);
+				world.addParticle(ParticleTypes.LAVA, cx, cy + 0.5D, cz, 0.0D, 0.02D, 0.0D);
+			}
+		}
+
+		// Actionbar feedback with dimensions if Pos1 is present
+		if (player != null) {
+			BlockPos pos1 = getMinePos1(stack);
+			if (pos1 != null) {
+				int sx = Math.abs(pos1.getX() - pos.getX()) + 1;
+				int sy = Math.abs(pos1.getY() - pos.getY()) + 1;
+				int sz = Math.abs(pos1.getZ() - pos.getZ()) + 1;
+				int volume = sx * sy * sz;
+				player.sendMessage(
+					Text.literal("§6✦ Mine Pos2 (Corner 2) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §8(§e" + sx + "x" + sy + "x" + sz + " §7" + volume + "b§8) §a[Right-Click to Confirm Area]§r"),
+					true
+				);
+			} else {
+				player.sendMessage(
+					Text.literal("§6✦ Mine Pos2 (Corner 2) Set: §f[" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "] §7(Left-click block for Pos1)§r"),
+					true
+				);
+			}
+		}
+	}
+
+	private static volatile long lastMineClickTimestamp = 0L;
+	public static final long MINE_CLICK_DEBOUNCE_MS = 350L;
+
+	/**
+	 * Checks whether the MINE AREA click is currently debounced.
+	 */
+	public static boolean isMineClickDebounced() {
+		return System.currentTimeMillis() - lastMineClickTimestamp < MINE_CLICK_DEBOUNCE_MS;
+	}
+
+	/**
+	 * Records a mine click timestamp to enforce debounce against held attack key repeats.
+	 */
+	public static void recordMineClick() {
+		lastMineClickTimestamp = System.currentTimeMillis();
+	}
+
+	/**
+	 * Resets mine debounce timestamp (primarily for tests).
+	 */
+	public static void resetMineClickDebounce() {
+		lastMineClickTimestamp = 0L;
+	}
+
+	/**
+	 * Sequentially handles selecting corners (Pos1 -> Pos2 -> restart) in MINE AREA mode with a left-click.
+	 * If sneaking, resets both corners and prepares for Pos1.
+	 *
+	 * @param player     The commanding player.
+	 * @param world      The world instance.
+	 * @param stack      The scepter ItemStack.
+	 * @param pos        The selected corner position.
+	 * @param isSneaking True if player is sneaking (Shift + Left-Click) to reset corners.
+	 * @return 1 if Pos1 was set, 2 if Pos2 was set, 0 if reset or null.
+	 */
+	public static int handleMineClick(PlayerEntity player, World world, ItemStack stack, BlockPos pos, boolean isSneaking) {
+		if (stack == null || stack.isEmpty()) return 0;
+		if (isSneaking) {
+			handleMineReset(player, world, stack);
+			return 0;
+		}
+		if (pos == null) return 0;
+
+		long now = System.currentTimeMillis();
+		if (now - lastMineClickTimestamp < MINE_CLICK_DEBOUNCE_MS) {
+			return 0; // Debounced: ignore repeated tick invocations from held attack key
+		}
+		lastMineClickTimestamp = now;
+
+		int step;
+		if (MINE_CORNER_STEPPER != null) {
+			step = MINE_CORNER_STEPPER.stepCorner(pos);
+		} else {
+			BlockPos currentPos1 = getMinePos1(stack);
+			BlockPos currentPos2 = getMinePos2(stack);
+			if (currentPos1 == null) {
+				step = 1;
+			} else if (currentPos2 == null) {
+				step = 2;
+			} else if (pos.equals(currentPos2)) {
+				step = 2;
+			} else {
+				step = 1;
+			}
+		}
+
+		if (step == 1) {
+			setMinePos2(stack, null);
+			handleMinePos1(player, world, stack, pos);
+			return 1;
+		} else {
+			handleMinePos2(player, world, stack, pos);
+			return 2;
+		}
+	}
+
+	public static int handleMineClick(PlayerEntity player, World world, ItemStack stack, BlockPos pos) {
+		return handleMineClick(player, world, stack, pos, player != null && player.isSneaking());
+	}
+
+	/**
+	 * Clears both MINE mode corners, plays reset audio feedback, and informs the player.
+	 * Resets state so the next click will place Pos1 first.
+	 *
+	 * @param player The commanding player.
+	 * @param world  The world instance.
+	 * @param stack  The scepter ItemStack.
+	 */
+	public static void handleMineReset(PlayerEntity player, World world, ItemStack stack) {
+		if (MINE_CORNER_RESETTER != null) {
+			try {
+				MINE_CORNER_RESETTER.resetCorners();
+			} catch (Throwable ignored) {}
+		}
+		clearMineCorners(stack);
+
+		if (world != null && player != null) {
+			world.playSound(
+				null,
+				player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(),
+				SoundCategory.PLAYERS,
+				1.0F,
+				0.8F
+			);
+		}
+		if (player != null) {
+			player.sendMessage(
+				Text.literal("§6✦ Cleared MINE corner selections (Pos1 & Pos2) - Ready for Pos1!§r"),
+				true
+			);
+		}
+	}
+
+	// -----------------------------------------------------------------------------------------
 	// PATROL ROUTE & ESCORT MANAGEMENT
 	// -----------------------------------------------------------------------------------------
 
 	private static final Map<UUID, UUID> PRIMED_ESCORT_MINIONS = new ConcurrentHashMap<>();
 
 	/**
-	 * Resolves the active patrol route channel index (0 to 4) stored on the scepter.
+	 * Resolves the active patrol route channel index stored on the scepter.
 	 */
 	public static int getActivePatrolRoute(ItemStack stack) {
 		return stack.getOrDefault(ModDataComponents.ACTIVE_PATROL_ROUTE, 0);
@@ -298,23 +1086,49 @@ public class CommandScepterItem extends Item {
 	 * Sets the active patrol route channel index on the scepter stack.
 	 */
 	public static void setActivePatrolRoute(ItemStack stack, int routeId) {
-		int clamped = Math.max(0, Math.min(PatrolRoute.CHANNEL_COUNT - 1, routeId));
+		int clamped = Math.max(0, routeId);
 		stack.set(ModDataComponents.ACTIVE_PATROL_ROUTE, clamped);
 	}
 
 	/**
-	 * Cycles the active patrol route channel in sequence (0 to 4).
+	 * Cycles the active patrol route channel in sequence across available routes.
 	 */
 	public static int cyclePatrolRoute(ItemStack stack, PlayerEntity player) {
 		int current = getActivePatrolRoute(stack);
-		int next = (current + 1) % PatrolRoute.CHANNEL_COUNT;
+		List<PatrolRoute> availableRoutes = null;
+		if (player != null && !player.getWorld().isClient()) {
+			availableRoutes = PatrolRouteManager.getInstance().getAllRoutes(player.getUuid());
+		}
+
+		int next;
+		if (availableRoutes != null && !availableRoutes.isEmpty()) {
+			List<Integer> ids = availableRoutes.stream().map(PatrolRoute::routeId).sorted().toList();
+			int idx = ids.indexOf(current);
+			if (idx >= 0 && idx < ids.size() - 1) {
+				next = ids.get(idx + 1);
+			} else {
+				next = ids.get(0);
+			}
+		} else {
+			next = (current + 1) % PatrolRoute.CHANNEL_COUNT;
+		}
+
 		setActivePatrolRoute(stack, next);
 
-		player.getWorld().playSound(
-			null, player.getX(), player.getY(), player.getZ(),
-			SoundEvents.BLOCK_NOTE_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.0F + (next * 0.15F)
-		);
-		player.sendMessage(Text.literal("§6✦ Active Patrol Channel: §r" + PatrolRoute.CHANNEL_FORMATTED_NAMES[next]), true);
+		if (player != null) {
+			player.getWorld().playSound(
+				null, player.getX(), player.getY(), player.getZ(),
+				SoundEvents.BLOCK_NOTE_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.0F + (Math.floorMod(next, 5) * 0.15F)
+			);
+			String routeName = "Route " + (next + 1);
+			if (!player.getWorld().isClient()) {
+				PatrolRoute r = PatrolRouteManager.getInstance().getRoute(player.getUuid(), next);
+				if (r != null) routeName = r.getFormattedName();
+			} else if (next >= 0 && next < PatrolRoute.CHANNEL_FORMATTED_NAMES.length) {
+				routeName = PatrolRoute.CHANNEL_FORMATTED_NAMES[next];
+			}
+			player.sendMessage(Text.literal("§6✦ Active Patrol Channel: §r" + routeName), true);
+		}
 		return next;
 	}
 
@@ -467,7 +1281,10 @@ public class CommandScepterItem extends Item {
 	 * @return The active blueprint ID string, defaulting to {@link BlueprintRegistry#WATCHTOWER_ID}.
 	 */
 	public static String getBlueprintId(ItemStack stack) {
-		return stack.getOrDefault(ModDataComponents.ACTIVE_BLUEPRINT, BlueprintRegistry.WATCHTOWER_ID);
+		if (stack == null || stack.isEmpty()) {
+			return "";
+		}
+		return stack.getOrDefault(ModDataComponents.ACTIVE_BLUEPRINT, "");
 	}
 
 	/**
@@ -477,21 +1294,29 @@ public class CommandScepterItem extends Item {
 	 * @param blueprintId The blueprint identifier string.
 	 */
 	public static void setBlueprintId(ItemStack stack, String blueprintId) {
-		stack.set(ModDataComponents.ACTIVE_BLUEPRINT, Objects.requireNonNull(blueprintId, "blueprintId cannot be null"));
+		if (stack != null && !stack.isEmpty()) {
+			stack.set(ModDataComponents.ACTIVE_BLUEPRINT, Objects.requireNonNull(blueprintId, "blueprintId cannot be null"));
+		}
 	}
 
 	/**
-	 * Cycles to the next architectural blueprint in catalog order, playing a bell chime sound
+	 * Cycles to the next custom blueprint in catalog order, playing a bell chime sound
 	 * and projecting an action-bar notification.
 	 *
 	 * @param stack  The scepter ItemStack.
 	 * @param player The commanding player.
 	 * @param world  The world instance.
-	 * @return The newly selected StructureBlueprint.
+	 * @return The newly selected StructureBlueprint, or null if no blueprints exist.
 	 */
 	public static StructureBlueprint cycleBlueprint(ItemStack stack, PlayerEntity player, World world) {
 		String currentId = getBlueprintId(stack);
 		StructureBlueprint next = BlueprintRegistry.getNext(currentId);
+		if (next == null || next.getBlockCount() == 0) {
+			if (player != null) {
+				player.sendMessage(Text.literal("§c⚠ No custom blueprints captured yet! Use DESIGN mode to capture one first.§r"), true);
+			}
+			return null;
+		}
 		setBlueprintId(stack, next.getId());
 
 		world.playSound(
@@ -534,56 +1359,6 @@ public class CommandScepterItem extends Item {
 	public static void setRotationIndex(ItemStack stack, int rotationIndex) {
 		if (stack != null && !stack.isEmpty()) {
 			stack.set(ModDataComponents.STRUCTURE_ROTATION, Math.floorMod(rotationIndex, 4));
-		}
-	}
-
-	/**
-	 * Resolves the active architectural design style stored on the item stack.
-	 *
-	 * @param stack The scepter ItemStack.
-	 * @return The active ArchitectureStyle, defaulting to {@link com.example.blueprint.ArchitectureStyle#BIOME_NATIVE}.
-	 */
-	public static com.example.blueprint.ArchitectureStyle getArchitectureStyle(ItemStack stack) {
-		if (stack == null || stack.isEmpty()) {
-			return com.example.blueprint.ArchitectureStyle.BIOME_NATIVE;
-		}
-		return stack.getOrDefault(ModDataComponents.ARCHITECTURE_STYLE, com.example.blueprint.ArchitectureStyle.BIOME_NATIVE);
-	}
-
-	/**
-	 * Sets the active architectural design style on the item stack.
-	 *
-	 * @param stack The scepter ItemStack.
-	 * @param style The ArchitectureStyle to set.
-	 */
-	public static void setArchitectureStyle(ItemStack stack, com.example.blueprint.ArchitectureStyle style) {
-		if (stack != null && !stack.isEmpty()) {
-			stack.set(ModDataComponents.ARCHITECTURE_STYLE, style != null ? style : com.example.blueprint.ArchitectureStyle.BIOME_NATIVE);
-		}
-	}
-
-	/**
-	 * Resolves the active procedural building size index (0: Small, 1: Medium, 2: Grand, 3: Random).
-	 *
-	 * @param stack The scepter ItemStack.
-	 * @return The size index.
-	 */
-	public static int getBuildingSize(ItemStack stack) {
-		if (stack == null || stack.isEmpty()) {
-			return com.example.blueprint.BuildingCategory.SIZE_MEDIUM;
-		}
-		return Math.floorMod(stack.getOrDefault(ModDataComponents.BUILDING_SIZE, com.example.blueprint.BuildingCategory.SIZE_MEDIUM), 4);
-	}
-
-	/**
-	 * Sets the active procedural building size index on the item stack.
-	 *
-	 * @param stack The scepter ItemStack.
-	 * @param size  The size index (0-3).
-	 */
-	public static void setBuildingSize(ItemStack stack, int size) {
-		if (stack != null && !stack.isEmpty()) {
-			stack.set(ModDataComponents.BUILDING_SIZE, Math.floorMod(size, 4));
 		}
 	}
 
@@ -952,7 +1727,7 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> candidates = serverWorld.getEntitiesByClass(
 				MinionEntity.class,
 				rallyBox,
-				m -> m.isAlive() && m.isOwner(player)
+				m -> m.isAlive() && m.isOwner(player) && (mode == CommandMode.PATHWAY || m.getPatrolRouteId() < 0)
 			);
 
 			List<MinionEntity> enclosedMinions = new ArrayList<>();
@@ -1078,7 +1853,7 @@ public class CommandScepterItem extends Item {
 						attackMinions = serverWorld.getEntitiesByClass(
 							MinionEntity.class,
 							searchBox,
-							m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && targetSquad.matches(m.getSquad())
+							m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && m.getPatrolRouteId() < 0 && targetSquad.matches(m.getSquad())
 						);
 					}
 				}
@@ -1092,7 +1867,7 @@ public class CommandScepterItem extends Item {
 					minion.setSelected(true);
 					minion.setGuardAnchorPos(null);
 					minion.setAssaultTargets(enclosedHostiles);
-					boolean isArcher = minion.getRole() == MinionRole.WARRIOR && MinionEntity.isRangedWeapon(minion.getMainHandStack());
+					boolean isArcher = minion.matchesRole(MinionRole.WARRIOR) && MinionEntity.isRangedWeapon(minion.getMainHandStack());
 					LivingEntity assignedTarget;
 					if (isArcher && enclosedHostiles.size() > 1) {
 						int backIndex = enclosedHostiles.size() - 1 - (i % Math.max(1, enclosedHostiles.size() / 2));
@@ -1480,8 +2255,27 @@ public class CommandScepterItem extends Item {
 			return ActionResult.success(world.isClient());
 		}
 
-		// MINE Mode: Anchor deconstruction session at clicked block or structure
+		// DESIGN Mode: Right-click triggers custom blueprint capture modal if corners are set
+		if (mode == CommandMode.DESIGN) {
+			if (world.isClient() && CAPTURE_MODAL_OPENER != null) {
+				BlockPos p1 = getDesignPos1(stack);
+				BlockPos p2 = getDesignPos2(stack);
+				CAPTURE_MODAL_OPENER.openCaptureModal(player, context.getHand(), stack, p1, p2);
+			}
+			return ActionResult.success(world.isClient());
+		}
+
+		// MINE Mode: Anchor deconstruction session at clicked block or structure (DIRECT) or open confirm modal (AREA)
 		if (mode == CommandMode.MINE) {
+			MiningMode miningMode = getMiningMode(stack);
+			if (miningMode == MiningMode.AREA) {
+				if (world.isClient() && MINE_MODAL_OPENER != null) {
+					BlockPos p1 = getMinePos1(stack);
+					BlockPos p2 = getMinePos2(stack);
+					MINE_MODAL_OPENER.openMineModal(player, context.getHand(), stack, p1, p2);
+				}
+				return ActionResult.success(world.isClient());
+			}
 			if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
 				return ActionResult.success(world.isClient());
 			}
@@ -1518,32 +2312,15 @@ public class CommandScepterItem extends Item {
 
 		BlockPos anchorPos = serverWorld.getBlockState(clickedPos).isReplaceable() ? clickedPos : clickedPos.offset(side);
 		String bpId = getBlueprintId(stack);
-		int size = getBuildingSize(stack);
-		com.example.blueprint.ArchitectureStyle style = getArchitectureStyle(stack);
 
-		// 1. Resolve category or registered blueprint
-		com.example.blueprint.BuildingCategory cat = null;
-		for (com.example.blueprint.BuildingCategory c : com.example.blueprint.BuildingCategory.values()) {
-			if (c.getId().equalsIgnoreCase(bpId) || bpId.toLowerCase().startsWith(c.getId().toLowerCase())) {
-				cat = c;
-				break;
-			}
+		StructureBlueprint blueprint = com.example.blueprint.BlueprintRegistry.get(bpId).orElse(null);
+		if (blueprint == null || blueprint.getBlockCount() == 0) {
+			player.sendMessage(Text.literal("§c⚠ No valid custom blueprint selected! Capture a structure in DESIGN mode first.§r"), true);
+			return false;
 		}
 
-		StructureBlueprint blueprint;
-		long seed = anchorPos.asLong() ^ (long) bpId.hashCode() ^ (long) style.ordinal();
-		if (cat != null) {
-			blueprint = cat.createBlueprint(size, seed);
-		} else {
-			blueprint = com.example.blueprint.BlueprintRegistry.getOrDefault(bpId);
-		}
-
-		// 2. Rotate to commander's orientation
-		if (blueprint != null) {
-			blueprint = blueprint.rotate(getRotation(stack));
-			// 3. Organically weather, adapt to biome/style, and snap dynamic foundations
-			blueprint = com.example.blueprint.DynamicBuildingResolver.resolve(blueprint, serverWorld, anchorPos, style);
-		}
+		// Rotate to commander's orientation with 100% exact captured blocks
+		blueprint = blueprint.rotate(getRotation(stack));
 
 		if (isDismantle) {
 			ConstructionManager.getInstance().startDismantleSession(serverWorld, anchorPos, blueprint, player);
@@ -1599,6 +2376,25 @@ public class CommandScepterItem extends Item {
 		if (player.isSneaking()) {
 			if (world.isClient() && SCREEN_OPENER != null) {
 				SCREEN_OPENER.openScreen(player, hand, stack);
+			}
+			return TypedActionResult.success(stack, world.isClient());
+		}
+
+		CommandMode mode = getMode(stack);
+		if (mode == CommandMode.DESIGN) {
+			if (world.isClient() && CAPTURE_MODAL_OPENER != null) {
+				BlockPos p1 = getDesignPos1(stack);
+				BlockPos p2 = getDesignPos2(stack);
+				CAPTURE_MODAL_OPENER.openCaptureModal(player, hand, stack, p1, p2);
+			}
+			return TypedActionResult.success(stack, world.isClient());
+		}
+
+		if (mode == CommandMode.MINE && getMiningMode(stack) == MiningMode.AREA) {
+			if (world.isClient() && MINE_MODAL_OPENER != null) {
+				BlockPos p1 = getMinePos1(stack);
+				BlockPos p2 = getMinePos2(stack);
+				MINE_MODAL_OPENER.openMineModal(player, hand, stack, p1, p2);
 			}
 			return TypedActionResult.success(stack, world.isClient());
 		}
@@ -1709,6 +2505,7 @@ public class CommandScepterItem extends Item {
 		if (!heldSquad.isWildcard()) {
 			minion.setSquad(heldSquad);
 		}
+		minion.setRole(MinionRole.AUTO);
 		minion.setSitting(true);
 		minion.setGuardAnchorPos(minion.getBlockPos());
 		minion.getNavigation().stop();
@@ -2047,10 +2844,14 @@ public class CommandScepterItem extends Item {
 
 		World world = minion.getWorld();
 		boolean hadLeader = minion.hasLeader();
+		boolean hadPatrolRoute = minion.getPatrolRouteId() >= 0;
 		boolean willSelect = !minion.isSelected();
 		minion.setSelected(willSelect);
 
 		if (willSelect) {
+			if (hadPatrolRoute) {
+				minion.setPatrolRouteId(-1);
+			}
 			minion.setSitting(false);
 			minion.setGuardAnchorPos(null);
 			minion.clearAssaultTargets();
@@ -2089,7 +2890,7 @@ public class CommandScepterItem extends Item {
 				);
 				serverWorld.playSound(null, minion.getX(), minion.getY(), minion.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.5F);
 				serverWorld.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_CHIME, SoundCategory.PLAYERS, 0.8F, 1.5F);
-				String escortNote = hadLeader ? " §e(Detached from escort)§r" : "";
+				String escortNote = hadLeader ? " §e(Detached from escort)§r" : (hadPatrolRoute ? " §e(Detached from patrol route)§r" : "");
 				player.sendMessage(
 					Text.literal("§a✦ Minion Selected: §f" + name + escortNote + " §8[Selected: " + selectedCount + "]§r"),
 					true
@@ -2230,10 +3031,6 @@ public class CommandScepterItem extends Item {
 				minion.setTarget(null);
 				minion.setGuardAnchorPos(groundStationPos);
 				minion.setActiveTraversalDestination(new Vec3d(stationX, stationY, stationZ));
-				double dy = stationY - minion.getY();
-				if (dy > 1.25D || dy < -1.5D) {
-					minion.setArcaneLevitating(true);
-				}
 				minion.getNavigation().startMovingTo(
 					stationX,
 					stationY,
@@ -2319,7 +3116,7 @@ public class CommandScepterItem extends Item {
 				minions = serverWorld.getEntitiesByClass(
 					MinionEntity.class,
 					searchBox,
-					m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && filterSquad.matches(m.getSquad())
+					m -> m.isAlive() && m.isOwner(player) && !m.isSitting() && m.getPatrolRouteId() < 0 && filterSquad.matches(m.getSquad())
 				);
 			}
 
@@ -2383,11 +3180,21 @@ public class CommandScepterItem extends Item {
 			case MINE -> broadcastMine(player, world, targetSquad);
 			case RECRUIT -> sendRecruitTip(player, world);
 			case PATHWAY -> broadcastPathway(player, world, targetSquad);
+			case DESIGN -> {
+				if (!world.isClient()) {
+					player.sendMessage(Text.literal("§d✦ Design Mode Active: Left-click twice for Pos1 and Pos2, Right-click to capture blueprint.§r"), true);
+				}
+				world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.7F);
+			}
 			case BUILD -> {
 				if (!world.isClient()) {
-					String bpId = stack.isEmpty() ? BlueprintRegistry.WATCHTOWER_ID : getBlueprintId(stack);
-					String bpName = BlueprintRegistry.getOrDefault(bpId).getName();
-					player.sendMessage(Text.literal("§b✦ Build Mode Active: Right-click ground to anchor " + bpName + "!§r"), true);
+					String bpId = stack.isEmpty() ? "" : getBlueprintId(stack);
+					StructureBlueprint bp = BlueprintRegistry.get(bpId).orElse(null);
+					if (bp != null && bp.getBlockCount() > 0) {
+						player.sendMessage(Text.literal("§b✦ Build Mode Active: Right-click ground to anchor " + bp.getName() + "!§r"), true);
+					} else {
+						player.sendMessage(Text.literal("§b✦ Build Mode Active: No blueprint selected. Capture a structure in DESIGN mode!§r"), true);
+					}
 				}
 				world.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BELL, SoundCategory.PLAYERS, 1.0F, 1.2F);
 			}
@@ -2444,7 +3251,7 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> minions = world.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && !m.hasLeader() && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && !m.hasLeader() && m.getPatrolRouteId() < 0 && filterSquad.matches(m.getSquad())
 			);
 
 			for (MinionEntity minion : minions) {
@@ -2478,7 +3285,7 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> minions = world.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && m.getPatrolRouteId() < 0 && filterSquad.matches(m.getSquad())
 			);
 
 			for (MinionEntity minion : minions) {
@@ -2588,31 +3395,42 @@ public class CommandScepterItem extends Item {
 		List<MinionEntity> minions = world.getEntitiesByClass(
 			MinionEntity.class,
 			searchBox,
-			m -> m.isAlive() && m.isOwner(player) && (isEmergencyCitadelCall || (!m.hasLeader() && filterSquad.matches(m.getSquad())))
+			m -> m.isAlive() && m.isOwner(player) && (isEmergencyCitadelCall || (!m.hasLeader() && m.getPatrolRouteId() < 0 && filterSquad.matches(m.getSquad())))
 		);
 
+		MinionFormationFollowGoal.refreshFormationAnchor(player);
+
+		Map<MinionRole, List<MinionEntity>> byRole = new HashMap<>();
 		for (MinionEntity minion : minions) {
-			minion.setSitting(false);
-			minion.setGuardAnchorPos(null);
-			minion.clearAssaultTargets();
-			minion.setTarget(null);
-			minion.setAttacking(false);
-			minion.setSelected(true);
-			if (isEmergencyCitadelCall) {
-				minion.setPatrolRouteId(-1); // Recall sentries from patrol routes
-				minion.clearLeader(); // Recall escorting units to stronghold master
-			}
-			minion.getNavigation().startMovingTo(player, 1.50D);
-			if (world instanceof ServerWorld serverWorld) {
-				serverWorld.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, minion.getX(), minion.getY() + 0.8D, minion.getZ(), 4, 0.2D, 0.2D, 0.2D, 0.02D);
+			byRole.computeIfAbsent(minion.getEffectiveRole(), r -> new ArrayList<>()).add(minion);
+		}
+
+		for (List<MinionEntity> roleMinions : byRole.values()) {
+			roleMinions.sort(Comparator.comparingInt(MinionEntity::getId));
+			for (int rank = 0; rank < roleMinions.size(); rank++) {
+				MinionEntity minion = roleMinions.get(rank);
+				minion.setSitting(false);
+				minion.setGuardAnchorPos(null);
+				minion.clearAssaultTargets();
+				minion.setTarget(null);
+				minion.setAttacking(false);
+				minion.setSelected(true);
+				if (isEmergencyCitadelCall) {
+					minion.setPatrolRouteId(-1); // Recall sentries from patrol routes
+					minion.clearLeader(); // Recall escorting units to stronghold master
+				}
+				Vec3d station = MinionFormationFollowGoal.calculateFormationStation(player, minion.getEffectiveRole(), rank);
+				double walkableY = MinionFormationFollowGoal.resolveWalkableY(world, station.x, player.getY(), station.z);
+				minion.getNavigation().startMovingTo(station.x, walkableY, station.z, 1.50D);
+				if (world instanceof ServerWorld serverWorld) {
+					serverWorld.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, minion.getX(), minion.getY() + 0.8D, minion.getZ(), 4, 0.2D, 0.2D, 0.2D, 0.02D);
+				}
 			}
 		}
 
 		if (world instanceof ServerWorld serverWorld) {
 			com.example.construction.ConstructionManager.getInstance().cancelSessionsForOwner(player.getUuid(), serverWorld);
 		}
-
-		MinionFormationFollowGoal.refreshFormationAnchor(player);
 
 		if (isEmergencyCitadelCall) {
 			SoundEvent hornSound = !SoundEvents.GOAT_HORN_SOUNDS.isEmpty()
@@ -2651,7 +3469,7 @@ public class CommandScepterItem extends Item {
 			List<MinionEntity> miners = world.getEntitiesByClass(
 				MinionEntity.class,
 				searchBox,
-				m -> m.isAlive() && m.isOwner(player) && m.getRole() == MinionRole.BUILDER && filterSquad.matches(m.getSquad())
+				m -> m.isAlive() && m.isOwner(player) && m.matchesRole(MinionRole.BUILDER) && filterSquad.matches(m.getSquad())
 			);
 
 			String squadLabel = filterSquad.getFormattedName();
@@ -2690,12 +3508,46 @@ public class CommandScepterItem extends Item {
 			tooltip.add(Text.literal("§7Target Archetype: §r" + targetRole.getFormattedName()));
 		}
 
+		if (mode == CommandMode.DESIGN) {
+			BlockPos p1 = getDesignPos1(stack);
+			BlockPos p2 = getDesignPos2(stack);
+			tooltip.add(Text.literal("§7Pos1 (Corner 1): §d" + (p1 != null ? "[" + p1.toShortString() + "]" : "Not Set")));
+			tooltip.add(Text.literal("§7Pos2 (Corner 2): §d" + (p2 != null ? "[" + p2.toShortString() + "]" : "Not Set")));
+			if (p1 != null && p2 != null) {
+				int sx = Math.abs(p1.getX() - p2.getX()) + 1;
+				int sy = Math.abs(p1.getY() - p2.getY()) + 1;
+				int sz = Math.abs(p1.getZ() - p2.getZ()) + 1;
+				tooltip.add(Text.literal("§7Volume: §e" + sx + "x" + sy + "x" + sz + " §8(" + (sx * sy * sz) + " blocks)"));
+			}
+		}
+
+		if (mode == CommandMode.MINE) {
+			MiningMode miningMode = getMiningMode(stack);
+			tooltip.add(Text.literal("§7Mining Mode: §r" + miningMode.getFormattedName()));
+			if (miningMode == MiningMode.AREA) {
+				BlockPos p1 = getMinePos1(stack);
+				BlockPos p2 = getMinePos2(stack);
+				tooltip.add(Text.literal("§7Mine Pos1: §e" + (p1 != null ? "[" + p1.toShortString() + "]" : "Not Set")));
+				tooltip.add(Text.literal("§7Mine Pos2: §e" + (p2 != null ? "[" + p2.toShortString() + "]" : "Not Set")));
+				if (p1 != null && p2 != null) {
+					int sx = Math.abs(p1.getX() - p2.getX()) + 1;
+					int sy = Math.abs(p1.getY() - p2.getY()) + 1;
+					int sz = Math.abs(p1.getZ() - p2.getZ()) + 1;
+					tooltip.add(Text.literal("§7Area Volume: §e" + sx + "x" + sy + "x" + sz + " §8(" + (sx * sy * sz) + " blocks)"));
+				}
+			}
+		}
+
 		if (mode == CommandMode.BUILD) {
 			String bpId = getBlueprintId(stack);
-			StructureBlueprint bp = BlueprintRegistry.getOrDefault(bpId);
-			int degrees = getRotationIndex(stack) * 90;
-			tooltip.add(Text.literal("§7Active Blueprint: §b" + bp.getName() + " §8(" + bp.getBlockCount() + " blocks)"));
-			tooltip.add(Text.literal("§7Rotation: §b" + degrees + "° §7(" + getRotation(stack).name() + ")"));
+			StructureBlueprint bp = BlueprintRegistry.get(bpId).orElse(null);
+			if (bp != null && bp.getBlockCount() > 0) {
+				int degrees = getRotationIndex(stack) * 90;
+				tooltip.add(Text.literal("§7Active Blueprint: §b" + bp.getName() + " §8(" + bp.getBlockCount() + " blocks)"));
+				tooltip.add(Text.literal("§7Rotation: §b" + degrees + "° §7(" + getRotation(stack).name() + ")"));
+			} else {
+				tooltip.add(Text.literal("§7Active Blueprint: §cNone (Use DESIGN mode)"));
+			}
 		}
 
 		if (mode == CommandMode.PATHWAY) {
@@ -2711,6 +3563,7 @@ public class CommandScepterItem extends Item {
 		tooltip.add(Text.literal("§8• Right-Click Hostile: 32b Focus-Fire Ping (Crosshair Aiming & Drum SFX)"));
 		tooltip.add(Text.literal("§8• Shift + Left-Click: Deselect All Minions (Cycle Rotation in Build)"));
 		tooltip.add(Text.literal("§8• Shift + Left-Click Minion: Prime as Escort (Right-Click leader to bind)"));
+		tooltip.add(Text.literal("§8• DESIGN: Left-Click for Pos1 then Pos2, Right-Click to Capture Blueprint"));
 		tooltip.add(Text.literal("§8• PATHWAY: Right-Click block to add waypoint, Sneak + Right-Click to remove"));
 		tooltip.add(Text.literal("§8• PATHWAY: Right-Click minion to assign to route, Right-Click air to cycle route"));
 		tooltip.add(Text.literal("§8• Right-Click Air (Build): Cycle Blueprint"));

@@ -1,9 +1,13 @@
 package com.example.blueprint;
 
 import java.util.Objects;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.network.RegistryByteBuf;
+import net.minecraft.network.codec.PacketCodec;
+import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.state.property.Properties;
 import net.minecraft.util.math.BlockPos;
 
@@ -17,6 +21,25 @@ import net.minecraft.util.math.BlockPos;
  * 3. Lexicographical coordinate tie-breakers (X, then Z).
  */
 public record BlueprintBlock(BlockPos offset, BlockState state) implements Comparable<BlueprintBlock> {
+
+	public static final PacketCodec<RegistryByteBuf, BlueprintBlock> PACKET_CODEC = new PacketCodec<>() {
+		@Override
+		public void encode(RegistryByteBuf buf, BlueprintBlock block) {
+			BlockPos.PACKET_CODEC.encode(buf, block.offset());
+			PacketCodecs.VAR_INT.encode(buf, Block.getRawIdFromState(block.state()));
+		}
+
+		@Override
+		public BlueprintBlock decode(RegistryByteBuf buf) {
+			BlockPos offset = BlockPos.PACKET_CODEC.decode(buf);
+			int rawId = PacketCodecs.VAR_INT.decode(buf);
+			BlockState state = Block.getStateFromRawId(rawId);
+			if (state == null) {
+				state = net.minecraft.block.Blocks.STONE.getDefaultState();
+			}
+			return new BlueprintBlock(offset, state);
+		}
+	};
 
 	public BlueprintBlock {
 		Objects.requireNonNull(offset, "offset cannot be null");
@@ -57,7 +80,11 @@ public record BlueprintBlock(BlockPos offset, BlockState state) implements Compa
 	 * @return True if this block hangs from an overhead support.
 	 */
 	public boolean isHanging() {
-		return this.state.contains(Properties.HANGING) && Boolean.TRUE.equals(this.state.get(Properties.HANGING));
+		try {
+			return this.state != null && this.state.contains(Properties.HANGING) && Boolean.TRUE.equals(this.state.get(Properties.HANGING));
+		} catch (Throwable ignored) {
+			return false;
+		}
 	}
 
 	/**
@@ -119,6 +146,8 @@ public record BlueprintBlock(BlockPos offset, BlockState state) implements Compa
 		}
 
 		// 6. Block state string comparison for complete total ordering
-		return this.state.toString().compareTo(other.state.toString());
+		String s1 = this.state != null ? this.state.toString() : "";
+		String s2 = other.state != null ? other.state.toString() : "";
+		return s1.compareTo(s2);
 	}
 }

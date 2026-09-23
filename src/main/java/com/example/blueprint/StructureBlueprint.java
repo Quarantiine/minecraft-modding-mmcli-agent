@@ -1,6 +1,7 @@
 package com.example.blueprint;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,11 +74,13 @@ public class StructureBlueprint {
 		List<BlockPos> doors = new ArrayList<>();
 		for (BlueprintBlock block : blocks) {
 			BlockState state = block.state();
-			if (state.getBlock() instanceof DoorBlock) {
-				if (!state.contains(DoorBlock.HALF) || state.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
-					doors.add(block.offset());
+			try {
+				if (state != null && state.getBlock() instanceof DoorBlock) {
+					if (!state.contains(DoorBlock.HALF) || state.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+						doors.add(block.offset());
+					}
 				}
-			}
+			} catch (Throwable ignored) {}
 		}
 		this.doorOffsets = Collections.unmodifiableList(doors);
 	}
@@ -226,7 +229,12 @@ public class StructureBlueprint {
 			}
 
 			BlockPos newPos = new BlockPos(newX, newY, newZ);
-			BlockState rotatedState = block.state().rotate(rotation);
+			BlockState rotatedState = null;
+			try {
+				if (block.state() != null) {
+					rotatedState = block.state().rotate(rotation);
+				}
+			} catch (Throwable ignored) {}
 			if (rotatedState == null) {
 				rotatedState = block.state();
 			}
@@ -290,6 +298,228 @@ public class StructureBlueprint {
 		};
 	}
 
+	public static final int MAX_SPATIAL_DIMENSION = 64;
+	public static final int MAX_SPATIAL_HEIGHT = 96;
+	public static final int MAX_SPATIAL_VOLUME = 393216;
+
+	/**
+	 * Captures and normalizes in-world spatial blocks enclosed between two corner coordinates into a {@link StructureBlueprint}.
+	 * Translates the bounding region so the lowest corner (minX, minY, minZ) aligns with relative origin (0, 0, 0),
+	 * filters out air blocks, and deterministically sorts blocks in bottom-up topological construction order.
+	 *
+	 * @param world       World/BlockView instance to sample blocks from.
+	 * @param pos1        First corner of the bounding volume.
+	 * @param pos2        Second corner of the bounding volume.
+	 * @param id          Unique blueprint identifier.
+	 * @param name        User-facing blueprint display name.
+	 * @param description User-facing blueprint description.
+	 * @return Topologically sorted and normalized StructureBlueprint.
+	 */
+	public static StructureBlueprint captureFromWorld(
+		net.minecraft.world.BlockView world,
+		BlockPos pos1,
+		BlockPos pos2,
+		String id,
+		String name,
+		String description
+	) {
+		Objects.requireNonNull(world, "world cannot be null");
+		Objects.requireNonNull(pos1, "pos1 cannot be null");
+		Objects.requireNonNull(pos2, "pos2 cannot be null");
+
+		String cleanId = id != null && !id.isBlank() ? id : "custom_capture_" + System.currentTimeMillis();
+		String cleanName = name != null && !name.isBlank() ? name : "Captured Structure";
+		String cleanDesc = (description != null && !description.isBlank()) ? description.trim() : "";
+
+		List<BlueprintBlock> normalizedBlocks = captureBlocks(world, pos1, pos2);
+
+		Builder builder = builder(cleanId, cleanName).description(cleanDesc);
+		for (BlueprintBlock block : normalizedBlocks) {
+			builder.addBlock(block.offset(), block.state());
+		}
+		return builder.build();
+	}
+
+	/**
+	 * Creates a custom area blueprint for mining/quarrying enclosing the exact volume between pos1 and pos2.
+	 *
+	 * @param world       World/BlockView instance to sample blocks from.
+	 * @param pos1        First corner of the bounding volume.
+	 * @param pos2        Second corner of the bounding volume.
+	 * @param id          Unique blueprint identifier.
+	 * @param name        User-facing blueprint display name.
+	 * @param description User-facing blueprint description.
+	 * @return StructureBlueprint spanning the specified area box.
+	 */
+	public static StructureBlueprint createAreaBlueprint(
+		net.minecraft.world.BlockView world,
+		BlockPos pos1,
+		BlockPos pos2,
+		String id,
+		String name,
+		String description
+	) {
+		Objects.requireNonNull(pos1, "pos1 cannot be null");
+		Objects.requireNonNull(pos2, "pos2 cannot be null");
+
+		int minX = Math.min(pos1.getX(), pos2.getX());
+		int maxX = Math.max(pos1.getX(), pos2.getX());
+		int minY = Math.min(pos1.getY(), pos2.getY());
+		int maxY = Math.max(pos1.getY(), pos2.getY());
+		int minZ = Math.min(pos1.getZ(), pos2.getZ());
+		int maxZ = Math.max(pos1.getZ(), pos2.getZ());
+
+		int sizeX = maxX - minX + 1;
+		int sizeY = maxY - minY + 1;
+		int sizeZ = maxZ - minZ + 1;
+
+		String cleanId = id != null && !id.isBlank() ? id : "mining_area_" + System.currentTimeMillis();
+		String cleanName = name != null && !name.isBlank() ? name : "Mining Area (" + sizeX + "x" + sizeY + "x" + sizeZ + ")";
+		String cleanDesc = (description != null && !description.isBlank()) ? description.trim() : "";
+
+		List<BlueprintBlock> blocks = (world != null) ? captureBlocks(world, pos1, pos2) : Collections.emptyList();
+		Map<Item, Integer> req = new LinkedHashMap<>();
+		for (BlueprintBlock b : blocks) {
+			if (b.state() != null && !b.state().isAir()) {
+				Item item = b.state().getBlock().asItem();
+				if (item != null && item != net.minecraft.item.Items.AIR) {
+					req.merge(item, 1, Integer::sum);
+				}
+			}
+		}
+		BlockBox box = new BlockBox(0, 0, 0, sizeX - 1, sizeY - 1, sizeZ - 1);
+		return new StructureBlueprint(
+			cleanId,
+			cleanName,
+			cleanDesc,
+			sizeX,
+			sizeY,
+			sizeZ,
+			blocks,
+			req,
+			box,
+			BlockRotation.NONE
+		);
+	}
+
+	/**
+	 * Captures non-air blocks within the specified spatial volume and normalizes coordinates
+	 * relative to the minimum corner (minX, minY, minZ), sorting in bottom-up topological order.
+	 *
+	 * @param world World/BlockView to sample from.
+	 * @param pos1  First corner position.
+	 * @param pos2  Second corner position.
+	 * @return List of normalized, topologically sorted BlueprintBlock entries.
+	 */
+	public static List<BlueprintBlock> captureBlocks(
+		net.minecraft.world.BlockView world,
+		BlockPos pos1,
+		BlockPos pos2
+	) {
+		int minX = Math.min(pos1.getX(), pos2.getX());
+		int maxX = Math.max(pos1.getX(), pos2.getX());
+		int minY = Math.min(pos1.getY(), pos2.getY());
+		int maxY = Math.max(pos1.getY(), pos2.getY());
+		int minZ = Math.min(pos1.getZ(), pos2.getZ());
+		int maxZ = Math.max(pos1.getZ(), pos2.getZ());
+
+		int sizeX = maxX - minX + 1;
+		int sizeY = maxY - minY + 1;
+		int sizeZ = maxZ - minZ + 1;
+
+		if (sizeX > MAX_SPATIAL_DIMENSION || sizeY > MAX_SPATIAL_HEIGHT || sizeZ > MAX_SPATIAL_DIMENSION) {
+			throw new IllegalArgumentException(
+				"Spatial capture dimensions exceed maximum limit of " + MAX_SPATIAL_DIMENSION + "x" + MAX_SPATIAL_HEIGHT + "x" + MAX_SPATIAL_DIMENSION + " (" + sizeX + "x" + sizeY + "x" + sizeZ + ")"
+			);
+		}
+
+		long volume = (long) sizeX * sizeY * sizeZ;
+		if (volume > MAX_SPATIAL_VOLUME) {
+			throw new IllegalArgumentException(
+				"Spatial capture volume exceeds maximum limit of " + MAX_SPATIAL_VOLUME + " blocks (" + volume + " voxels)"
+			);
+		}
+
+		if (world == null) {
+			return Collections.emptyList();
+		}
+
+		List<BlueprintBlock> captured = new ArrayList<>();
+		BlockPos.Mutable mutablePos = new BlockPos.Mutable();
+
+		for (int y = minY; y <= maxY; y++) {
+			for (int x = minX; x <= maxX; x++) {
+				for (int z = minZ; z <= maxZ; z++) {
+					mutablePos.set(x, y, z);
+					BlockState state = world.getBlockState(mutablePos);
+					if (state != null && !state.isAir()) {
+						BlockPos normalizedOffset = new BlockPos(x - minX, y - minY, z - minZ);
+						captured.add(new BlueprintBlock(normalizedOffset, state));
+					}
+				}
+			}
+		}
+
+		Collections.sort(captured);
+		return Collections.unmodifiableList(captured);
+	}
+
+	/**
+	 * Normalizes an arbitrary collection of unnormalized {@link BlueprintBlock} elements
+	 * so the lowest corner aligns with (0, 0, 0) and filters any air states.
+	 *
+	 * @param unnormalizedBlocks Collection of unnormalized blueprint blocks.
+	 * @return List of normalized, topologically sorted BlueprintBlock entries.
+	 */
+	public static List<BlueprintBlock> normalizeBlocks(Collection<BlueprintBlock> unnormalizedBlocks) {
+		if (unnormalizedBlocks == null || unnormalizedBlocks.isEmpty()) {
+			return Collections.emptyList();
+		}
+
+		int minX = Integer.MAX_VALUE;
+		int minY = Integer.MAX_VALUE;
+		int minZ = Integer.MAX_VALUE;
+		boolean foundNonAir = false;
+
+		for (BlueprintBlock block : unnormalizedBlocks) {
+			if (block != null && block.state() != null) {
+				boolean isAir = false;
+				try {
+					isAir = block.state().isAir();
+				} catch (Throwable ignored) {}
+				if (!isAir) {
+					BlockPos pos = block.offset();
+					minX = Math.min(minX, pos.getX());
+					minY = Math.min(minY, pos.getY());
+					minZ = Math.min(minZ, pos.getZ());
+					foundNonAir = true;
+				}
+			}
+		}
+
+		if (!foundNonAir) {
+			return Collections.emptyList();
+		}
+
+		List<BlueprintBlock> normalized = new ArrayList<>(unnormalizedBlocks.size());
+		for (BlueprintBlock block : unnormalizedBlocks) {
+			if (block != null && block.state() != null) {
+				boolean isAir = false;
+				try {
+					isAir = block.state().isAir();
+				} catch (Throwable ignored) {}
+				if (!isAir) {
+					BlockPos oldPos = block.offset();
+					BlockPos normalizedOffset = new BlockPos(oldPos.getX() - minX, oldPos.getY() - minY, oldPos.getZ() - minZ);
+					normalized.add(new BlueprintBlock(normalizedOffset, block.state()));
+				}
+			}
+		}
+
+		Collections.sort(normalized);
+		return Collections.unmodifiableList(normalized);
+	}
+
 	/**
 	 * Creates a new builder for constructing a StructureBlueprint.
 	 *
@@ -317,7 +547,7 @@ public class StructureBlueprint {
 		}
 
 		public Builder description(String description) {
-			this.description = description;
+			this.description = (description != null && !description.isBlank()) ? description.trim() : "";
 			return this;
 		}
 
@@ -384,8 +614,15 @@ public class StructureBlueprint {
 
 				sortedBlocks.add(new BlueprintBlock(pos, state));
 
-				Item item = state.getBlock().asItem();
-				itemCounts.merge(item, 1, Integer::sum);
+				Item item = null;
+				try {
+					if (state != null && state.getBlock() != null) {
+						item = state.getBlock().asItem();
+					}
+				} catch (Throwable ignored) {}
+				if (item != null) {
+					itemCounts.merge(item, 1, Integer::sum);
+				}
 
 				if (first) {
 					minX = pos.getX();

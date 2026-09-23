@@ -19,8 +19,21 @@ public class ClientConstructionTracker {
 		BlockPos anchorPos,
 		String blueprintId,
 		int rotation,
-		boolean isDismantle
-	) {}
+		boolean isDismantle,
+		int sizeX,
+		int sizeY,
+		int sizeZ
+	) {
+		public ActiveSessionClientData(
+			UUID sessionId,
+			BlockPos anchorPos,
+			String blueprintId,
+			int rotation,
+			boolean isDismantle
+		) {
+			this(sessionId, anchorPos, blueprintId, rotation, isDismantle, 0, 0, 0);
+		}
+	}
 
 	private static final Map<UUID, ActiveSessionClientData> ACTIVE_SESSIONS = new ConcurrentHashMap<>();
 
@@ -33,7 +46,10 @@ public class ClientConstructionTracker {
 				payload.anchorPos(),
 				payload.blueprintId(),
 				payload.rotation(),
-				payload.isDismantle()
+				payload.isDismantle(),
+				payload.sizeX(),
+				payload.sizeY(),
+				payload.sizeZ()
 			)
 		);
 	}

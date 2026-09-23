@@ -18,6 +18,7 @@ public class MinionNavigation extends MobNavigation {
 		super(mobEntity, world);
 		this.setCanPathThroughDoors(true);
 		this.setCanEnterOpenDoors(true);
+		this.setCanSwim(true);
 	}
 
 	@Override

@@ -205,15 +205,21 @@ public class WaypointFormationAndMassRoleTest {
 		Assertions.assertEquals("modid-mmcli-agent-modding:small_house", data.blueprintId());
 		Assertions.assertEquals(1, data.rotation());
 		Assertions.assertFalse(data.isDismantle());
+		Assertions.assertEquals(0, data.sizeX());
+		Assertions.assertEquals(0, data.sizeY());
+		Assertions.assertEquals(0, data.sizeZ());
 
-		// Add second session (dismantle)
+		// Add second session (dismantle area mining with dimensions)
 		UUID sessionId2 = UUID.randomUUID();
 		SyncConstructionSessionPayload p2 = new SyncConstructionSessionPayload(
 			sessionId2,
 			new BlockPos(30, 70, 40),
-			"modid-mmcli-agent-modding:watchtower",
-			2,
-			true
+			"mining_area_999",
+			0,
+			true,
+			10,
+			5,
+			10
 		);
 		ClientConstructionTracker.addSession(p2);
 		Assertions.assertEquals(2, ClientConstructionTracker.getActiveSessions().size());
@@ -221,6 +227,13 @@ public class WaypointFormationAndMassRoleTest {
 		// Remove session 1
 		ClientConstructionTracker.removeSession(sessionId1);
 		Assertions.assertEquals(1, ClientConstructionTracker.getActiveSessions().size());
+
+		ClientConstructionTracker.ActiveSessionClientData data2 = ClientConstructionTracker.getActiveSessions().iterator().next();
+		Assertions.assertEquals(sessionId2, data2.sessionId());
+		Assertions.assertTrue(data2.isDismantle());
+		Assertions.assertEquals(10, data2.sizeX());
+		Assertions.assertEquals(5, data2.sizeY());
+		Assertions.assertEquals(10, data2.sizeZ());
 
 		// Clear all
 		ClientConstructionTracker.clear();

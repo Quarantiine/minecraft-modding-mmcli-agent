@@ -132,4 +132,40 @@ public class MinionAntiJitterAndLevitationSafetyTest {
 		Assertions.assertTrue(content.contains("if (overSolidGround && !climbingWallAhead)"),
 				"MinionEntity must immediately land when on solid ground with no higher obstacle ahead");
 	}
+
+	@Test
+	@DisplayName("Source Invariant: MinionPatrolGoal breach alarm is completely silent without bell sound")
+	void testSilentBreachAlarmAndPatrolLifecycleInvariants() throws IOException {
+		Path path = Path.of("src/main/java/com/example/entity/ai/goal/MinionPatrolGoal.java");
+		Assertions.assertTrue(Files.exists(path), "MinionPatrolGoal.java must exist");
+		String content = Files.readString(path);
+
+		// No sound when breaking for combat
+		Assertions.assertFalse(content.contains("BLOCK_BELL_USE"),
+				"MinionPatrolGoal must not play BLOCK_BELL_USE sound on breach alarm");
+		Assertions.assertFalse(content.contains("serverWorld.playSound"),
+				"MinionPatrolGoal must execute triggerBreachAlarm silently with zero playSound calls");
+
+		// Stop cleans up levitation and destination
+		Assertions.assertTrue(content.contains("this.minion.clearActiveTraversalDestination();"),
+				"MinionPatrolGoal stop() must clear active traversal destination");
+		Assertions.assertTrue(content.contains("this.minion.setArcaneLevitating(false);"),
+				"MinionPatrolGoal stop() must restore gravity and clear arcane levitation");
+	}
+
+	@Test
+	@DisplayName("Source Invariant: MinionEntity defines footprint ground check and suppresses descent levitation")
+	void testFootprintLandingAndDescentSuppressionInvariants() throws IOException {
+		Path path = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
+		String content = Files.readString(path);
+
+		Assertions.assertTrue(content.contains("public boolean hasSolidGroundBeneath(World world)"),
+				"MinionEntity must define hasSolidGroundBeneath for multi-point footprint contact");
+		Assertions.assertTrue(content.contains("this.hasSolidGroundBeneath(serverWorld)"),
+				"MinionEntity must consult hasSolidGroundBeneath in overSolidGround");
+		Assertions.assertTrue(content.contains("dy < 0 && (this.isOnGround() || dy >= -3.0D)"),
+				"MinionEntity must suppress levitation for ground descents <= 3 blocks");
+		Assertions.assertTrue(content.contains("this.levitationCooldown"),
+				"MinionEntity must enforce levitationCooldown to prevent re-trigger stalls");
+	}
 }

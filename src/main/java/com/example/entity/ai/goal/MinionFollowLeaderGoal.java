@@ -29,7 +29,7 @@ import net.minecraft.util.math.Vec3d;
  *   <li><b>Arcane Levitation & Vaulting:</b> Automatically engages 3D flight to scale vertical obstacles.</li>
  *   <li><b>Heading Hysteresis:</b> Anchors formation yaw relative to the leader to prevent station spinning.</li>
  *   <li><b>Pacing & Emergency Teleport:</b> Marches at 1.15D, sprints at 1.35D when lagging (>8 blocks),
- *       and teleports instantly if estranged beyond 64 blocks.</li>
+ *       and teleports instantly if estranged beyond 32 blocks.</li>
  *   <li><b>Combat Leash Enforcement:</b> Yields to combat near the leader, but immediately breaks aggro
  *       and returns if drawn more than 16 blocks away.</li>
  * </ul>
@@ -41,6 +41,7 @@ public class MinionFollowLeaderGoal extends Goal {
 	private int cachedRank = 0;
 	private int rankUpdateCooldown = 0;
 	private int repathCooldown = 0;
+	private int stuckTicks = 0;
 
 	public static final double MARCH_SPEED = 1.15D;
 	public static final double SPRINT_SPEED = 1.35D;
@@ -50,8 +51,8 @@ public class MinionFollowLeaderGoal extends Goal {
 	public static final double START_FOLLOW_DISTANCE_SQ = START_FOLLOW_DISTANCE * START_FOLLOW_DISTANCE; // 6.25D
 	public static final double SPRINT_DISTANCE_THRESHOLD = 8.0D;
 	public static final double SPRINT_DISTANCE_THRESHOLD_SQ = SPRINT_DISTANCE_THRESHOLD * SPRINT_DISTANCE_THRESHOLD; // 64.0D
-	public static final double TELEPORT_DISTANCE_THRESHOLD = 64.0D;
-	public static final double TELEPORT_DISTANCE_THRESHOLD_SQ = TELEPORT_DISTANCE_THRESHOLD * TELEPORT_DISTANCE_THRESHOLD; // 4096.0D
+	public static final double TELEPORT_DISTANCE_THRESHOLD = 32.0D;
+	public static final double TELEPORT_DISTANCE_THRESHOLD_SQ = TELEPORT_DISTANCE_THRESHOLD * TELEPORT_DISTANCE_THRESHOLD; // 1024.0D
 	public static final double COMBAT_LEASH_OVERRIDE_SQ = 256.0D; // 16.0 blocks
 
 	private static final int RANK_UPDATE_INTERVAL = 15;
@@ -212,10 +213,6 @@ public class MinionFollowLeaderGoal extends Goal {
 			double walkableY = MinionFormationFollowGoal.resolveWalkableY(this.minion.getWorld(), station.x, resolvedLeader.getY(), station.z);
 			Vec3d targetStation = new Vec3d(station.x, walkableY, station.z);
 			this.minion.setActiveTraversalDestination(targetStation);
-			double dy = walkableY - this.minion.getY();
-			if (dy > 1.25D || dy < -1.5D) {
-				this.minion.setArcaneLevitating(true);
-			}
 			this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, MARCH_SPEED);
 		}
 	}
@@ -224,6 +221,7 @@ public class MinionFollowLeaderGoal extends Goal {
 	public void stop() {
 		this.minion.clearActiveTraversalDestination();
 		this.minion.getNavigation().stop();
+		this.stuckTicks = 0;
 	}
 
 	@Override
@@ -242,8 +240,20 @@ public class MinionFollowLeaderGoal extends Goal {
 
 		double distToLeaderSq = this.minion.squaredDistanceTo(resolvedLeader);
 
-		// Emergency teleport when estranged beyond 64 blocks
-		if (distToLeaderSq > TELEPORT_DISTANCE_THRESHOLD_SQ) {
+		// Follower Catch-Up & Emergency Teleport to Leader:
+		// 1. Estranged distance check (> 24 blocks / 576.0 sq)
+		// 2. Stuck / pit trap check (> 10 blocks away / 100.0 sq AND navigation idle or stuck against wall for 40+ ticks)
+		boolean separatedFromLeader = distToLeaderSq > 100.0D;
+		boolean navigationStuck = this.minion.getNavigation().isIdle() || (this.minion.horizontalCollision && distToLeaderSq > 100.0D);
+		if (separatedFromLeader && navigationStuck) {
+			this.stuckTicks++;
+		} else {
+			this.stuckTicks = Math.max(0, this.stuckTicks - 1);
+		}
+
+		boolean shouldTeleportToLeader = distToLeaderSq > 576.0D || (this.stuckTicks >= 40 && distToLeaderSq > 100.0D);
+		if (shouldTeleportToLeader) {
+			this.stuckTicks = 0;
 			this.minion.refreshPositionAndAngles(resolvedLeader.getX(), resolvedLeader.getY(), resolvedLeader.getZ(), resolvedLeader.getYaw(), 0.0F);
 			this.minion.getNavigation().stop();
 			if (this.minion.getWorld() instanceof ServerWorld sw) {
@@ -276,21 +286,14 @@ public class MinionFollowLeaderGoal extends Goal {
 			return;
 		}
 
-		double dy = walkableY - this.minion.getY();
-		if (dy > 1.25D || dy < -1.5D) {
-			this.minion.setArcaneLevitating(true);
-		}
-
 		// Dynamic pacing: sprint at 1.35D when lagging behind (>8 blocks), else march at 1.15D
 		double speed = (distToLeaderSq > SPRINT_DISTANCE_THRESHOLD_SQ || distToStationSq > SPRINT_DISTANCE_THRESHOLD_SQ)
 			? SPRINT_SPEED
 			: MARCH_SPEED;
 
-		if (!this.minion.isArcaneLevitating()) {
-			if (--this.repathCooldown <= 0) {
-				this.repathCooldown = NAVIGATION_REPATH_INTERVAL;
-				this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, speed);
-			}
+		if (--this.repathCooldown <= 0) {
+			this.repathCooldown = NAVIGATION_REPATH_INTERVAL;
+			this.minion.getNavigation().startMovingTo(station.x, walkableY, station.z, speed);
 		}
 	}
 

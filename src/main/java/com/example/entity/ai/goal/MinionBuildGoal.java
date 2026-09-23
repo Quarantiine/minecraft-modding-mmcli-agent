@@ -13,13 +13,19 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import net.minecraft.block.BedBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.block.CarpetBlock;
 import net.minecraft.block.DoorBlock;
+import net.minecraft.block.PlantBlock;
+import net.minecraft.block.TallPlantBlock;
+import net.minecraft.block.TorchBlock;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.ai.pathing.NavigationType;
 import net.minecraft.inventory.Inventory;
@@ -38,6 +44,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
@@ -100,8 +107,8 @@ public class MinionBuildGoal extends Goal {
 			return false;
 		}
 
-		// Stationed minions can autonomously mobilize if an active blueprint is nearby (<= 64 blocks)
-		double searchRadius = this.minion.isSitting() ? 64.0D : 128.0D;
+		// Stationed minions can autonomously mobilize if an active blueprint is nearby (<= 112 blocks)
+		double searchRadius = this.minion.isSitting() ? 112.0D : 128.0D;
 
 		// Find nearest active construction/dismantle session belonging to minion's master
 		Optional<ConstructionSession> sessionOpt = ConstructionManager.getInstance().findNearestSessionForMinion(
@@ -137,7 +144,7 @@ public class MinionBuildGoal extends Goal {
 
 	@Override
 	public boolean shouldContinue() {
-		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
+		if (!this.minion.isAlive() || !this.minion.isTamed()) {
 			return false;
 		}
 
@@ -146,7 +153,40 @@ public class MinionBuildGoal extends Goal {
 			return true;
 		}
 
+		// If minion is sitting, check if an active session in vicinity (<= 128 blocks) can wake and chain them
+		if (this.minion.isSitting()) {
+			if (this.minion.getWorld() instanceof ServerWorld serverWorld && this.minion.getOwnerUuid() != null) {
+				Optional<ConstructionSession> nearby = ConstructionManager.getInstance().findNearestSessionForMinion(
+					serverWorld,
+					this.minion.getBlockPos(),
+					this.minion.getOwnerUuid(),
+					128.0D,
+					this.minion.getEffectiveRole()
+				);
+				if (nearby.isPresent() && nearby.get().isActive()) {
+					this.minion.setSitting(false);
+					this.minion.setGuardAnchorPos(null);
+				} else {
+					return false;
+				}
+			} else {
+				return false;
+			}
+		}
+
 		if (this.currentSession == null || !this.currentSession.isActive()) {
+			if (this.minion.getWorld() instanceof ServerWorld serverWorld && this.minion.getOwnerUuid() != null) {
+				Optional<ConstructionSession> chained = ConstructionManager.getInstance().findNearestSessionForMinion(
+					serverWorld,
+					this.minion.getBlockPos(),
+					this.minion.getOwnerUuid(),
+					128.0D,
+					this.minion.getEffectiveRole()
+				);
+				if (chained.isPresent() && chained.get().isActive()) {
+					return true;
+				}
+			}
 			return false;
 		}
 
@@ -223,18 +263,8 @@ public class MinionBuildGoal extends Goal {
 			return;
 		}
 
-		if (this.currentTask == null || this.currentSession == null) {
-			if (this.currentSession != null && this.currentSession.isActive()) {
-				this.currentTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
-				if (this.currentTask != null) {
-					this.minion.setActivelyBuilding(true);
-					ItemStack previewStack = this.currentSession.isDismantle() ? resolveDismantleTool() : this.currentTask.getBlueprintBlock().getRequiredStack();
-					this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
-					setupNavigationForTask(serverWorld);
-					return;
-				}
-				// Waiting for an ally or prerequisite layer: keep actively building stance
-				this.minion.setActivelyBuilding(true);
+		if (this.currentTask == null || this.currentSession == null || !this.currentSession.isActive()) {
+			if (tryClaimTaskOrChainNextSession(serverWorld)) {
 				return;
 			}
 
@@ -273,6 +303,29 @@ public class MinionBuildGoal extends Goal {
 
 		BlockPos targetPos = this.currentTask.getWorldPos();
 
+		// Sweep stray items in Creative mode, or vacuum loose items in Survival mode
+		if (this.currentSession.isCreative()) {
+			Box sweepBox = this.minion.getBoundingBox().expand(4.0D);
+			List<ItemEntity> strayItems = serverWorld.getEntitiesByClass(ItemEntity.class, sweepBox, e -> true);
+			for (ItemEntity stray : strayItems) {
+				stray.discard();
+			}
+		} else {
+			Box vacuumBox = this.minion.getBoundingBox().expand(3.0D);
+			List<ItemEntity> nearbyItems = serverWorld.getEntitiesByClass(ItemEntity.class, vacuumBox, e -> e.isAlive() && !e.cannotPickup());
+			for (ItemEntity item : nearbyItems) {
+				ItemStack stack = item.getStack();
+				if (!stack.isEmpty()) {
+					ItemStack rem = this.minion.getInventory().addStack(stack);
+					if (rem.isEmpty()) {
+						item.discard();
+					} else {
+						item.setStack(rem);
+					}
+				}
+			}
+		}
+
 		// Safeguard for DISMANTLE mode: if the target block in the world is already air or indestructible,
 		// do not pathfind to it or swing at it! Complete it immediately and advance to next block.
 		if (this.currentSession.isDismantle()) {
@@ -281,11 +334,10 @@ public class MinionBuildGoal extends Goal {
 				this.currentSession.completeTask(this.currentTask, serverWorld);
 				this.workTicks = 0;
 				this.ticksNavigating = 0;
-				this.currentTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
-				if (this.currentTask != null) {
-					this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
-					setupNavigationForTask(serverWorld);
-				} else {
+				this.stallCollisionTicks = 0;
+				this.groundNavigationForced = false;
+				this.hoverStationVec = null;
+				if (!tryClaimTaskOrChainNextSession(serverWorld)) {
 					this.currentTask = null;
 					this.hoverStationVec = null;
 					this.minion.setActivelyBuilding(false);
@@ -619,10 +671,7 @@ public class MinionBuildGoal extends Goal {
 
 			// Zero-drop pre-clearing in creative mode
 			if (this.currentSession.isCreative()) {
-				BlockState existingObstacle = serverWorld.getBlockState(targetPos);
-				if (!existingObstacle.isAir()) {
-					serverWorld.breakBlock(targetPos, false, this.minion);
-				}
+				cleanPreExistingObstacles(serverWorld, targetPos);
 			}
 
 			if (targetState.getBlock() instanceof DoorBlock) {
@@ -631,10 +680,7 @@ public class MinionBuildGoal extends Goal {
 					nudgeMinionAwayFromTargetBlock(serverWorld, targetPos.up());
 
 					if (this.currentSession.isCreative()) {
-						BlockState upperObstacle = serverWorld.getBlockState(targetPos.up());
-						if (!upperObstacle.isAir()) {
-							serverWorld.breakBlock(targetPos.up(), false, this.minion);
-						}
+						cleanPreExistingObstacles(serverWorld, targetPos.up());
 					}
 					serverWorld.setBlockState(targetPos, targetState, Block.NOTIFY_ALL);
 					BlockState upperState = targetState.with(DoorBlock.HALF, DoubleBlockHalf.UPPER);
@@ -645,18 +691,46 @@ public class MinionBuildGoal extends Goal {
 
 					if (!serverWorld.getBlockState(lowerPos).isOf(targetState.getBlock())) {
 						if (this.currentSession.isCreative()) {
-							BlockState lowerObstacle = serverWorld.getBlockState(lowerPos);
-							if (!lowerObstacle.isAir()) {
-								serverWorld.breakBlock(lowerPos, false, this.minion);
-							}
+							cleanPreExistingObstacles(serverWorld, lowerPos);
 						}
 						BlockState lowerState = targetState.with(DoorBlock.HALF, DoubleBlockHalf.LOWER);
 						serverWorld.setBlockState(lowerPos, lowerState, Block.NOTIFY_ALL);
 					}
 					serverWorld.setBlockState(targetPos, targetState, Block.NOTIFY_ALL);
 				}
+			} else if (targetState.getBlock() instanceof BedBlock) {
+				Direction facing = targetState.get(BedBlock.FACING);
+				net.minecraft.block.enums.BedPart part = targetState.get(BedBlock.PART);
+				BlockPos otherPos = (part == net.minecraft.block.enums.BedPart.FOOT) ? targetPos.offset(facing) : targetPos.offset(facing.getOpposite());
+				nudgeMinionAwayFromTargetBlock(serverWorld, otherPos);
+				if (this.currentSession.isCreative()) {
+					cleanPreExistingObstacles(serverWorld, otherPos);
+				}
+				net.minecraft.block.enums.BedPart otherPart = (part == net.minecraft.block.enums.BedPart.FOOT) ? net.minecraft.block.enums.BedPart.HEAD : net.minecraft.block.enums.BedPart.FOOT;
+				BlockState otherState = targetState.with(BedBlock.PART, otherPart);
+				serverWorld.setBlockState(targetPos, targetState, Block.NOTIFY_LISTENERS);
+				serverWorld.setBlockState(otherPos, otherState, Block.NOTIFY_ALL);
+			} else if (targetState.getBlock() instanceof TallPlantBlock) {
+				DoubleBlockHalf half = targetState.get(TallPlantBlock.HALF);
+				BlockPos otherPos = (half == DoubleBlockHalf.LOWER) ? targetPos.up() : targetPos.down();
+				nudgeMinionAwayFromTargetBlock(serverWorld, otherPos);
+				if (this.currentSession.isCreative()) {
+					cleanPreExistingObstacles(serverWorld, otherPos);
+				}
+				DoubleBlockHalf otherHalf = (half == DoubleBlockHalf.LOWER) ? DoubleBlockHalf.UPPER : DoubleBlockHalf.LOWER;
+				BlockState otherState = targetState.with(TallPlantBlock.HALF, otherHalf);
+				serverWorld.setBlockState(targetPos, targetState, Block.NOTIFY_LISTENERS);
+				serverWorld.setBlockState(otherPos, otherState, Block.NOTIFY_ALL);
 			} else {
 				serverWorld.setBlockState(targetPos, targetState, Block.NOTIFY_ALL);
+			}
+
+			if (this.currentSession.isCreative()) {
+				Box cleanBox = new Box(targetPos).expand(4.0D);
+				List<ItemEntity> strayItems = serverWorld.getEntitiesByClass(ItemEntity.class, cleanBox, e -> true);
+				for (ItemEntity stray : strayItems) {
+					stray.discard();
+				}
 			}
 		}
 
@@ -708,28 +782,8 @@ public class MinionBuildGoal extends Goal {
 		this.groundNavigationForced = false;
 		this.hoverStationVec = null;
 
-		// Immediately try to claim the next topological task for seamless continuous building
-		ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
-		if (nextTask != null) {
-			this.currentTask = nextTask;
-			ItemStack previewStack = this.currentTask.getBlueprintBlock().getRequiredStack();
-			this.minion.equipStack(EquipmentSlot.MAINHAND, previewStack);
-
-			BlockPos nextPos = nextTask.getWorldPos();
-			boolean nextCeiling = hasCeilingAboveMinion(serverWorld, 3);
-			if (nextPos.getY() > this.minion.getBlockY() + 1 || this.minion.isArcaneLevitating()) {
-				Vec3d nextStation = findOptimalHoverStation(serverWorld, nextPos);
-				if (hasLineOfSightToStation(serverWorld, nextStation)) {
-					this.minion.setArcaneLevitating(true);
-					this.hoverStationVec = nextStation;
-				} else {
-					this.groundNavigationForced = true;
-					setupNavigationForTask(serverWorld);
-				}
-			} else {
-				setupNavigationForTask(serverWorld);
-			}
-		} else {
+		// Immediately try to claim the next topological task or chain to the next active session
+		if (!tryClaimTaskOrChainNextSession(serverWorld)) {
 			this.currentTask = null;
 			this.hoverStationVec = null;
 			if (this.currentSession == null || !this.currentSession.isActive()) {
@@ -897,6 +951,50 @@ public class MinionBuildGoal extends Goal {
 			this.minion
 		));
 		return hit.getType() == HitResult.Type.MISS;
+	}
+
+	/**
+	 * Pre-clears existing obstacles in Creative mode, handling multi-part blocks (double plants, beds, doors)
+	 * and supporting blocks cleanly so no item entities pop off onto the ground.
+	 */
+	public void cleanPreExistingObstacles(ServerWorld world, BlockPos pos) {
+		BlockState state = world.getBlockState(pos);
+		if (state.isAir()) {
+			return;
+		}
+
+		if (state.getBlock() instanceof TallPlantBlock) {
+			DoubleBlockHalf half = state.get(TallPlantBlock.HALF);
+			BlockPos otherHalf = (half == DoubleBlockHalf.LOWER) ? pos.up() : pos.down();
+			world.setBlockState(otherHalf, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+			world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+		} else if (state.getBlock() instanceof BedBlock) {
+			Direction facing = state.get(BedBlock.FACING);
+			net.minecraft.block.enums.BedPart part = state.get(BedBlock.PART);
+			BlockPos otherPart = (part == net.minecraft.block.enums.BedPart.FOOT) ? pos.offset(facing) : pos.offset(facing.getOpposite());
+			world.setBlockState(otherPart, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+			world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+		} else if (state.getBlock() instanceof DoorBlock) {
+			DoubleBlockHalf half = state.get(DoorBlock.HALF);
+			BlockPos otherHalf = (half == DoubleBlockHalf.LOWER) ? pos.up() : pos.down();
+			world.setBlockState(otherHalf, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+			world.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+		} else {
+			world.breakBlock(pos, false, this.minion);
+		}
+
+		// Also check if block directly above is a supported plant/torch/carpet that would break and drop
+		BlockPos abovePos = pos.up();
+		BlockState aboveState = world.getBlockState(abovePos);
+		if (!aboveState.isAir() && (aboveState.getBlock() instanceof PlantBlock || aboveState.getBlock() instanceof TorchBlock || aboveState.getBlock() instanceof CarpetBlock)) {
+			world.setBlockState(abovePos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+		}
+
+		Box cleanBox = new Box(pos).expand(4.0D);
+		List<ItemEntity> strayItems = world.getEntitiesByClass(ItemEntity.class, cleanBox, e -> true);
+		for (ItemEntity stray : strayItems) {
+			stray.discard();
+		}
 	}
 
 	/**
@@ -1440,26 +1538,7 @@ public class MinionBuildGoal extends Goal {
 			this.groundNavigationForced = false;
 			this.hoverStationVec = null;
 
-			ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
-			if (nextTask != null) {
-				this.currentTask = nextTask;
-				this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
-
-				BlockPos nextPos = nextTask.getWorldPos();
-				boolean nextCeiling = hasCeilingAboveMinion(serverWorld, 3);
-				if (nextPos.getY() > this.minion.getBlockY() + 1 || this.minion.isArcaneLevitating()) {
-					Vec3d nextStation = findOptimalHoverStation(serverWorld, nextPos);
-					if (hasLineOfSightToStation(serverWorld, nextStation)) {
-						this.minion.setArcaneLevitating(true);
-						this.hoverStationVec = nextStation;
-					} else {
-						this.groundNavigationForced = true;
-						setupNavigationForTask(serverWorld);
-					}
-				} else {
-					setupNavigationForTask(serverWorld);
-				}
-			} else {
+			if (!tryClaimTaskOrChainNextSession(serverWorld)) {
 				this.currentTask = null;
 				this.hoverStationVec = null;
 				if (!this.minion.isArcaneLevitating()) {
@@ -1476,26 +1555,74 @@ public class MinionBuildGoal extends Goal {
 			return;
 		}
 
-		// Handle double doors cleanly
+		// Handle multi-part blocks cleanly (doors, beds, tall plants)
 		if (currentState.getBlock() instanceof DoorBlock) {
 			if (currentState.get(DoorBlock.HALF) == DoubleBlockHalf.LOWER) {
 				BlockPos upper = targetPos.up();
 				BlockState upperState = serverWorld.getBlockState(upper);
 				if (upperState.isOf(currentState.getBlock()) && !isIndestructibleBlock(upperState, serverWorld, upper)) {
-					serverWorld.breakBlock(upper, !this.currentSession.isCreative(), this.minion);
+					serverWorld.breakBlock(upper, false, this.minion);
 				}
 			} else {
 				BlockPos lower = targetPos.down();
 				BlockState lowerState = serverWorld.getBlockState(lower);
 				if (lowerState.isOf(currentState.getBlock()) && !isIndestructibleBlock(lowerState, serverWorld, lower)) {
-					serverWorld.breakBlock(lower, !this.currentSession.isCreative(), this.minion);
+					serverWorld.breakBlock(lower, false, this.minion);
 				}
+			}
+		} else if (currentState.getBlock() instanceof BedBlock) {
+			Direction facing = currentState.get(BedBlock.FACING);
+			net.minecraft.block.enums.BedPart part = currentState.get(BedBlock.PART);
+			BlockPos otherPart = (part == net.minecraft.block.enums.BedPart.FOOT) ? targetPos.offset(facing) : targetPos.offset(facing.getOpposite());
+			BlockState otherState = serverWorld.getBlockState(otherPart);
+			if (otherState.isOf(currentState.getBlock()) && !isIndestructibleBlock(otherState, serverWorld, otherPart)) {
+				serverWorld.breakBlock(otherPart, false, this.minion);
+			}
+		} else if (currentState.getBlock() instanceof TallPlantBlock) {
+			DoubleBlockHalf half = currentState.get(TallPlantBlock.HALF);
+			BlockPos otherHalf = (half == DoubleBlockHalf.LOWER) ? targetPos.up() : targetPos.down();
+			BlockState otherState = serverWorld.getBlockState(otherHalf);
+			if (otherState.isOf(currentState.getBlock()) && !isIndestructibleBlock(otherState, serverWorld, otherHalf)) {
+				serverWorld.breakBlock(otherHalf, false, this.minion);
 			}
 		}
 
-		// Break block: SFX, breaking particles, and item drops in survival
-		boolean dropResources = !this.currentSession.isCreative();
-		serverWorld.breakBlock(targetPos, dropResources, this.minion);
+		if (currentState.isLiquid() || currentState.getBlock() instanceof net.minecraft.block.FluidBlock) {
+			serverWorld.setBlockState(targetPos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
+		} else if (this.currentSession.isCreative()) {
+			serverWorld.breakBlock(targetPos, false, this.minion);
+			Box cleanBox = new Box(targetPos).expand(4.0D);
+			List<ItemEntity> strayItems = serverWorld.getEntitiesByClass(ItemEntity.class, cleanBox, e -> true);
+			for (ItemEntity stray : strayItems) {
+				stray.discard();
+			}
+		} else {
+			// Survival mode: Collect drops directly into minion inventory rather than scattering on the ground
+			List<ItemStack> drops = Block.getDroppedStacks(
+				currentState,
+				serverWorld,
+				targetPos,
+				serverWorld.getBlockEntity(targetPos),
+				this.minion,
+				this.minion.getMainHandStack()
+			);
+			serverWorld.breakBlock(targetPos, false, this.minion);
+
+			for (ItemStack drop : drops) {
+				ItemStack remainder = this.minion.getInventory().addStack(drop);
+				if (!remainder.isEmpty()) {
+					// Offload excess into nearby or newly crafted autonomous chest
+					com.example.entity.ai.logistics.MinionHarvestingHelper.checkAndDepositExcessMaterials(this.minion, serverWorld, this.currentSession, true);
+					remainder = this.minion.getInventory().addStack(remainder);
+					if (!remainder.isEmpty()) {
+						remainder = com.example.entity.ai.logistics.MinionHarvestingHelper.depositStackIntoNearbyContainer(remainder, serverWorld, targetPos, this.currentSession, this.minion.getOwnerUuid());
+						if (!remainder.isEmpty()) {
+							this.minion.dropStack(remainder);
+						}
+					}
+				}
+			}
+		}
 
 		// Extra block break particles and sound
 		serverWorld.spawnParticles(
@@ -1542,33 +1669,94 @@ public class MinionBuildGoal extends Goal {
 		this.groundNavigationForced = false;
 		this.hoverStationVec = null;
 
-		// Immediately try to claim the next top-down task for seamless deconstruction
-		ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
-		if (nextTask != null) {
-			this.currentTask = nextTask;
-			this.minion.equipStack(EquipmentSlot.MAINHAND, resolveDismantleTool());
-
-			BlockPos nextPos = nextTask.getWorldPos();
-			boolean nextCeiling = hasCeilingAboveMinion(serverWorld, 3);
-			if (nextPos.getY() > this.minion.getBlockY() + 1 || this.minion.isArcaneLevitating()) {
-				Vec3d nextStation = findOptimalHoverStation(serverWorld, nextPos);
-				if (hasLineOfSightToStation(serverWorld, nextStation)) {
-					this.minion.setArcaneLevitating(true);
-					this.hoverStationVec = nextStation;
-				} else {
-					this.groundNavigationForced = true;
-					setupNavigationForTask(serverWorld);
-				}
-			} else {
-				setupNavigationForTask(serverWorld);
-			}
-		} else {
+		// Immediately try to claim the next top-down task or chain to the next active session
+		if (!tryClaimTaskOrChainNextSession(serverWorld)) {
 			this.currentTask = null;
 			this.hoverStationVec = null;
 			if (!this.minion.isArcaneLevitating()) {
 				restoreHeldWeapon();
 			}
 		}
+	}
+
+	/**
+	 * Configures kinematics, levitation, or ground navigation towards the target task position.
+	 */
+	private void setupTaskKinematics(ServerWorld serverWorld, BlockPos nextPos) {
+		boolean nextCeiling = hasCeilingAboveMinion(serverWorld, 3);
+		if (nextPos.getY() > this.minion.getBlockY() + 1 || this.minion.isArcaneLevitating()) {
+			Vec3d nextStation = findOptimalHoverStation(serverWorld, nextPos);
+			if (hasLineOfSightToStation(serverWorld, nextStation)) {
+				this.minion.setArcaneLevitating(true);
+				this.hoverStationVec = nextStation;
+			} else {
+				this.groundNavigationForced = true;
+				setupNavigationForTask(serverWorld);
+			}
+		} else {
+			setupNavigationForTask(serverWorld);
+		}
+	}
+
+	/**
+	 * Attempts to claim the next task from the current session or autonomously detects and chains
+	 * to the nearest active blueprint session in the minion's vicinity (<= 128 blocks).
+	 *
+	 * @param serverWorld The server world instance.
+	 * @return True if a task was claimed from the current or a newly chained session.
+	 */
+	private boolean tryClaimTaskOrChainNextSession(ServerWorld serverWorld) {
+		// 1. Try to claim from current session if active
+		if (this.currentSession != null && this.currentSession.isActive()) {
+			ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
+			if (nextTask != null) {
+				this.currentTask = nextTask;
+				this.minion.setActivelyBuilding(true);
+				ItemStack toolOrBlock = this.currentSession.isDismantle()
+					? resolveDismantleTool()
+					: this.currentTask.getBlueprintBlock().getRequiredStack();
+				this.minion.equipStack(EquipmentSlot.MAINHAND, toolOrBlock);
+				setupTaskKinematics(serverWorld, nextTask.getWorldPos());
+				return true;
+			}
+		}
+
+		// 2. If current session is complete or has no tasks, search for nearest active session within 128 blocks
+		if (this.minion.getOwnerUuid() != null) {
+			Optional<ConstructionSession> chainedOpt = ConstructionManager.getInstance().findNearestSessionForMinion(
+				serverWorld,
+				this.minion.getBlockPos(),
+				this.minion.getOwnerUuid(),
+				128.0D,
+				this.minion.getEffectiveRole()
+			);
+
+			if (chainedOpt.isPresent() && chainedOpt.get().isActive()) {
+				ConstructionSession chainedSession = chainedOpt.get();
+				ConstructionTask chainedTask = chainedSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
+				this.currentSession = chainedSession;
+				if (chainedTask != null) {
+					this.currentTask = chainedTask;
+					this.minion.setActivelyBuilding(true);
+					this.minion.setSitting(false);
+					this.minion.setGuardAnchorPos(null);
+					ItemStack toolOrBlock = chainedSession.isDismantle()
+						? resolveDismantleTool()
+						: chainedTask.getBlueprintBlock().getRequiredStack();
+					this.minion.equipStack(EquipmentSlot.MAINHAND, toolOrBlock);
+					setupTaskKinematics(serverWorld, chainedTask.getWorldPos());
+					return true;
+				}
+				// Session is active but waiting on dependency / ally: keep active builder posture
+				this.currentTask = null;
+				this.minion.setActivelyBuilding(true);
+				this.minion.setSitting(false);
+				this.minion.setGuardAnchorPos(null);
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 

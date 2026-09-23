@@ -1,6 +1,6 @@
-# Fabric 1.21 Feature Showcase & Technical Specifications
+# Sovereign: Arcane Strategy & Engineering — Feature Showcase & Technical Specifications
 
-This document provides a comprehensive technical breakdown of all gameplay features, items, entities, blocks, AI behaviors, construction mechanics, client rendering pipelines, GUIs, pathfinding engines, and networking protocols implemented in `modid-mmcli-agent-modding`.
+This document provides a comprehensive technical breakdown of all gameplay features, items, entities, blocks, AI behaviors, construction mechanics, client rendering pipelines, GUIs, pathfinding engines, and networking protocols implemented in **Sovereign: Arcane Strategy & Engineering** (`modid-mmcli-agent-modding`).
 
 ---
 
@@ -11,9 +11,12 @@ This document provides a comprehensive technical breakdown of all gameplay featu
 3. [Tactical Army Architecture: Roles, Squads & Formations](#3-tactical-army-architecture-roles-squads--formations)
 4. [Client Visuals, Holograms & Overhead Crest Badges](#4-client-visuals-holograms--overhead-crest-badges)
 5. [Interactive GUIs: Command Hub & Minion Management](#5-interactive-guis-command-hub--minion-management)
+   - [5.1 Command Hub GUI (`CommandScepterScreen`)](#51-command-hub-gui-commandscepterscreen)
+   - [5.2 Minion Management GUI (`MinionScreen`)](#52-minion-management-gui-minionscreen)
+   - [5.3 Clean & Crisp In-Game GUI Overlays (Universal Background Blur Removal)](#53-clean--crisp-in-game-gui-overlays-universal-background-blur-removal)
 6. [Multiblock Construction & Blueprint Engine](#6-multiblock-construction--blueprint-engine)
 7. [Structure Deconstruction, Mining Area Clearance & Bedrock Immunity](#7-structure-deconstruction-mining-area-clearance--bedrock-immunity)
-8. [100% Zero-Footprint Universal Arcane Levitation](#8-100-zero-footprint-universal-arcane-levitation)
+8. [Arcane Builder Levitation & Player-Like Ground Navigation](#8-arcane-builder-levitation--player-like-ground-navigation)
 9. [Advanced Mob Pathfinding Engine](#9-advanced-mob-pathfinding-engine)
 10. [Tactical Ordnance & Warrior Thrown Weapon Arsenal](#10-tactical-ordnance--warrior-thrown-weapon-arsenal)
 11. [Data Components & Network Protocol Architecture](#11-data-components--network-protocol-architecture)
@@ -25,6 +28,9 @@ This document provides a comprehensive technical breakdown of all gameplay featu
 17. [Visual Pathway Patrol System & Minion Escort Hierarchy](#17-visual-pathway-patrol-system--minion-escort-hierarchy)
 18. [Autonomous Agent System (`MinionRole.AUTO` Dynamic Evaluation)](#18-autonomous-agent-system-minionroleauto-dynamic-evaluation)
 19. [Dual-Tier Panic Retreat & Emergency Citadel Call](#19-dual-tier-panic-retreat--emergency-citadel-call)
+20. [Custom Blueprint Catalog Lifecycle & Decommissioning Safeguards](#20-custom-blueprint-catalog-lifecycle--decommissioning-safeguards)
+21. [In-World Spatial Blueprint Capture ('DESIGN' Mode)](#21-in-world-spatial-blueprint-capture-design-mode)
+22. [Unified Surface Anchoring Contract & Hollow Grid Mechanics](#22-unified-surface-anchoring-contract--hollow-grid-mechanics)
 
 ---
 
@@ -50,16 +56,17 @@ The **Loki Command Scepter** is a high-tier tactical relic allowing players to c
 - **Rarity**: `Rarity.EPIC` (purple item name with persistent enchanted glint)
 - **Max Stack Size**: `1` (single handheld focus)
 
-### 6 Operating Modes (`CommandMode`)
+### 7 Operating Modes (`CommandMode`)
 
-The scepter cycles through 6 distinct operational modes via **Sneak + Right-Click** (in air) or the Command Hub GUI:
+The scepter cycles through 7 distinct operational modes via **Sneak + Right-Click** (in air) or the Command Hub GUI:
 
 1. **`FOLLOW`** (`0.8F` pitch, `§aFollow`): Directs matching squad thralls to break stationary posts, assemble into formation, and escort the commander.
 2. **`STAY`** (`1.0F` pitch, `§eStay`): Directs matching squad thralls to halt movement and hold ground at attention.
-3. **`MINE`** (`1.4F` pitch, `§6Mine`): Directs builders to begin top-down deconstruction of clicked multiblock structures or 3D terrain volumes.
+3. **`MINE`** (`1.4F` pitch, `§6Mine`): Directs builders to begin top-down deconstruction of clicked multiblock structures or 3D terrain volumes. Supports dual sub-modes: **`DIRECT`** (instant point-and-click structure/ground dismantle up to 96m) and **`AREA`** (configurable 3D boundary mining with sequential corner selection `Pos1` ➔ `Pos2`, real-time height adjustment, and confirmation modal).
 4. **`BUILD`** (`1.6F` pitch, `§bBuild`): Projects blueprint holographic wireframes and anchors new multiblock construction sessions.
-5. **`RECRUIT`** (`1.8F` pitch, `§dRecruit`): Targets wild or enemy mobs to transfigure them into loyal minion thralls.
-6. **`PATHWAY`** (`2.0F` pitch, `§3Pathway`): Projects 3D block wireframe checkpoints and establishes autonomous looping patrol routes across 5 distinct color channels.
+5. **`DESIGN`** (`1.7F` pitch, `§dDesign`): Sequential left-click spatial corner selection (1st left-click sets `Pos1`, 2nd left-click sets `Pos2`, subsequent left-clicks restart a new selection cycle) with real-time in-world holographic ghost grid structure rendering (semantic color-coded block outlines for doors, lighting, containers, stairs, and masonry) to capture, normalize, and compile existing world structures into custom blueprints.
+6. **`RECRUIT`** (`1.8F` pitch, `§dRecruit`): Targets wild or enemy mobs to transfigure them into loyal minion thralls.
+7. **`PATHWAY`** (`2.0F` pitch, `§3Pathway`): Projects 3D block wireframe checkpoints and establishes autonomous looping patrol routes across 5 distinct color channels.
 
 > [!TIP]
 > **Contextual Combat Control**:
@@ -113,6 +120,13 @@ In `BUILD` mode, commanders can rotate structures prior to placement:
 
 | Interaction                     | Condition                       | Behavior                                                                                                    |
 | :------------------------------ | :------------------------------ | :---------------------------------------------------------------------------------------------------------- |
+| **Left-Click**                  | `DESIGN` Mode (Air / Block / Entity)| Sets sequential corner (`Pos1` on 1st click, `Pos2` on 2nd click, cycle on next click) without breaking blocks or attacking. Authoritative click handling prevents duplicate triggers. |
+| **Left-Click**                  | `MINE` Mode (`AREA` Sub-Mode)   | Sets sequential mining corner (`Pos1` on 1st click, `Pos2` on 2nd click, cycle on next click) with fiery orange/amber wireframes without breaking blocks. |
+| **Sneak + Left-Click**          | `DESIGN` Mode (Air / Block / Entity)| Resets corners back to initial state (wipes `Pos1` & `Pos2`, plays bass tone, guarantees next click places `Pos1`). |
+| **Sneak + Left-Click**          | `MINE` Mode (`AREA` Sub-Mode)   | Resets mining corners back to initial state (wipes `Pos1` & `Pos2`, plays bass tone, guarantees next click places `Pos1`). |
+| **Right-Click (Quick Tap)**     | `DESIGN` Mode (with Pos1 & Pos2) | Opens **Capture Custom Blueprint** modal (`BlueprintCaptureModalScreen`) on ground or air.   |
+| **Right-Click (Quick Tap)**     | `MINE` Mode (`AREA` with Pos1 & Pos2) | Opens **Mining Area Confirmation** modal (`MiningConfirmModalScreen`) on ground or air. |
+| **Right-Click (Quick Tap)**     | `MINE` Mode (`DIRECT` Sub-Mode) | Anchors point/structure dismantle session immediately up to 96m away. |
 | **Right-Click (Quick Tap)**     | Hostile Mob ($\le 64\text{D}$)  | Focus-fire attack order; squad units focus target with drum cadence.                                        |
 | **Right-Click (Quick Tap)**     | Ground Block ($\le 64\text{D}$) | Drops ground waypoint; selected squad units sprint, form up, hold station, and **automatically deselect**.  |
 | **Right-Click (Quick Tap)**     | Owned Minion ($\le 64\text{D}$) | Toggles unit selection (chime/hearts vs bass/smoke).                                                        |
@@ -121,7 +135,7 @@ In `BUILD` mode, commanders can rotate structures prior to placement:
 | **Hold Right-Click (>8 ticks)** | Minions in Sector               | Charges 90° forward sector; rallies, selects, and transfigures enclosed minions into primed role.           |
 | **Sneak + Right-Click**         | Aiming at Air                   | Cycles scepter command mode forward (`FOLLOW` → `STAY` → `MINE` → `BUILD` → `RECRUIT`).                     |
 | **Sneak + Right-Click**         | Owned Minion                    | Opens interactive **Minion Management GUI** (`MinionScreen`).                                               |
-| **Sneak + Left-Click**          | Non-`BUILD` Modes               | Deselects all active minions immediately with bass/smoke feedback.                                          |
+| **Sneak + Left-Click**          | Non-`BUILD`/`DESIGN` Modes      | Deselects all active minions immediately with bass/smoke feedback.                                          |
 | **Sneak + Left-Click**          | `BUILD` Mode                    | Cycles blueprint rotation (0° → 90° → 180° → 270°) with actionbar HUD.                                      |
 | **Press [V] Key**               | In-Game Hotkey                  | Opens the **Command Hub GUI** (`CommandScepterScreen`).                                                     |
 | **Press [R] Key**               | In-Game Hotkey                  | **Tactical Panic Retreat**: Sounds warning bell, clears minion targets, and recalls all units to formation. |
@@ -145,7 +159,7 @@ The **Minion Thrall** is an autonomous bipedal worker, builder, and combat entit
 - **Base Armor**: `4.0` points (+ dynamic worn armor defense)
 - **Movement Speed**: `0.30` base speed
 - **Attack Damage**: `5.0` base physical damage
-- **Step Height**: `1.0625D` base step height, allowing smooth traversal over slabs, stairs, and 1-block terrain steps without jumping.
+- **Step Height**: `1.25D` base step height, allowing smooth traversal over slabs, stairs, and 1-block terrain steps without jumping.
 - **Follow Tracking Range**: `64.0D` base tracking radius (`EntityAttributes.GENERIC_FOLLOW_RANGE`), enabling minions to acquire targets, maintain formation, and respond to orders across large battlefields.
 - **Emergency Teleport Leash**: `64.0D` distance threshold (`TELEPORT_DISTANCE_THRESHOLD`), allowing units to engage distant hostiles and maneuver across complex terrain without prematurely snapping back to the commander.
 
@@ -226,7 +240,7 @@ To ensure commanders can monitor their thralls' vital status at a glance during 
 | Role           | Color        | Combat Profile                                                    | Primary Equipment                                                                                  | Behaviors                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | :------------- | :----------- | :---------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`WARRIOR`**  | Red (`§c`)   | Frontline Melee, Ranged Skirmish **&** Tactical Procurement Hunts | Swords, Axes, Maces, Tridents **OR** Bows, Crossbows, Thrown Ordnance (Frost Grenades, TNT Sticks) | **Multi-Modality Combatant & Hunter**: Functions as a frontline melee striker, ranged archer, or thrown javelin specialist based on equipped loadout. Features **Trident Duality** ($\le 5\text{D}$ melee, $5\text{D}\text{--}20\text{D}$ ranged javelin) with **Server-Side Loyalty Return Recovery** (`TridentEntityMixin`). Automatically accepts **Squad Material Procurement Contracts** commissioned by Builder thralls to hunt mob resources (wool, bones, slime, leather, etc.), synthesize refined goods, and deliver drops via peer logistics. Leads formation frontline.                       |
-| **`SENTINEL`** | Green (`§a`) | Perimeter Guard & Combat Medic                                    | Sword + Shield                                                                                     | Holds designated anchor; 8-block guard zone; 128-block leash freedom; prioritizes shields. **Aegis of Restoration**: Autonomously channels healing to the player commander and allied minions under 70% HP within 10 blocks (prioritizing the player commander if wounded), restoring 6.0 HP (3 hearts) and granting Regeneration II for 5s with heart VFX, chime audio, and an action bar confirmation message (6s cooldown; fallback self-heal below 40% HP).                                                                                                                                           |
+| **`SENTINEL`** | Green (`§a`) | Perimeter Guard & Combat Medic                                    | Sword + Shield                                                                                     | Holds designated anchor; 8-block guard zone; 128-block leash freedom; prioritizes shields. **Aegis of Restoration**: Autonomously channels healing to the player commander, allied minions, and non-hostile/allied **Iron Golems** under 70% HP within 10 blocks (prioritizing the wounded player commander, then most critical minion or Iron Golem ally), restoring 6.0 HP (3 hearts) and granting Regeneration II for 5s with heart VFX, amethyst chime audio, and an action bar confirmation message (6s cooldown; fallback self-heal below 40% HP). Recognized as friendly teammates alongside Iron Golems via `isTeammate()`. |
 | **`BUILDER`**  | Blue (`§9`)  | Construction, Deconstruction & Logistics Procurement              | Pickaxes, Axes, Shovels                                                                            | Master architect, resource excavator, and logistics specialist. Autonomously constructs blueprints, deconstructs areas, quarries natural stone, harvests timber via agro-forestry (using bone meal for instant growth), self-crafts tools, shares blocks via peer energy beams, deploys supply depot chests, and commissions **Squad Material Procurement** contracts to nearby Warrior thralls for mob-derived construction materials. Equipped with **Ceiling Clearance Raycasts**, **Doorway Traversal Fallbacks**, **Line-of-Sight Hover Stations**, and **Self-Intersection Entombment Prevention**. |
 
 ### 5 Tactical Squad Channels (`SquadGroup`)
@@ -324,9 +338,10 @@ Floating billboard badges render directly above each minion's head using exact L
 - **Dynamic In-World Projection**:
   - `BUILD` Sessions: Color-coded blueprint wireframe with translucent ghost block rendering and floor grid orientation.
   - `DISMANTLE` Sessions: Fiery orange wireframe bounding box.
+  - `DESIGN` Spatial Captures: Full 3D holographic bounding box and in-world ghost grid structure rendering around the ground and targeted building. Scans non-air blocks in real-time within the spatial volume and renders semantic color-coded 3D ghost grid block boxes (Emerald Green doors, Amber Gold lighting, Arcane Purple utilities/containers, Ice Blue stairs, and Vibrant Cyan-Magenta masonry).
   - Dynamic Quadrant Rotation: Wireframe and ghost blocks dynamically rotate to match the active scepter rotation.
   - Remains visible in the world while minions construct, vanishing automatically once the last block is placed.
-  - **Exact Procedural Size Variant Outlines**: Every category variant and procedural size (`barricade_small`, `barricade_grand`, `home_small`, `workshop_grand`, `depot_med`, etc.) is registered and mapped via category prefix resolution. Placing any structure (such as Barricades or Grand Manors) displays its exact, true wireframe geometry rather than falling back to default Watchtowers. Active construction wireframes also dynamically adapt foundation blocks via `DynamicBuildingResolver.resolve()` to match terrain.
+  - **Exact Custom Blueprint Geometry**: Every captured blueprint preserves its exact captured dimensions, block coordinates, and orientations without falling back to defaults. Construction wireframes and ghost blocks reflect the exact blueprint structure 1:1 in real time.
   - **Real-Time Per-Block Ghost Dissolution**: As builder minions place each block in the world, the corresponding wireframe block dissolves immediately from the client hologram renderer. Once the final block is placed, the remaining ghost grid disappears, triumphant totem particles and chime sound play, and builders cleanly disengage levitation to return to their commander or assigned post.
 
 ### Arcane Build Flight & Tactical Build System (`BuildFlightManager`, `CommandScepterItem`)
@@ -366,11 +381,13 @@ Opened via **Shift + Right-Click** with the scepter or pressing the **`V`** key.
 +---------------------------------+---------------------------------+
 |  DIRECTIVES                     |  BLUEPRINT CATALOG (Page 1/2)   |
 |  [FOLLOW]  [STAY]  [MINE]       |  +---------------------------+  |
-|  [BUILD]   [RECRUIT]            |  | Overlord Watchtower (7x7) |  |
+|  [BUILD]   [RECRUIT]            |  | Village Manor (11x9)  [✕] |  |
+|  [PATHWAY] [DESIGN]             |  +---------------------------+  |
+|                                 |  | Guard Bastion (7x7)   [✕] |  |
+|  FORMATIONS                     |  +---------------------------+  |
+|  [WEDGE]   [LINE]  [BOX]        |  | Grand Gate (5x5)      [✕] |  |
 |                                 |  +---------------------------+  |
-|  FORMATIONS                     |  | Arcane Obelisk (5x5)      |  |
-|  [WEDGE]   [LINE]  [BOX]        |  +---------------------------+  |
-|                                 |  [ < Prev ]       [ Next > ]    |
+|  [ ↻ Rotate: NORTH ]            |  [ ◀ ]     Page 1/2     [ ▶ ]   |
 +---------------------------------+---------------------------------+
 |  MASS ARCHETYPES:                                                 |
 |  [⚔ Warrior]        [🛡 Sentinel]        [🔨 Builder]             |
@@ -379,21 +396,17 @@ Opened via **Shift + Right-Click** with the scepter or pressing the **`V`** key.
 +-------------------------------------------------------------------+
 ```
 
-- **Contextual Archetype vs. Architecture Style Bar Swap**:
+- **Contextual Command Hub GUI Layout**:
   - **Standard Modes (`FOLLOW`, `STAY`, `MINE`, `RECRUIT`)**: Displays the 3-button Mass Archetype bar (`[⚔ Warrior]`, `[🛡 Sentinel]`, `[🔨 Builder]`). Clicking directly converts minions or primes the scepter for channeled rally transfigurations.
   - **No Preselected Default Archetype**: By default, no archetype is preselected (`selectedRole = null`). This protects players from unintentionally transfiguring their army when opening the Command Hub GUI or right-clicking without a deliberate selection.
-  - **`BUILD` Mode Swap**: Seamlessly swaps the role buttons into the 4-button **Architecture Style** bar:
-    - `[🌍 Biome Native]`: Vernacular architecture adapting to local biome palettes (plains, desert, taiga, swamp, cave, nether, end).
-    - `[🏰 Fortress Stone]`: Heavy masonry, stone bricks, mossy/cracked stones, andesite, and iron fittings.
-    - `[🌲 Frontier Timber]`: Rustic log framing, horizontal wood planks, stripped accents, fences, and lanterns.
-    - `[🔮 Arcane Nether]`: Polished blackstone, basalt pillars, crimson/warped timbers, and soul fire.
-- **Procedural Footprint Size Presets (`[ S ]` `[ M ]` `[ L ]` `[ 🎲 ]`)**:
-  - Embedded between pagination arrows in the Blueprint Catalog section when in `BUILD` mode.
-  - Controls procedural dimension scaling across all category blueprints (`Small 5x5`, `Medium 7x7`, `Grand 9x9`, `Random`).
-  - Dynamically updates catalog card dimensions and block counts in real time.
+  - **`BUILD` Mode Directives**: When `BUILD` mode is active, the lower-left section displays active construction directives confirming 100% exact captured block placement with zero procedural alteration, along with the **`[ ↻ Rotate ]`** button.
+- **Custom Blueprint Catalog & Pagination**:
+  - Embedded between pagination arrows in the Blueprint Catalog section with clean `Page X/Y` indicators.
+  - Displays user-authored custom blueprints with dimensions, block counts, and deletion controls (`[✕]`).
+  - When no custom blueprints exist, displays helpful guidance directing players to enter `DESIGN` mode.
 - **Squad Filter Bar**: Selects target squad division for directives and mass assignments.
 - **Directives & Formations**: Radio buttons for quick operational mode and marching shape toggles.
-- **Paginated Blueprint Viewport**: Displays 3 cards per page with dynamic `<` and `>` controls, block counts, and dimensions.
+- **Paginated Blueprint Viewport**: Displays 3 cards per page with dynamic `◀` and `▶` controls, block counts, dimensions, and `[✕]` delete buttons.
 - **Global Actions**:
   - `Execute`: Dispatches active configuration.
   - `Teleport All`: Recalls all owned minions to player location.
@@ -417,49 +430,59 @@ Opened via **Sneak + Right-Click** directly on an owned minion. Features an expa
   - **Row 2**: `§c✖ Destroy` on the left (82px) and `Cancel` on the right (82px) for safe exit.
 - **Smart Shift-to-Close (`SmartCloseHandler`)**: Clicking inventory slots while holding Shift transfers items (`quickMove`) without closing the modal; clean Shift taps close immediately.
 
+### 5.3 Clean & Crisp In-Game GUI Overlays (Universal Background Blur Removal)
+
+- **Elimination of Vanilla Background Blur**: In vanilla Minecraft 1.21 (Yarn mappings), standard `Screen.renderBackground(DrawContext, int, int, float)` calls automatically invoke `this.applyBlur(delta)`, which triggers the costly `GameRenderer.renderBlur()` post-processing shader pass. In a high-tempo tactical strategy mod, blurring the world background obscures nearby combat skirmishes, minion construction progress, pathway wireframes, and tactical positioning, while introducing unnecessary visual lag.
+- **Universal No-Op Blur Bypass Across All Screens**: By overriding `protected void applyBlur(float delta)` with a clean no-op (`{}`) across all custom screens, background blurring is completely eliminated across the entire mod interface suite:
+  1. **`CommandScepterScreen`** (`extends Screen`): Tactical Command Hub, squad assignments, directive toggles, mining mode toggle (`DIRECT` vs `AREA`), and blueprint catalog.
+  2. **`MinionScreen`** (`extends HandledScreen<MinionScreenHandler>`): Minion backpack inventory, 6 equipment slots, hearts health display, and role cycle controls.
+  3. **`BlueprintCaptureModalScreen`** (`extends Screen`): In-world spatial blueprint capture dialog, dimension inspection, and naming modal.
+  4. **`MiningConfirmModalScreen`** (`extends Screen`): Mining area boundary inspection, dimension and volume verification, height fine-tuning steppers, and confirmation dialog.
+- **Architectural & Aesthetic Advantages**:
+  - **100% In-Game Situational Awareness**: Commanders maintain complete, crisp visual tracking of the 3D battlefield, active minion worker swarms, building wireframes, and approaching threats while managing inventories or dispatching squad orders.
+  - **High-Contrast Thematic UI Styling**: Replaces shader blur with stylized dark translucent backdrops (`context.fill` slate plates `0xEE111822` / `0xEE101622`), polished gold/cyan borders, and crisp typography for maximum legibility.
+  - **Zero Post-Processing Framebuffer Overhead**: Completely bypasses Minecraft's intermediate blur shader passes and render target copies, ensuring instant, zero-latency modal opening and buttery frame rates.
+
 ---
 
 ## 6. Multiblock Construction & Blueprint Engine
 
-### Procedural Blueprint Categories & Catalog (`BlueprintRegistry`, `BuildingCategory`)
+### 100% Exact Block Fidelity & Custom Blueprint Architecture (`BlueprintRegistry`, `StructureBlueprint`)
 
-1. **`🏡 Home` (Villager Residence)**: Fully furnished residential dwellings containing beds, front entrance doors, crafting stations, furnaces, and lanterns. Designed specifically for villager settlement integration — villagers naturally inhabit, sleep, and claim POIs within these structures.
-2. **`🗼 Watchtower` (Tactical Observation Outpost)**: Elevated fortification with observation battlements, arrow slits, and wooden door entry.
-3. **`🛡 Barricade` (Defensive Rampart)**: Heavy frontline barrier with log framing, stone wall embrasures, and palisade fencing.
-4. **`⚒ Workshop` (Artisan Forge)**: Blacksmith facility complete with anvil, furnaces, crafting benches, and weapon racks.
-5. **`📦 Supply Depot` (Logistics Warehouse)**: Storage warehouse with double chests, storage barrels, and material intake stations.
-6. **`🔮 Obelisk` (Arcane Monument)**: Mystical spire featuring obsidian foundations, polished deepslate, gold core, and redstone lantern finials.
+- **Player-Driven Custom Catalog**: Construction relies entirely on player-designed structures captured in **`DESIGN`** mode. Legacy procedural generator archetypes, biome palettes, noise weathering, and arbitrary size selectors have been completely retired to give players absolute creative fidelity.
+- **100% Exact Block Preservation**: Minion builders place every block (stairs, slabs, glass, lanterns, chests, doors, masonry) in the exact position, orientation, and block type captured in the world. Zero biome-specific block swaps, noise weathering, or procedural foundation stilts are added.
+- **Deterministic 3D Rotation**: Rotating blueprints (0°, 90°, 180°, 270°) transforms coordinates and rotates block-facing properties directly via Minecraft's `BlockRotation` mappings.
+- **Autonomous Stationed Mobilization**: Placing a blueprint alerts and mobilizes stationed builder minions within an expanded 112-block radius, eliminating the need to manually re-select builders on large construction sites.
+- **Safe Empty Catalog Fallback**: When no structures have been captured yet, the Command Hub GUI displays empty-catalog guidance directing players to capture their first structure in `DESIGN` mode, with safe fallback handling preventing null errors.
 
-### Procedural Footprint Scaling (`BuildingCategory`)
+### Universal Block Type Fidelity Across Construction (`BUILD` Mode)
 
-Each functional category procedurally adapts across four footprint scales:
+Builder minions construct every block type with 100% state, property, and orientation fidelity:
+- **Solid Structural Masonry & Timber**: Full support for all standard solid blocks (stone, cobblestone, deepslate, planks, bricks, terracotta, concrete, and custom mod blocks).
+- **Transparent, Translucent & Glass**: Seamless construction of glass, tinted glass, stained glass variants, and glass panes with correct connecting geometry.
+- **Lighting & Illumination**: Accurate placement of torches, wall torches, lanterns, hanging lanterns, campfires, sea lanterns, glowstone, froglights, redstone lamps, and end rods.
+- **Containers, Utility & Workstations**: Single chests, double chests, barrels, furnaces, blast furnaces, smokers, crafting tables, anvils, looms, smithing tables, brewing stands, hoppers, droppers, dispensers, and shulker boxes.
+- **Multi-Part Synchronized Placement**:
+  - **Doors (`DoorBlock`)**: Automatically pairs and sets lower (`DoubleBlockHalf.LOWER`) and upper (`DoubleBlockHalf.UPPER`) halves simultaneously, nudging entities away and preventing neighbor-update breaking.
+  - **Beds (`BedBlock`)**: Places and pairs `BedPart.FOOT` and `BedPart.HEAD` states simultaneously aligned with facing direction, preventing bed pop-offs.
+  - **Tall Plants (`TallPlantBlock`)**: Synchronizes lower and upper halves of tall grass, large ferns, peonies, sunflowers, and lilacs.
+- **Architectural Fixtures**: Stairs, slabs, fences, fence gates, walls, iron bars, chains, banners, and signs with authentic directional facing and waterlogged states.
+- **Redstone & Mechanics**: Redstone dust, repeaters, comparators, levers, buttons, pressure plates, pistons, and observers.
 
-- **`SIZE_SMALL` (0)**: Compact $5 \times 5$ layout for tight terrain and outpost footholds.
-- **`SIZE_MEDIUM` (1)**: Standard $7 \times 7$ layout balancing utility and footprint (default).
-- **`SIZE_GRAND` (2)**: Grand $9 \times 9$ multi-room estate or heavy citadel bastion.
-- **`SIZE_RANDOM` (3)**: Procedurally samples dimensions for organic town layouts.
+### Custom Blueprint Architecture & World Persistence (`CustomBlueprintManager` & `CustomBlueprintPersistentState`)
 
-### Dynamic Organic Architecture (Noise Weathering Engine) (`DynamicBuildingResolver`, `BiomePalette`)
+- **Server-Authoritative Blueprint Manager (`CustomBlueprintManager`)**:
+  - Singleton orchestrator (`getInstance()`) managing the lifecycle of user-designed custom blueprints across server sessions.
+  - Integrates with the Overworld `PersistentStateManager` on world load (`init(ServerWorld)`), reading or creating the `CustomBlueprintPersistentState` instance.
+  - Dynamically registers loaded and player-authored blueprints into `BlueprintRegistry` (`registerCustomBlueprint`), making them instantly available in the Command Hub GUI blueprint catalog for all connected players.
+  - Handles server stopping hooks (`onServerStopping()`), ensuring all in-memory blueprints are flushed and committed to disk before world shutdown.
+  - Synchronizes the custom blueprint catalog across clients upon player join (`syncToPlayer`) or on mutation events (`syncToAll`) using `SyncCustomBlueprintsPayload`.
 
-- **Natural Block Variation**: Replaces uniform, sterile block patterns with natural spatial variations (similar to natural cobblestone and dirt patterns) using 3D coordinate hash noise ($[0.0, 1.0]$).
-- **Material Degradation & Masonry Aging**:
-  - Stone Bricks weather into cracked bricks, mossy bricks, polished andesite, and cobblestone.
-  - Cobblestone weathers into mossy cobblestone and raw andesite.
-  - Deepslate Bricks weather into cracked deepslate bricks and cobbled deepslate.
-  - Blackstone weathers into cracked polished blackstone bricks in subterranean and Nether environments.
-- **Vernacular Biome Palettes (`BiomePalette`)**: Translates structural blocks semantically according to local biome archetypes (`PLAINS_FOREST`, `DESERT_BADLANDS`, `TAIGA_SNOWY`, `JUNGLE_SWAMP`, `SUBTERRANEAN_CAVE`, `NETHER`, `END`).
-- **Deterministic 1:1 Client-Server Visual Hashing**: Seeds noise with `anchorPos.asLong() ^ blueprintId.hashCode() ^ style.ordinal()`, guaranteeing that client holographic wireframes and server minion placement match 1:1 down to the exact block.
-
-### Dynamic Foundation Slope Snapping (`DynamicBuildingResolver`)
-
-- **Hillside & Cliff Retaining Walls**: Scans floor perimeter coordinates at the base layer. If the underlying terrain drops into air or uneven contours, automatically generates vertical stone/brick retaining pillars downward up to 8 blocks (`MAX_FOUNDATION_DEPTH = 8`) to eliminate floating buildings.
-- **Water Stilt Foundations**: If the structure extends over rivers, oceans, or swamps, automatically generates wooden fence stilts (mangrove in swamps, oak elsewhere) down to the seabed.
-- **Door Sill Ground Anchor**: Automatically guarantees that the block directly beneath every entrance door is solid ground, preventing doors from popping off upon placement.
-
-### Dimension Bed Explosion Safeguard
-
-- Automatically detects the Nether and End dimensions during blueprint resolution.
-- Replaces standard `BedBlock` entries with `Blocks.RESPAWN_ANCHOR` in the Nether and `Blocks.PURPUR_BLOCK` in the End, completely eliminating fatal accidental explosions during multiblock construction.
+- **World-Saved Persistent State (`CustomBlueprintPersistentState`)**:
+  - World-saved persistent state stored under key `"minion_custom_blueprints"` (`data/minion_custom_blueprints.dat`).
+  - Serializes blueprint definitions into structured NBT compounds containing unique string `id`, display `name`, `description`, and a compact `CustomBlueprints` list of `blocks`.
+  - Block entries serialize relative coordinates (`x`, `y`, `z`) and raw `BlockState` IDs (`Block.getRawIdFromState` / `Block.getStateFromRawId`), omitting air blocks to maximize storage efficiency.
+  - Thread-safe `ConcurrentHashMap<String, StructureBlueprint>` storage with automated `markDirty()` triggering on addition and deletion.
 
 ### Server Construction Manager (`ConstructionManager` & `ConstructionSession`)
 
@@ -468,30 +491,39 @@ Server-authoritative engine orchestrating automated multiblock building and demo
 - **Task Queue & Topological Ordering**: Breaks blueprints into discrete block placement tasks sorted bottom-up.
 - **Task Leasing**: Minions claim leases on available tasks. If a builder runs out of materials or stalls, the lease releases for other workers.
 - **Dual Economics**:
-  - **Creative Mode**: Zero-cost instant block placement. Automatically pre-clears any existing blocks (grass, flowers, snow, dirt) with zero dropped items, eliminating all clutter.
-  - **Survival Mode Multi-Stage Logistics**:
+  - **Creative Mode (Zero-Drop Guarantee)**: Zero-cost instant block placement. Automatically pre-clears any existing blocks (grass, flowers, snow, dirt, double plants, beds, doors) with zero dropped items, eliminating all clutter. In Creative mode, builders never craft or deploy chests—they discard unneeded blocks from their 9-slot inventory immediately, keeping backpacks clean and free for any materials. Any loose item entities spawned during building or upon session completion are automatically purged within the bounding box.
+  - **Survival Mode Multi-Stage Logistics (Direct Chest Storage)**:
     1. _9-Slot Minion Backpack_: Consumes blocks currently carried in inventory.
-    2. _Nearby Container Scavenging_: Searches chests, barrels, and shulkers within 12 blocks for missing materials.
-    3. _Peer-to-Peer Allied Sharing (`MinionLogisticsHelper`)_: Scans allied minions within 24m, transferring required blocks via green energy beams and pickup audio.
-    4. _Autonomous Quarrying & Agro-Forestry (`MinionHarvestingHelper`)_: Autonomously quarries natural stone, deepslate, and earth. For timber, fells trees or plants saplings and accelerates maturity with bone meal.
-    5. _Squad Material Procurement & Mob Hunting Contracts (`MinionHarvestingHelper`)_: When organic or mob-derived materials are required (wool, bones, slime, leather, ink, prismarine, etc.), builders scan for target mobs within 32m and commission an available allied Warrior thrall. The warrior receives the contract via a weaponsmith audio cue and energy beam, hunts the target mob, synthesizes the required refined material, and delivers it directly to the builder. (Falls back to solo builder hunting if no warrior is nearby).
-    6. _In-Inventory Resource Synthesis Engine_: Automatically synthesizes high-tier multiblock components from raw mob ingredients (e.g. 4 String $\to$ 1 Wool, 1 Bone $\to$ 3 Bone Meal, 9 Bone Meal $\to$ 1 Bone Block, 9 Slimeballs $\to$ 1 Slime Block, 4 Magma Cream $\to$ 1 Magma Block, 1 Blaze Rod $\to$ 2 Blaze Powder, 1 Ender Pearl + 1 Blaze Powder $\to$ 1 Eye of Ender, 4 Prismarine Shards $\to$ 1 Prismarine, 9 Shards $\to$ 1 Prismarine Bricks, 4 Shards + 5 Crystals $\to$ 1 Sea Lantern, 4 Rabbit Hide $\to$ 1 Leather, 9 String $\to$ 1 Cobweb).
-    7. _Strict Safety & Build Protection_: Never hunts player pets, named mobs, villagers, iron golems, allays, or allied minions (`isSafeHuntTarget`). Never breaks player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
-    8. _Hazard Avoidance_: Inspects all 6 orthogonal directions and refuses to break blocks adjacent to lava.
-    9. _Tool Self-Crafting_: Synthesizes wooden or stone tools (pickaxes, axes, shovels) from timber and stone when tools break or are missing.
-    10. _Autonomous Supply Depots_: When bags are full of surplus non-blueprint materials, deposits excess into nearby chests or crafts an 8-plank Chest (pairing into a Double Chest if adjacent).
+    2. _Direct Dismantle & Mine Collection_: When deconstructing structures or clearing areas in `MINE` mode, mined blocks enter the minion's backpack directly rather than scattering onto the ground.
+    3. _Nearby Container Scavenging_: Searches chests, barrels, and shulkers within 24 blocks for missing materials.
+    4. _Peer-to-Peer Allied Sharing (`MinionLogisticsHelper`)_: Scans allied minions within 24m, transferring required blocks via green energy beams and pickup audio.
+     5. _Autonomous Quarrying & Agro-Forestry (`MinionHarvestingHelper`)_: Autonomously quarries natural stone, deepslate, and earth. For timber, fells trees or plants saplings and accelerates maturity with bone meal. **Loot-Table-Faithful Drops**: Both `fellLog` and `quarryNaturalStone` use `Block.getDroppedStacks()` for drop computation, ensuring silk-touch axes yield logs, fortune pickaxes yield extra ores/gravel/flint, and all block-specific loot tables are respected. A fallback guarantees at least one resource unit if the loot table yields empty drops.
+    6. _Squad Material Procurement & Mob Hunting Contracts (`MinionHarvestingHelper`)_: When organic or mob-derived materials are required (wool, bones, slime, leather, ink, prismarine, etc.), builders scan for target mobs within 32m and commission an available allied Warrior thrall. The warrior receives the contract via a weaponsmith audio cue and energy beam, hunts the target mob, synthesizes the required refined material, and delivers it directly to the builder. (Falls back to solo builder hunting if no warrior is nearby).
+    7. _In-Inventory Resource Synthesis Engine_: Automatically synthesizes high-tier multiblock components from raw mob ingredients (e.g. 4 String $\to$ 1 Wool, 1 Bone $\to$ 3 Bone Meal, 9 Bone Meal $\to$ 1 Bone Block, 9 Slimeballs $\to$ 1 Slime Block, 4 Magma Cream $\to$ 1 Magma Block, 1 Blaze Rod $\to$ 2 Blaze Powder, 1 Ender Pearl + 1 Blaze Powder $\to$ 1 Eye of Ender, 4 Prismarine Shards $\to$ 1 Prismarine, 9 Shards $\to$ 1 Prismarine Bricks, 4 Shards + 5 Crystals $\to$ 1 Sea Lantern, 4 Rabbit Hide $\to$ 1 Leather, 9 String $\to$ 1 Cobweb).
+    8. _Strict Safety & Build Protection_: Never hunts player pets, named mobs, villagers, iron golems, allays, or allied minions (`isSafeHuntTarget`). Never breaks player-placed blocks, active blueprint structures, processed materials (planks, bricks, slabs, glass), or blocks within 12m of player beds, chests, or respawn anchors.
+    9. _Hazard Avoidance_: Inspects all 6 orthogonal directions and refuses to break blocks adjacent to lava.
+    10. _Tool Self-Crafting_: Synthesizes wooden or stone tools (pickaxes, axes, shovels) from timber and stone when tools break or are missing.
+    11. _Autonomous Supply Depots & Post-Build Chest Storage_: When backpacks fill or sessions finish, builders deposit 100% of surplus materials into nearby chests or craft an 8-plank Chest (pairing into a Double Chest if adjacent). Stray ground items are gathered into containers upon completion. Items only drop if no chest exists and no wood is available.
+- **Autonomous Blueprint Chaining & Vicinity Transition Engine (`ConstructionManager`, `MinionBuildGoal`)**:
+  - _Seamless Multi-Blueprint Transitions_: When builder minions finish a construction or dismantle session, they immediately scan their 128-block vicinity for other pending active blueprints belonging to their master instead of halting.
+  - _Zero Premature Stationing / Sleep Prevention_: `ConstructionManager.completeSession` checks for nearby active sessions ($\le 128$ blocks). If another blueprint is active, builders bypass perimeter stationing (`setSitting(false)`, `setGuardAnchorPos(null)`), remaining mobilized and ready to work.
+  - _Multi-Blueprint Placement During Active Construction_: If the commander places down additional blueprints while builders are actively constructing an earlier structure, builders seamlessly queue the new blueprints and transition directly to the next nearest blueprint the moment their current build completes.
+  - _Nearest-First Spatial Dispatch_: When multiple blueprints are placed simultaneously, builders evaluate Euclidean distance across all pending sessions in the world and automatically prioritize and dispatch to the closest blueprint session.
+  - _Periodic 20-Tick Active Mobilization_: `ConstructionManager.tick` executes a 20-tick (1-second) mobilization pulse across a 128-block bounding box around active sessions, waking any stationed builders (`setSitting(false)`, `setGuardAnchorPos(null)`) so they never miss newly placed blueprints even if they were stationed prior to placement.
+  - _Autonomous `MinionBuildGoal` Persistence & Re-Leasing_: `MinionBuildGoal.tryClaimTaskOrChainNextSession` re-queries `ConstructionManager` when a session's task queue is depleted, atomically claiming the next available blueprint's tasks and equipping the required tools/blocks without exiting the build goal.
 
-### Arcane Builder Levitation & Universal 3D Levitation Traversal (`MinionBuildGoal`, `MinionEntity`, `WaypointHoldGoal`, `MinionFormationFollowGoal`, `SentinelGuardGoal`)
+### Arcane Builder Levitation & Player-Like Ground Navigation (`MinionBuildGoal`, `MinionEntity`, `WaypointHoldGoal`, `MinionFormationFollowGoal`, `SentinelGuardGoal`)
 
-- **Universal 3D Arcane Levitation Traversal & Safety Ceilings**: All minion thralls (Builders, Warriors, Sentinels) utilize 3D Arcane Levitation to seamlessly traverse extreme vertical terrain and multiblock structures:
-  - **High Cliff & Rooftop Descent**: When stationed on high cliffs, rooftops, or newly completed buildings, minions smoothly glide off high structures ($\Delta Y < -1.5\text{D}$) down to the ground or their target post without taking fall damage or getting trapped on roofs.
-  - **Elevated Cliff & Building Ascent**: When navigating towards elevated waypoints, cliffs, or commanders perched on structures ($\Delta Y > 1.25\text{D}$), minions automatically engage 3D levitation flight to ascend sheer vertical walls and land safely at their destination.
-  - **Obstacle & Navigation Stall Recovery**: Responsive 2-tick obstacle stall sensitivity: if navigation stalls or hits horizontal obstructions for $\ge 2$ ticks while actively moving towards a goal, minions engage Arcane Levitation flight in 3D to bypass the barrier.
-  - **Unconstrained Dynamic Obstacle Climbing**: Minions can scale barriers of any height (3, 5, 10, or 20+ blocks high) without artificial altitude limits or premature timers. Traversal raycasts ahead measure `obstacleTopClearanceY` to lift minions cleanly over obstacles with sustained upward velocity ($v_y \ge 0.30\text{D} \to 0.38\text{D}$) and full horizontal drive ($v_x, v_z$).
-  - **Immediate Solid Ground Landing Rule**: The root cause of endless levitation (minions refusing to land because of elevation mismatch or wall collisions) is permanently solved: the instant a minion's feet reach solid ground (`isOnGround() || belowState.isSolidBlock()`) without a higher obstacle ahead, levitation deactivates immediately, restoring normal ground walking and step height (1.0625D). In mid-air, downward glide ($v_y \le -0.22\text{D}$) carries airborne minions smoothly to earth until solid ground is reached.
-  - **Combat Grounding**: Minions fighting ground targets remain firmly grounded and never launch into the air from entity collisions. If elevated above a ground enemy, melee warriors immediately descend ($v_y = -0.35\text{D}$) to engage within weapon reach.
-  - **Hierarchical Destination Resolution**: `resolveActiveTargetDestination()` dynamically reconciles explicit goal traversal stations, active combat targets, waypoint/guard anchors, commander positions, and navigation waypoints.
-  - **Safe Arrival & Landing Fanfare**: Upon reaching their destination within tolerance (horizontal $\le 2\text{D}$, vertical $\le 1.5\text{D}$), minions float smoothly to solid ground, deactivate levitation, restore gravity, and burst into arcane purple and cyan runes (`PORTAL` and `ENCHANT`).
+- **Pure Ground Navigation & Removal of Traversal Levitation**: Traversal levitation has been completely stripped from normal minion movement. Non-builder minions navigate on the ground using standard `MobNavigation` and enhanced player-like $1.25\text{D}$ step height:
+  - **Player-Like Step Height ($1.25\text{D}$)**: With `GENERIC_STEP_HEIGHT = 1.25D`, minions walk smoothly over slabs (0.5D), stairs (0.5D/1.0D), carpets, trapdoors, and 1-block steps natively with zero physics hesitation, zero collision stall, and zero purple particles.
+  - **Natural Barrier Pathfinding**: Minions pathfind *around* 2-block obstacles, walls, fences, and pits using standard ground navigation just like vanilla mobs, eliminating unwanted launches into the sky.
+  - **Smart Companion Catch-Up Teleportation**: Follower minions (`MinionFormationFollowGoal` and `MinionFollowLeaderGoal`) feature companion catch-up teleportation:
+    - If a minion falls into a deep chasm, pit, or gets trapped behind a high wall ($> 10$ blocks away from leader/owner) and remains navigationally stuck for $\ge 40$ consecutive ticks ($2.0\text{s}$), it automatically teleports directly to its commander or squad leader.
+    - If distance exceeds 24 blocks ($576.0\text{D}^2$), the minion immediately teleports to catch up, ensuring squad cohesion without aerial launches.
+  - **Combat Grounding**: Minions fighting ground targets remain firmly grounded and never launch into the air from entity collisions.
+  - **Selected-Only GUI Teleportation**: The Command Scepter GUI "✦ Teleport" action exclusively recalls **selected minions** within the 64-block command radius. Unselected minions remain stationed at their posts or on their patrol routes. If no minions are selected, the button remains disabled with informative feedback.
+  - **Patrol Route Detachment**: Selecting a patrolling minion to follow the player explicitly and permanently detaches it from its patrol route (`setPatrolRouteId(-1)`), allowing direct command without goal conflicts.
+  - **Hierarchical Destination Resolution**: `resolveActiveTargetDestination()` dynamically reconciles explicit goal destinations, active combat targets, waypoint/guard anchors, commander positions, and navigation waypoints.
 
 - **Arcane Builder Levitation**: Elevated multiblock construction completely transcends temporary scaffolding generation and block climbing. Builders maintain permanent 3D Arcane Levitation throughout construction:
   - **Dynamic 3D Hover Station**: The minion calculates an optimal 3D air station adjacent to the target block ($1.4\text{D} \to 1.8\text{D}$ horizontally away, with unobstructed headroom) and smoothly glides to it at $0.35\text{D}$ velocity.
@@ -586,10 +618,95 @@ To eliminate issues where builders get stuck inside completed rooms, ram upward 
 
 ## 7. Structure Deconstruction, Mining Area Clearance & Bedrock Immunity
 
-### Deconstruction & Mining Area Clearance (`SessionMode.DISMANTLE`)
+The deconstruction engine (`CommandMode.MINE`, `MiningMode`, `ConstructionManager`, `ConstructionSession`, `MiningConfirmModalScreen`, `ClientMiningCaptureTracker`) provides dual operational modes for structure demolition and terrain quarrying:
 
-- **Full 3D Selected Area Clearance**: When initiated in `MINE` mode, the session scans the entire 3D volume (`worldBoundingBox`) from highest Y to lowest Y, generating tasks for **all** solid, destructible blocks contained within the area (natural stone, ores, dirt, trees, structures).
-- **Reverse Topological Top-Down Execution**: Demolishes upper roofs, battlements, and highest layers first, ensuring structures and terrain are cleared safely top-to-bottom.
+```
+                                      [MINE Operating Mode]
+                                                │
+                 ┌──────────────────────────────┴──────────────────────────────┐
+                 ▼                                                             ▼
+         [DIRECT Sub-Mode]                                             [AREA Sub-Mode]
+   • Instant point-and-click dismantle                           • Configurable 3D boundary volume
+   • Anchors directly at clicked position                        • Sequential Left-Clicks: Pos1 ➔ Pos2
+   • 96m crosshair reach                                         • Fiery orange/amber ghost grid wireframes
+   • Dismantles structures or terrain                            • Real-time height adjustment (Ctrl + Scroll)
+   • Zero boundary setup required                                • Dedicated Confirmation Modal before mining
+```
+
+### 7.1 Dual Operational Sub-Modes: DIRECT vs. AREA Mining
+
+Commanders can toggle between operational sub-modes within `MINE` mode via the Command Hub GUI (**`V`** key) or via scepter controls:
+
+1. **`AREA` Mode (`MiningMode.AREA`, "Custom Area", `§e`) — Default**:
+   - The default operational mode for mining.
+   - Allows commanders to establish exact, custom 3D mining boundaries in the world, working identically to `DESIGN` mode grid selections but to remove blocks top-to-bottom.
+   - Employs sequential left-click corner selection (`Pos1` ➔ `Pos2`), in-world fiery orange/amber ghost grid wireframes, real-time height adjustment, and a dedicated confirmation modal (`MiningConfirmModalScreen`) before initiating minion excavation.
+2. **`DIRECT` Mode (`MiningMode.DIRECT`, "Direct / Structure", `§6`)**:
+   - Alternate point-and-click deconstruction mode.
+   - Aiming crosshairs at any block or placed structure and right-clicking anchors a deconstruction session immediately without needing boundary setup.
+   - Long-range crosshair reach extends up to 96 blocks away.
+
+### 7.2 Configurable 3D Area Boundary & Sequential Corner Invariants
+
+In **`AREA`** mining mode, commanders define the 3D excavation boundary using sequential left-clicks:
+
+- **Unified Click Interception & Stepping (`ClientMiningCaptureTracker`)**:
+  - Left-clicks in `MINE` mode (with `MiningMode.AREA` active) are intercepted via `AttackBlockCallback` and `attackKey` handlers, routing through authoritative corner-stepping logic.
+  - **1st Left-Click (`Pos1`)**: Sets Corner 1 anchored on top of the targeted block surface adhering to the Unified Surface Anchoring Contract. Emits a vibrant fiery orange marker box (`0xFFFFA500`), sparkle particle burst, note block chime (`1.2F` pitch), and actionbar confirmation: `§6✦ Mining Pos1: §f[X, Y, Z]`.
+  - **Live Candidate Aiming Preview**: Aiming around the world with `Pos1` set projects a live candidate bounding wireframe and real-time ghost grid block outlines spanning from `Pos1` to the targeted crosshair block.
+  - **2nd Left-Click (`Pos2`)**: Sets Corner 2 on the opposite diagonal, completing the 3D volume footprint. Emits sparkle particles, resonant note block chime (`1.4F` pitch), and actionbar confirmation: `§6✦ Mining Pos2: §f[X, Y, Z]`.
+  - **Subsequent Left-Clicks (Cycle)**: Left-clicking with both corners set starts a new selection cycle (`Pos1` set to clicked block, `Pos2` cleared).
+  - **Shift + Left-Click (Reset)**: Instantly clears both `Pos1` and `Pos2` with a bass tone (`BLOCK_NOTE_BLOCK_BASS`), guaranteeing the next left-click begins anew at `Pos1`.
+
+### 7.3 Real-Time In-World Height Adjustment
+
+Commanders can dynamically adjust excavation depth and height without placing temporary scaffolding blocks:
+
+- **Mouse Scroll Interception (`MouseMixin`)**:
+  - Holding **`Ctrl` + Mouse Scroll** while holding the Scepter in `MINE` mode (with `MiningMode.AREA` active):
+    - Scroll **Up**: Expands top boundary ($Y$-max) by +1 block.
+    - Scroll **Down**: Lowers top boundary ($Y$-max) by -1 block.
+    - Holding **`Shift` + `Ctrl` + Scroll**: Fast-steps height by $\pm 5$ blocks.
+    - Cancels vanilla mouse scroll to prevent cycling hotbar item slots.
+- **Keyboard Controls**:
+  - Pressing **`]`** (Right Bracket) or **`Page Up`**: Increases boundary height (+5 with Shift).
+  - Pressing **`[`** (Left Bracket) or **`Page Down`**: Decreases boundary height (-5 with Shift).
+- **HUD & Audio Feedback**:
+  - Actionbar displays live height updates: `§6✦ Mining Area Height: §fX blocks §8| §7Dimensions: WxHxD (Vb)`.
+  - Emits crisp note block hat audio feedback (`SoundEvents.BLOCK_NOTE_BLOCK_HAT`).
+
+### 7.4 In-World Ghost Grid Wireframes & Semantic Highlighting (`BlueprintHologramRenderer`)
+
+When in `MINE` mode with `MiningMode.AREA` active, the client hologram renderer projects in-world visuals:
+
+- **Fiery Orange/Amber 3D Bounding Box**: Renders a glowing, pulsing fiery orange/amber wireframe box (`1.0F, 0.45F, 0.05F`) enclosing the entire excavation volume.
+- **8 Vertex Accent Cubes**: Vibrant gold accent cubes (`0xFFFFD700`) highlight all 8 corners of the 3D bounding box.
+- **Corner Highlight Markers**: `Pos1` (Orange `0xFFFFA500`) and `Pos2` (Amber `0xFFFFD700`) corner markers clearly indicate selection endpoints.
+- **Non-Air Block Ghost Grid Outlines**: Scans the enclosed 3D volume in real time and renders fiery wireframe block outlines around all solid, destructible blocks to be excavated.
+- **Camera-Facing Dimension & Voxel Count Badge**:
+  $$\text{Mining Area: } W \times H \times D \quad | \quad \text{Destructible: } N \text{ blocks}$$
+
+### 7.5 Mining Confirmation Modal Screen (`MiningConfirmModalScreen`)
+
+To prevent accidental excavation of large areas, establishing an `AREA` mining boundary requires confirmation:
+
+- **Modal Launch Triggers**:
+  - Standard **Right-Click** on ground or in air with the Scepter in `MINE` mode (`AREA` sub-mode) when corners (`Pos1` and `Pos2`) are established.
+  - Clicking **`[ ⛏ Confirm Area ]`** in the Command Hub GUI (`CommandScepterScreen`).
+- **Inspection Metrics**:
+  - **Coordinates**: Displays exact `Pos1` and `Pos2` coordinates.
+  - **Dimensions & Volume**: Displays Width $\times$ Height $\times$ Depth and total voxel volume.
+  - **Destructible Block Counter**: Counts and displays the exact number of solid, destructible blocks queued for mining (excluding air and indestructible bedrock).
+- **Height Steppers**: Interactive **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** buttons allow fine-tuning boundary height directly within the modal.
+- **Modal Action Buttons**:
+  - **`[ ✔ Start Mining ]`**: Dispatches `StartMiningAreaPayload(pos1, pos2)` to the server, clears client corner selections, plays horn/chime audio, and initiates top-to-bottom excavation.
+  - **`[ ⌫ Reset ]`**: Wipes `Pos1` and `Pos2` corners across tracker and scepter data components.
+  - **`[ ✖ Cancel ]`**: Closes the modal safely without modifying selection corners.
+- **Universal Blur Removal**: Overrides `applyBlur(float delta)` with a clean no-op (`{}`) to maintain 100% tactical situational awareness of the battlefield.
+
+### 7.6 Reverse Topological Top-Down Execution & Zero Air-Mining Guarantee
+
+- **Top-Down Reverse Demolition Sorting**: Scans the 3D bounding box and sorts tasks strictly from highest Y level down to lowest Y level ($Y_{\max} \to Y_{\min}$), ensuring structures and terrain are cleared safely top-to-bottom without collapsing overhead blocks.
 - **Zero Air-Mining Guarantee**:
   - Air blocks are completely excluded from task generation.
   - When leasing tasks in `claimNextTask()` or ticking in `MinionBuildGoal`, any task position that is already air in the world is auto-completed immediately. Minions **never** pathfind to, hover at, or swing pickaxes at air blocks, and never play villager sounds at empty air.
@@ -597,11 +714,21 @@ To eliminate issues where builders get stuck inside completed rooms, ram upward 
   - The construction manager continuously monitors active dismantle sessions (`hasRemainingBlocksInWorld()`).
   - As soon as all destructible blocks in the selected volume are cleared, the session marks `COMPLETED`, broadcasts `EndConstructionSessionPayload`, plays challenge completion fanfare (`UI_TOAST_CHALLENGE_COMPLETE`), spawns celebratory particles (`HAPPY_VILLAGER`, `TOTEM_OF_UNDYING`), and **instantly dismisses the wireframe outline**.
 - **Dynamic Tool Equipping**: Automatically equips pickaxes for stone/brick/ore, shovels for dirt/gravel, and axes for wood.
-- **Survival Drops vs. Creative Demolition**: In Survival mode, broken blocks drop as collectible items for full resource recovery. In Creative mode, blocks are cleared cleanly without spawning entity drops, preventing world and inventory clutter during large excavations.
-- **Ground-Anchored MINE Mode**: Right-clicking in `MINE` mode anchors the session directly at `clickedPos` (rather than offsetting into the sky above), guaranteeing that the clicked block and the surrounding ground volume are included.
-- **Fiery Orange/Red Crosshair Preview**: Scepter crosshair targeting in `MINE` mode renders a fiery orange/red wireframe box preview anchored directly on the targeted ground or block.
+- **Survival Direct Collection & Chest Logistics vs. Creative Zero-Drop Demolition**: In Survival mode, broken blocks are collected directly into minion inventories via `Block.getDroppedStacks` with `drop = false` rather than scattering across the ground. When inventory is full, minions deposit materials into nearby chests (up to 24 blocks) or craft and deploy autonomous supply depot chests. In Creative mode, blocks are cleared cleanly without spawning entity drops or deploying chests, preventing world and inventory clutter during large excavations.
 
-### 4-Tier Bedrock & Indestructible Immunity Safeguards
+### 7.7 Universal Block Type Fidelity Across Demolition (`MINE` Mode)
+
+Area deconstruction and mining clear every block type within the selected 3D volume:
+- **Solid Terrain & Masonry**: Excavates stone, dirt, sand, gravel, deepslate, ores, wood, and brick structures from top to bottom.
+- **Transparent & Decorative**: Clears glass, panes, stairs, slabs, fences, gates, banners, signs, and decorative items.
+- **Lighting & Fixtures**: Demolishes torches, lanterns, campfires, and overhead lights cleanly.
+- **Containers & Storage**: Empties and recovers containers (chests, barrels, furnaces, hoppers) into builder backpacks and storage.
+- **Multi-Part Component Clearance**: Breaks doors, beds, and tall double plants across both halves cleanly, preventing orphaned floating blocks or desynchronized world states.
+- **Fluid & Liquid Demolition**: Drains standing water and lava pools cleanly (`setBlockState(Blocks.AIR)`), eliminating residual source blocks and preventing endless water flooding during excavations.
+- **Loot-Table-Faithful Drop Collection**: All block breaks — both direct `MINE` dismantle tasks and autonomous quarrying/timber felling — use `Block.getDroppedStacks()` to compute drops against Minecraft loot tables. Silk-touch pickaxes yield ice/glass/ore, fortune pickaxes multiply gravel/flint/coal/diamond yields, and enchanted axes produce extra logs — exactly as the player expects.
+- **4-Tier Bedrock Immunity**: Bedrock, barrier blocks, and unbreakable structures are 100% immune and preserved.
+
+### 7.8 4-Tier Bedrock & Indestructible Immunity Safeguards
 
 Guarantees minions never break bedrock, barrier blocks, or world boundaries:
 
@@ -612,14 +739,19 @@ Guarantees minions never break bedrock, barrier blocks, or world boundaries:
 
 ---
 
-## 8. 100% Zero-Footprint Universal Arcane Levitation
+## 8. Arcane Builder Levitation & Player-Like Ground Navigation
 
-All ephemeral scaffolding and combat sapper goals (`MinionSapperGoal`, `TraversalScaffoldingManager`) have been completely retired in favor of **100% Universal Arcane Levitation**:
+All ephemeral scaffolding and combat sapper goals (`MinionSapperGoal`, `TraversalScaffoldingManager`) have been completely retired. Minions utilize a clean dual-navigation model:
 
-- **Zero World Footprint**: Minions traverse across ravines, scale cliffs, descend structures, and navigate steep terrain using pure arcane flight kinematics with zero ephemeral block generation or block clutter.
-- **Universal Role Support**: Warriors, Sentinels, Rangers, and Builders all share full 3D Arcane Levitation flight and 2-tick obstacle vaulting.
-- **Dynamic 3D Hover & Glide**: Minions automatically glide up vertical obstacles, across open gaps, and off rooftop perimeters, maintaining safe descent velocities and zero fall damage.
-- **Kinematic Safety Ceiling & Anti-Jitter**: Enforces smooth station positioning and collision-aware height ceilings to prevent skyrocketing or oscillation.
+- **Builder Arcane Levitation**: Builders exclusively possess 3D Arcane Levitation flight and block phasing (`noClip`) during active construction and structure egress (`MinionBuildGoal`). They smoothly fly, hover at work stations, phase through ceilings/walls, and exit completed structures without scaffolding clutter.
+- **Pure Ground Navigation for Non-Builders**: All other minions (Warriors, Sentinels, Rangers, Minion Followers) navigate exclusively on the ground via standard `MobNavigation`:
+  - **Player-Like Step Height ($1.25\text{D}$)**: Enhanced step height allows minions to step over slabs, stairs, carpets, trapdoors, and 1-block steps without jumping or levitating.
+  - **Natural Barrier Pathfinding**: Minions pathfind around 2-block obstacles, walls, and pits rather than attempting flight.
+  - **Companion Catch-Up Teleportation**: If separated from their owner or leader and navigationally stuck in deep holes or behind walls for $\ge 40$ ticks ($2.0\text{s}$), followers automatically catch up via teleportation, preventing estrangement without aerial launches into the sky.
+- **Universal Indoor Navigation Safeguards & Door Auto-Opening**:
+  - Closed wooden doors and gates in a minion's path automatically open (`autoOpenNearbyDoors`), allowing fluid movement through doorways.
+- **Builder Kinematics Isolation**:
+  - `MinionEntity.tickUniversalArcaneLevitation()` grants `MinionBuildGoal` 100% isolated control over 3D hover stationing, deconstruction trajectories, and phase-shifting. Non-builders immediately release levitation and maintain gravity.
 
 ---
 
@@ -632,15 +764,19 @@ Vanilla Minecraft's `LandPathNodeMaker` treats scaffolding as `PathNodeType.BLOC
 - **Player-Placed Scaffolding Awareness**: Evaluates player-placed vanilla scaffolding as `PathNodeType.OPEN` (or `WALKABLE` when supported from below), allowing vertical ascent and horizontal span crossing across elevated platforms.
 - **Elevated Platforms**: Evaluates standing on top of scaffolding as `PathNodeType.WALKABLE`, enabling fluid ground navigation across high-altitude platforms.
 
-### Custom Navigation (`MinionNavigation`)
+### Custom Navigation (`MinionNavigation`) & Universal Door Traversal
 
 - Integrates `MinionPathNodeMaker` into a custom `MobNavigation` pipeline.
 - Pre-configured with open and closed door traversal (`setCanPathThroughDoors(true)`, `setCanEnterOpenDoors(true)`).
+- **Universal Door Traversal & Auto-Opening (`autoOpenNearbyDoors`)**:
+  - Integrated directly into `MinionEntity.tick()` movement loops and `MinionBuildGoal`.
+  - As minions walk or navigate towards targets, closed non-iron wooden doors, gates, and trapdoors within a 1.5-block bounding box are automatically opened (`DoorBlock.setOpen`), allowing smooth, uninhibited passage through doorway portals and residential entryways without pathing halts.
+  - Complemented by `MinionBuildGoal.autoOpenNearbyDoors()` for builders moving materials through doorways.
 
 ### Interior Door & Portal Traversal
 
 - Sets pathfinding penalties for `DOOR_OPEN`, `DOOR_WOOD_CLOSED`, `WALKABLE_DOOR`, and `TRAPDOOR` to `0.0F`.
-- Leverages `LongDoorInteractGoal` to allow minions to open, walk through, and close doors smoothly without pathing stalls.
+- Leverages `LongDoorInteractGoal` and dynamic auto-opening to allow minions to open, walk through, and navigate doors smoothly without pathing stalls.
 
 ---
 
@@ -784,31 +920,42 @@ Commanders and minions alike can employ dedicated handheld ordnance:
 ---
 
 ## 11. Data Components & Network Protocol Architecture
-
 ### Minecraft 1.21 Data Components (`ModDataComponents`)
 
 Type-safe, immutable components attached to items such as the Loki Command Scepter:
 
-- `COMMAND_MODE`: Encodes active operational mode (`FOLLOW`, `STAY`, `MINE`, `BUILD`, `RECRUIT`).
+- `COMMAND_MODE`: Encodes active operational mode (`FOLLOW`, `STAY`, `MINE`, `BUILD`, `RECRUIT`, `PATHWAY`, `DESIGN`).
+- `MINING_MODE`: Encodes the active mining sub-mode (`MiningMode.DIRECT` or `MiningMode.AREA`).
 - `ACTIVE_BLUEPRINT`: Encodes active blueprint identifier string.
 - `TARGET_SQUAD`: Encodes active squad channel filter (`ALL`, `ALPHA`, `BRAVO`, `CHARLIE`, `DELTA`).
 - `STRUCTURE_ROTATION`: Encodes integer quadrant rotation index ($0 = 0^\circ, 1 = 90^\circ, 2 = 180^\circ, 3 = 270^\circ$).
 - `TARGET_ROLE`: Encodes the optional target `MinionRole` archetype for channeled rally ring transfiguration.
+- `DESIGN_POS1` & `DESIGN_POS2`: Encodes active spatial capture corner coordinates (`BlockPos`).
+- `MINE_POS1` & `MINE_POS2`: Encodes active area mining boundary corner coordinates (`BlockPos`).
+- `LEGACY_ARCHITECTURE_STYLE` & `LEGACY_BUILDING_SIZE`: Migration data components ensuring backward compatibility with older save files and player inventories, preventing Minecraft 1.21 item deserialization error logs.
 
 ### Client-to-Server (C2S) Payloads
 
 1. **`UpdateScepterPayload`**: Synchronizes active command mode, selected blueprint, target squad channel, rotation index, optional target archetype role, and directive dispatch flags.
-2. **`UpdateMinionConfigPayload`**: Updates an individual minion's role archetype and squad assignment.
-3. **`MassRolePayload`**: Batch-assigns a role archetype to all selected minions (or all matching squad minions) within a 64-block radius.
-4. **`TeleportMinionPayload`**: Recalls an individual minion or broadcast-teleports all squad minions to the player.
-5. **`DismissMinionPayload`**: Decommissions an individual minion or broadcast-decommissions squad minions within 64 blocks.
-6. **`DeselectMinionsPayload`**: Clears active unit selection for an individual minion or the entire army.
-7. **`RetreatPayload`**: Dispatches instant tactical panic retreat (`Keybind R`), resetting combat targets, canceling guard posts, and recalling all squad minions to formation at sprint speed.
+2. **`StartMiningAreaPayload`**: Dispatches 3D boundary mining area coordinates (`pos1`, `pos2`) to the server to initiate full top-down area excavation in `ConstructionManager`.
+3. **`UpdateMinionConfigPayload`**: Updates an individual minion's role archetype and squad assignment.
+4. **`MassRolePayload`**: Batch-assigns a role archetype to all selected minions (or all matching squad minions) within a 64-block radius.
+5. **`TeleportMinionPayload`**: Recalls an individual minion or broadcast-teleports all squad minions to the player.
+6. **`DismissMinionPayload`**: Decommissions an individual minion (`targetMinionId > 0`), all selected squad minions (`TARGET_SELECTED = -2`), or all owned minions (`TARGET_ALL = -1`) within 64 blocks, guarded by modal confirmation dialogs.
+7. **`DeselectMinionsPayload`**: Clears active unit selection for an individual minion or the entire army.
+8. **`RetreatPayload`**: Dispatches instant tactical panic retreat (`Keybind R`), resetting combat targets, canceling guard posts, and recalling all squad minions to formation at sprint speed.
+9. **`AnchorConstructionPayload`**: Dispatches player-anchored construction or deconstruction requests with position (`BlockPos`), blueprint ID string, rotation index ($0\text{--}3$), and session mode (`BUILD` / `DISMANTLE`).
+10. **`ModifyPatrolRoutePayload`**: Dispatches patrol route modifications (`Action: CREATE, ADD_WAYPOINT, REMOVE_WAYPOINT, CLEAR, SET_LOOP`), channel ID ($0\text{--}4$), and waypoint coordinate parameters.
+11. **`ConfigurePatrolRoutePayload`**: Dispatches custom patrol route configuration updates (Action: `SAVE` / `DELETE`), route ID, custom display name, 24-bit RGB color, and `PatrolMode` (`LOOP` / `PING_PONG`).
+12. **`CreateCustomBlueprintPayload`**: Transmits player-authored blueprints (`id`, `name`, `description`, `List<BlueprintBlock> blocks` with relative offsets and block states) captured in **`DESIGN`** mode to the server for validation, dynamic registry injection, world persistence, and multi-client broadcast sync.
+13. **`DeleteCustomBlueprintPayload`**: Requests the deletion and unregistration of a custom blueprint by its unique identifier (`String blueprintId`), removing it from `CustomBlueprintManager`, `CustomBlueprintPersistentState`, and `BlueprintRegistry`, followed by immediate client synchronization.
 
 ### Server-to-Client (S2C) Payloads
 
-1. **`SyncConstructionSessionPayload`**: Broadcasts the start, anchor coordinate, blueprint ID, rotation index, and mode of an active construction session to tracking clients for 3D holographic rendering.
+1. **`SyncConstructionSessionPayload`**: Broadcasts the start, anchor coordinate, blueprint ID, rotation index, dismantle mode, and 3D bounding box dimensions (`sizeX`, `sizeY`, `sizeZ`) of an active construction session to tracking clients for persistent 3D holographic wireframe and ghost grid rendering.
 2. **`EndConstructionSessionPayload`**: Broadcasts the termination (completion or cancellation) of a construction session so client wireframe renderers clear holographic geometry.
+3. **`SyncPatrolRoutesPayload`**: Broadcasts the full synchronized set of world patrol routes across all dynamic color-coded channels to connecting and active players.
+4. **`SyncCustomBlueprintsPayload`**: Transmits the complete catalog of saved custom `StructureBlueprint` records (`List<StructureBlueprint>`) using `BLUEPRINT_CODEC` to clients on world join, blueprint creation, or blueprint deletion, ensuring all player Command Hubs display up-to-date custom blueprints.
 
 ---
 
@@ -818,8 +965,8 @@ The commander's active game mode dynamically dictates minion logistics, resource
 
 | Subsystem                           | Survival Mode (`/gamemode survival`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Creative Mode (`/gamemode creative`)                                                                                                                                                                                                                                                      |
 | :---------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Structure Building (`BUILD`)**    | **Autonomous Logistics, Harvesting & Procurement**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. When mob resources (wool, bones, slime, leather, etc.) are needed, builders commission nearby Warriors on tactical hunting contracts with automatic material synthesis. They self-craft replacement tools and deposit excess materials into newly crafted/placed supply depot chests. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Pre-Clearing**: Builders place blocks freely and continuously without consuming items or requiring container inventories. Existing terrain (grass, flowers, snow, dirt) is automatically pre-cleared with zero dropped items, eliminating clutter. |
-| **Area Mining (`MINE`)**            | **Full Resource Recovery**: Excavated blocks drop as collectible world item entities for player salvage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | **Zero-Drop Demolition**: Blocks are cleared without entity drops, preventing world and inventory clutter during large excavations.                                                                                                                                                       |
+| **Structure Building (`BUILD`)**    | **Autonomous Logistics, Harvesting & Procurement**: Builders consume carried blocks, scavenge nearby chests within 12 blocks, transfer blocks via peer-to-peer beams from allies within 24m, autonomously quarry natural stone/deepslate, and harvest timber via bone-meal agro-forestry. When mob resources (wool, bones, slime, leather, etc.) are needed, builders commission nearby Warriors on tactical hunting contracts with automatic material synthesis. They self-craft replacement tools, collect deconstruction drops directly into inventory, and deposit 100% of excess materials into nearby or autonomous chests upon completion, leaving zero dropped items. (Only pauses with alert if non-harvestable materials are missing). | **Zero-Cost Free Placement & Zero-Drop Guarantee**: Builders place blocks freely and continuously without consuming items or requiring container inventories. Unneeded blocks are discarded directly from inventory slots (`inv.setStack(slot, ItemStack.EMPTY)`). Multi-part blocks (tall grass, flowers, beds, doors) are cleanly pre-cleared with zero dropped items, and post-session sweeps purge stray item entities within the bounding box, leaving zero dropped items on the ground. |
+| **Area Mining (`MINE`)**            | **Direct Backpack Collection & Chest Logistics**: Excavated blocks are gathered directly into the builder's inventory (`drop = false`) instead of scattering onto the ground. When backpacks fill or sessions finish, builders offload into nearby containers or craft and deploy autonomous chests, gathering any loose ground items into storage. Items only drop on the ground as an absolute fallback if no chests exist and no wood is available. | **Zero-Drop Demolition**: Blocks are cleared without entity drops or chests, preventing world and inventory clutter during large excavations. |
 | **Minion Taming**                   | Consumes **1 Gold Ingot** from player hand when binding an untamed minion.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Tames the minion instantly **without consuming** the held Gold Ingot.                                                                                                                                                                                                                     |
 | **Feeding & Healing**               | Consumes **1 food or gold item** per healing interaction from the player's hand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Restores health to full **without consuming** held food or gold items.                                                                                                                                                                                                                    |
 | **Spawn Egg Usage**                 | Consumes **1 spawn egg** per mob spawned from the item stack.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Spawns minions infinitely **without depleting** the held spawn egg stack.                                                                                                                                                                                                                 |
@@ -920,7 +1067,7 @@ The commander's active game mode dynamically dictates minion logistics, resource
 - **Continuous Outer Perimeter Ring**: Rather than clustering at the front entrance doorway, perimeter stations are calculated along a continuous closed ring encircling all four flanks of the structure: South (Front), East flank, North (Back), and West flank.
 - **Guaranteed Flank Stationing**: For $N$ builder minions, stations are distributed uniformly at angular intervals of $360^\circ / N$ along this ring with deduplicated coordinates. Minions are directly teleported (`minion.requestTeleport(wx, waypoint.getY(), wz)`) to their assigned perimeter stations upon build completion, ensuring minions surround the finished building regardless of their assigned squad channels.
 - **Stationed Guard Posture**: Upon arriving at their perimeter stations, minions enter a defensive stationed stance (`guardAnchorPos` assigned, `isSitting() = true`, `isSelected() = false`), standing guard at attention with golden beacon beams (`END_ROD` + `GLOW`) and chime audio (`BLOCK_AMETHYST_BLOCK_CHIME`).
-- **Autonomous Mobilization**: When a new blueprint is anchored within 64 blocks, stationed builders automatically wake up (`setSitting(false)`, `setGuardAnchorPos(null)`) and mobilize to build immediately without requiring manual re-selection.
+- **Autonomous Mobilization**: When a new blueprint is anchored within 112 blocks horizontally and vertically, stationed builders automatically wake up (`setSitting(false)`, `setGuardAnchorPos(null)`) and mobilize to build immediately without requiring manual re-selection, providing comprehensive coverage for mega structures.
 
 ---
 
@@ -951,12 +1098,21 @@ The commander's active game mode dynamically dictates minion logistics, resource
 
 ### Autonomous Waypoint Patrol Engine (`MinionPatrolGoal`, `PatrolRouteManager`, `PatrolRoute`)
 
-- **5 Color-Coded Route Channels**: Channels 0–4 feature dedicated visual identities, allowing commanders to design up to 5 concurrent, isolated patrol circuits across their fortress:
-  - **Route 1**: 🟡 **Gold / Amber** (`0xFFD700`) — Citadel gates & primary courtyard.
+- **Dynamic Custom Hex Colors & Route Channels**: Supports customizable dynamic patrol routes with arbitrary 24-bit hex colors (`#FFD700`, `#00E5FF`, `#00FF66`, `#B300FF`, `#FF2244`, or custom hex codes parsed via `PatrolRoute.parseHexColor`). Opening or selecting `PATHWAY` mode in the Command Hub GUI explicitly defaults the active route dashboard to **Route 1 (🟡 Gold `#FFD700`)** and synchronizes with the held scepter:
+  - **Route 1**: 🟡 **Gold / Amber** (`0xFFD700`) — Citadel gates & primary courtyard (Default Route).
   - **Route 2**: 🔵 **Azure / Cyan** (`0x00E5FF`) — Castle ramparts & battlement parapets.
   - **Route 3**: 🟢 **Emerald Green** (`0x00FF66`) — Village perimeter & agricultural farms.
   - **Route 4**: 🟣 **Arcane Purple** (`0xB300FF`) — Nether portal hubs & subterranean quarry entries.
   - **Route 5**: 🔴 **Crimson Red** (`0xFF2244`) — Forward trenches, barbicans & perimeter killzones.
+  - **Custom Routes**: Players can create, rename, recolor, and delete custom routes on the fly.
+- **Dedicated Route Edit Modal Screen (`PatrolRouteEditModalScreen`)**:
+  - Accessible directly by clicking the **`Edit`** button on any patrol route card in the Command Hub GUI.
+  - Includes a text input field for route naming, a live color swatch preview square, a custom hex color code text input (`#RRGGBB` / `0xRRGGBB`), and 5 quick-select preset color palette swatch buttons (`#FFD700`, `#00E5FF`, `#00FF66`, `#B300FF`, `#FF2244`).
+  - Modal action buttons: **`[ ✔ Save Route ]`**, **`[ ✖ Delete Route ]`**, and **`[ Cancel ]`**.
+  - Deleting a route safely detaches all patrolling minions assigned to that route (`setPatrolRouteId(-1)`), sets them into a stationed holding position (`setSitting(true)`), and cleanses persistent world state.
+- **Paginated Pathway Dashboard in Command Hub (`CommandScepterScreen`)**:
+  - Features paginated route management (`PATHWAY_PAGE_SIZE = 4`) with **`[ ◀ Prev ]`** and **`[ Next ▶ ]`** navigation buttons and **`[ + New Route ]`** creation.
+  - Per-route control row: **Select Route** (channel select), **Mode Toggle** (`Loop` vs `Ping`), **Edit** (opens configuration modal), **Clear** (empties waypoints), and **Del** (deletes custom route).
 - **In-World 3D Holographic Wireframes & Vector Trajectories (`PathwayHologramRenderer`)**:
   - Clicking blocks while in `PATHWAY` mode anchors an exact bounding wireframe resting cleanly on top of each waypoint surface.
   - Floating, camera-aligned billboarding badges hover above each block displaying sequential numbered checkpoint tags: `[ 1 ]`, `[ 2 ]`, `[ 3 ]`, etc.
@@ -975,6 +1131,9 @@ The commander's active game mode dynamically dictates minion logistics, resource
     - **Direct Command Precedence**: Toggling stance with an empty hand (following or stationed) immediately clears active patrol routes and escort links.
     - **Circular Escort Prevention**: Self-escort and reciprocal loops (A escorts B while B escorts A) are automatically rejected and broken.
     - **Zero-Overlap Protection & Universal Cross-Channel Removal**: Waypoints are mutually exclusive across all 5 channels—a block coordinate can only belong to one route at a time. Right-clicking or punching an existing waypoint from ANY channel removes/undoes it from whichever route it belongs to without adding duplicates on top.
+  - **Surface Block Type Fidelity**:
+    - Waypoints anchor cleanly on **any** surface block type (full solid blocks, slabs, stairs, carpets, fences, walls, glass roofs, leaves, and iron bars).
+    - Elevated surface holograms (`y + 0.15D`) and vector laser tethers float cleanly atop the exact surface profile without clipping or appearing buried.
 - **Patrol Kinematics & Vigilant Checkpoint Scanning**:
   - **Sequential Order Traversal**: Minions follow each pathway tile placed by players from first placed `[ 1 ]` to last `[ N ]` in sequence.
   - **Smooth Traversal (No Intermediate Stopping)**: Minions smoothly advance from checkpoint to checkpoint without stopping along the trail.
@@ -984,11 +1143,15 @@ The commander's active game mode dynamically dictates minion logistics, resource
     - **`PatrolMode.PING_PONG`**: Traverses forward, and upon reaching the final checkpoint, reverses traversal direction back to the origin ($1 \to 2 \to 3 \to 2 \to 1$), omitting the return line across base territory.
   - **Patrol Breach Alarm & Sentry Mobilization (`MinionPatrolGoal.triggerBreachAlarm`)**:
     - When a patrolling sentry detects hostile targets crossing its route, it activates an emergency sentry breach protocol:
-      - Sounds a deep goat horn blast and resonant raid bell (`SoundEvents.ITEM_GOAT_HORN_SOUND_0` / `SoundEvents.BLOCK_BELL_USE`).
+      - Operates completely silently with zero audio sounds (no horn, bell, or chime sounds when breaking from routes).
       - Bursts angry villager particles (`ParticleTypes.ANGRY_VILLAGER`) above the sentry's head.
-      - Scans a 16-block radius and alerts nearby idle allied minions, instantly breaking their stationary wait to mobilize and engage the threat.
-  - **Smart Combat Resumption**: If a hostile mob enters the minion's detection range, the patrol is interrupted and the minion engages. Once all hostiles are eradicated, the minion calculates the nearest waypoint along its route and resumes the patrol cycle seamlessly.
-  - **Unconstrained Terrain Scaling**: Minions leverage Universal Arcane Levitation and 2-tick Obstacle Vaulting to ascend castle battlements, cliffs, and spiral stairwells along their route without getting stuck.
+      - Scans a 16-block radius and alerts nearby idle allied minions, instantly mobilizing them to engage the threat.
+  - **Smart Combat & Task Resumption**: If a hostile mob enters detection range, a blueprint is placed nearby, or an ally requires healing, the minion yields patrol duties silently (Warriors fight, Builders construct, Sentinels heal) without any sound effects. Once the combat or task resolves, the minion snaps to the nearest waypoint along its route and resumes the patrol cycle seamlessly. Patrolling minions strictly follow their routes and never return to or follow the commander unless explicitly selected (which cleanly detaches them from their route).
+  - **Unconstrained Terrain Scaling & Anti-Stall Ground Navigation**:
+    - **Normal Terrain Descents (1–3 Blocks Deep)**: Minions traverse down steps, ledges, and slopes using normal Minecraft gravity without triggering Arcane Levitation or emitting purple portal particles.
+    - **Multi-Point Footprint Contact (`hasSolidGroundBeneath`)**: When vaulting or ascending over obstacles > 1 block high (2-block ledges, fences, walls), the minion's entire base footprint (`x ± 0.25, z ± 0.25`) is evaluated, instantly restoring gravity and planting the minion firmly on solid ground as soon as it clears the ledge lip.
+    - **Anti-Oscillation Forward Thrust**: Upward clearance maintains level forward propulsion across obstacle crests rather than dragging downward into the block edge.
+    - **Watchdog Cooldown Protection**: 15–20 tick cooldown prevents infinite levitation re-trigger loops if forward progress is blocked.
 
 ### Minion Escort Hierarchy & Squad Leaders (`MinionFollowLeaderGoal`)
 
@@ -1038,24 +1201,29 @@ Minions project dynamic billboarding badges hovering above their nameplates:
 
 ## 18. Autonomous Agent System (`MinionRole.AUTO` Dynamic Evaluation)
 
-### Dynamic Role Morphing Engine (`evaluateAutoRole`)
+### Default Archetype & Dynamic Role Morphing Engine (`evaluateAutoRole`)
 
-The mod introduces a 4th minion archetype: **`MinionRole.AUTO`** (`id = 3`, icon `⚙`, color `§e`). Minions configured with the Auto role act as autonomous agents, dynamically re-evaluating their tactical environment every 20 ticks (1 second) and adapting into the role best suited for current conditions:
+- **Default Role on Creation & Recruitment**: All minions dynamically spawned, summoned via egg/command, or recruited into thrall service via the Command Scepter (`RECRUIT` mode) now default to **`MinionRole.AUTO`** (`id = 3`, icon `⚙`, color `§e`).
+- **Autonomous Tactical Adaptation**: Minions configured in Auto mode act as intelligent autonomous agents, dynamically re-evaluating their tactical environment every 20 ticks (1 second) and adapting into the archetype best suited for current conditions:
 
 1. **Medical Emergency Assessment (Priority 1 -> Sentinel)**:
-   - Evaluates the health of the player commander (within 16m) and all allied minions (within 10m).
+   - Evaluates the health of the player commander (within 16m) and all allied minions (within 16m).
    - If any friendly unit is wounded below 70% maximum health, the autonomous agent adapts into a **Sentinel**, prioritizing restorative healing via *Aegis of Restoration*.
 2. **Combat Threat Assessment (Priority 2 -> Warrior)**:
-   - Scans a 16-block radius for aggressive hostile entities (monsters, raiders, enemy targets).
-   - If threats are detected, the minion adapts into a **Warrior**, drawing weapons and executing coordinated melee or ranged attacks.
-3. **Civil Engineering & Peaceful Logistics (Priority 3 -> Builder)**:
-   - If no immediate medical or combat threats exist, the minion inspects active construction or deconstruction sessions belonging to the commander.
-   - If blueprint sessions exist, or if the environment is peaceful, the agent adapts into a **Builder**, taking flight with Arcane Levitation to construct structures, quarry materials, harvest timber, or manage supply depots.
+   - Scans a 16-block radius for aggressive hostile entities (monsters, raiders, enemy targets) or engaged combat targets.
+   - If threats are detected, the minion adapts into a **Warrior**, drawing weapons and executing coordinated melee grounding or ranged attacks.
+3. **Civil Engineering & Blueprint Logistics (Priority 3 -> Builder)**:
+   - If no immediate medical or combat threats exist, the minion inspects active construction or deconstruction sessions belonging to the commander within 128 blocks via `ConstructionManager.findNearestSessionForMinion`, or active block phasing.
+   - If blueprint sessions exist, the agent adapts into a **Builder**, taking flight with Arcane Levitation to construct structures, quarry materials, harvest timber, or manage supply depots.
+4. **Position Holding / Standing Guard (Priority 4 -> Sentinel)**:
+   - If stationed on standing guard (`guardAnchorPos != null`) or sitting, the minion assumes a **Sentinel** defensive guard posture.
+5. **Peacetime Escort & Marching Formation (Priority 5 -> Warrior)**:
+   - When accompanying the commander peacefully with no active construction or immediate threats, the minion adapts into a **Warrior** escort, marching proudly in frontline battle ranks.
 
 ### Universal Equipment & Goal Compatibility
 
-- **Adaptive Role Querying (`getEffectiveRole()`)**: All AI goals (`MinionActiveTargetGoal`, `MinionRangedAttackGoal`, `SentinelHealAllyGoal`, `MinionBuildGoal`, `ConstructionManager`) query `matchesRole()`, allowing `AUTO` minions to seamlessly satisfy role requirements for whichever behavior is currently active.
-- **Universal Auto-Equip**: Auto minions intelligently accept weapons and tools of all disciplines (swords, bows, crossbows, tridents, pickaxes, axes, shovels) while rejecting non-weapon items in the main hand.
+- **Adaptive Role Querying (`getEffectiveRole()` & `matchesRole()`)**: All AI goals (`MinionActiveTargetGoal`, `MinionRangedAttackGoal`, `SentinelHealAllyGoal`, `MinionBuildGoal`, `ConstructionManager`, `MinionFormationFollowGoal`) query `matchesRole()` and `getEffectiveRole()`. This allows `AUTO` minions to seamlessly satisfy role requirements, rank properly in military formation ranks, phase through blocks during egress, and participate in squad tasks.
+- **Universal Auto-Equip**: Auto minions intelligently accept weapons and tools of all disciplines (swords, bows, crossbows, tridents, pickaxes, axes, shovels) while rejecting non-weapon items in the main hand. Auto minions never disarm valid weapons.
 
 ---
 
@@ -1065,12 +1233,12 @@ The tactical retreat system (`RetreatPayload`, `ExampleModClient`, `CommandScept
 
 ### Tier 1: Tactical Squad Retreat (Quick `R`)
 - **Execution**: Press **`R`** while holding the Command Scepter.
-- **Scope**: Affects units belonging to the active squad within **64 blocks**.
+- **Scope**: Affects units belonging to the active squad within **64 blocks** (strictly preserving units assigned to patrol routes).
 - **Action**:
   - Clears hostile combat targets (`setTarget(null)`).
   - Dismisses 3D holographic wireframes (`ClientConstructionTracker.clear()`).
   - Cancels active construction sessions for the commander.
-  - Sprints recalled units back into ranked formation behind the commander.
+  - Recalls units directly into their **structured formation stations** (Warriors front, Sentinels mid, Builders rear) calculated via `calculateFormationStation` rather than crowding onto a single block.
 - **Feedback**: Sounds a warning retreat bell (`SoundEvents.BLOCK_BELL_USE`) and displays action bar notification.
 
 ### Tier 2: Emergency Citadel Call (`Shift + R`)
@@ -1082,5 +1250,280 @@ The tactical retreat system (`RetreatPayload`, `ExampleModClient`, `CommandScept
   - Clears all combat targets and breaks worker focus across all squads.
   - Recalls every thrall on the map back to the player's immediate defense.
 - **Feedback**: Sounds a resounding **Raid Horn** blast accompanied by a clanging **Iron Bell** (`SoundEvents.ITEM_GOAT_HORN_SOUND_0` and `SoundEvents.BLOCK_BELL_USE`), bursts smoke and portal particles, and displays urgent banner: `§c🚨 CITADEL CALL! All 128m units abandoning posts and rallying to commander!§r`.
+
+---
+
+## 20. Custom Blueprint Catalog Lifecycle & Decommissioning Safeguards
+
+### 20.1 Pure Custom Blueprint Catalog Architecture
+The construction system relies 100% on player-authored custom blueprints captured in **`DESIGN`** mode:
+- **`BlueprintRegistry.getAll()` & `getActiveCatalog()`**: Returns exclusively custom blueprints from `CUSTOM_REGISTRY`. All legacy hardcoded presets have been completely retired from the catalog.
+- **Immediate Catalog Sync**: Newly captured blueprints appear immediately in the Command Hub catalog across all connected players.
+- **Empty State Guidance**: On fresh worlds without custom blueprints, the catalog renders a clean guidance banner directing players to switch to **`DESIGN`** mode to capture their first structure.
+
+### 20.2 Custom Blueprint Deletion & Elevated Confirmation Modal
+- **Catalog Delete Action (`[✕]`)**: Every custom blueprint card renders a distinct red `[✕]` delete button on the right side of its slot card.
+- **In-Screen Confirmation Dialog & Elevated Z-Plane Layering**:
+  - Clicking `[✕]` prompts a confirmation dialog (`ConfirmationType.DELETE_BLUEPRINT`) displaying the target blueprint's name.
+  - **Elevated Z-Plane Layering (`Z = 400.0F`)**: To eliminate DrawContext text batching bleed-through where background card labels or button text render in front of dark overlay rectangles, the confirmation modal is isolated within `context.getMatrices().push(); context.getMatrices().translate(0, 0, 400.0F); ... context.getMatrices().pop();`. This guarantees the modal backdrop, warning typography, and action buttons render strictly on top of all underlying GUI widgets.
+  - The commander can click **Confirm Delete** to proceed or **Cancel** (or press **`ESC`**) to dismiss the modal without action.
+- **Two-Way Server Synchronization**:
+  - Clicking confirm sends `DeleteCustomBlueprintPayload` via client networking.
+  - The server unregisters the blueprint from `BlueprintRegistry` and `CustomBlueprintPersistentState`, persists changes to `data/minion_custom_blueprints.dat`, and broadcasts `SyncCustomBlueprintsPayload` to all clients.
+
+### 20.3 Minion Decommissioning Safeguards (Selected vs. All & Modal Layering)
+- **Accident Prevention**: In previous iterations, clicking the Command Hub dismiss button immediately dismissed minions. Now, clicking **Dismiss / Destroy** opens a confirmation modal (`ConfirmationType.DISMISS_MINIONS`) rendered on the elevated `Z = 400.0F` matrix layer.
+- **Contextual Scope Selection**:
+  - **Minions Selected**: If 1 or more minions are highlighted, the modal offers **Destroy Selected** (only decommissions the highlighted units) and **Destroy All** (destroys all owned minions in range).
+  - **No Minions Selected**: The modal offers **Destroy All** with an explicit warning and a **Cancel** button.
+- **Minion Screen 2-Step Confirmation**: In `MinionScreen`, the **Destroy Minion** button requires a two-step confirmation (`confirmingDestroy` flag). The first click turns the button amber with text `Confirm Destroy?`; a second click within the same view executes the dismissal.
+- **Networking Protocol Expansion**:
+  - `DismissMinionPayload` supports `TARGET_SELECTED = -2` and `TARGET_ALL = -1`.
+  - When `TARGET_SELECTED` is received, `ModNetworking.handleDismissMinion` filters owned alive minions by `isUnitSelected()`, ensuring unselected units remain active and unaffected.
+
+### 20.4 Responsive Mode Description Banner & Auto-Fitting Box Bounds
+- **Adaptive Text Layout & Box Bounds**: In `CommandScepterScreen`, the mode description banner renders within a bounded 144px tray ($startX + 14$ to $startX + 158$). In modes with bottom controls (`BUILD` and `DESIGN`), the single-line banner (`§fMode §8| §7Description`) calculates raw text width and applies proportional dynamic scaling (`fittedScale`) whenever text exceeds the 136px interior limit, ensuring description strings never clip or overflow outside the border.
+- **Concise DESIGN Mode Formatting**: Features tailored, compact banner text (`§dDesign §8| §7Capture spatial volume.`) and accurate sub-header instructions (`§8[L-Click: Set Pos1/Pos2 | R-Click: Capture]`), eliminating line wrapping artifacts and maintaining clean visual separation from active catalog cards and corner management buttons.
+
+---
+
+## 21. In-World Spatial Blueprint Capture ('DESIGN' Mode)
+
+The **In-World Spatial Blueprint Capture** system (`CommandMode.DESIGN`, `BlueprintCaptureModalScreen`, `CaptureSpatialBlueprintPayload`, `ClientDesignCaptureTracker`) enables commanders to turn any existing player-built house, fortification, watchtower, or decorative monument directly into an autonomous minion construction blueprint without leaving the Minecraft world or recreating voxels manually in a separate editor.
+
+```
+                              [In-World Target Structure]
+                                           │
+                                  [First Left-Click]
+                                           ▼
+                              [Set Corner Pos1 (p1)]
+                              • Vibrant Magenta Anchor Cube
+                              • Chime SFX + Sparkle Particle Burst
+                              • Actionbar: §d✦ Design Pos1: [X, Y, Z]
+                                           │
+                                           ▼
+                         [Aiming & Raycasting Candidate Target]
+                         • Live Ghost Bounding Box from Pos1 to Raycast Hit
+                         • Real-Time Holographic Ghost Grid Block Outlines
+                                           │
+                                 [Second Left-Click]
+                                           ▼
+                              [Set Corner Pos2 (p2)]
+                              • Completes Spatial Volume
+                              • Chime SFX + Sparkle Particle Burst
+                              • Actionbar: §d✦ Design Pos2: [X, Y, Z]
+                                           │
+                                           ▼
+                 [3D Real-Time Holographic Ghost Grid & Bounding Box]
+                 • Translucent Magenta Pulsing Wireframe Bounding Prism
+                 • Semantic Color-Coded In-World Ghost Grid Block Outlines:
+                   - 🚪 Doors: Bright Emerald Green (2-block portal box)
+                   - 🏮 Lighting: Warm Amber Gold (torches, lanterns)
+                   - 📦 Utilities/Containers: Arcane Purple (beds, chests, tables)
+                   - 🏠 Roofing/Stairs: Soft Ice Blue (stairs, trim)
+                   - 🧱 Structural Walls/Ground: Vibrant Cyan-Magenta Grid
+                 • Camera-Facing Dimension Badge (W x H x D | Voxel Count)
+                 • Corner Marker Cubes at Vertices
+                                           │
+                                           ▼
+                  [Right-Click / Sneak + Right-Click: Capture Modal]
+                  • Opens BlueprintCaptureModalScreen GUI
+                  • Blueprint Name & Description Fields
+                  • Category Archetype Selector (Home, Watchtower, Barricade, etc.)
+                                           │
+                                           ▼
+                 [Server-Side Non-Destructive Ingestion Engine]
+                 • Samples BlockView without destroying terrain
+                 • Filters out air/void voxels
+                 • Normalizes coordinates: Min Corner (minX, minY, minZ) -> (0, 0, 0)
+                 • Deterministic Bottom-Up Topological Sorting
+                 • Volume Limits Safeguard: Max 64x64x64 & 65,536 blocks
+                                           │
+                                           ▼
+                 [Global Sync & Native World Save Persistence]
+                 • Saves to data/minion_custom_blueprints.dat
+                 • Broadcasts SyncCustomBlueprintsPayload to all clients
+                 • Immediately selectable in BUILD mode & Command Hub!
+```
+
+### 21.1 Sequential Left-Click Corner Selection & Invariance
+
+Commanders select the 3D spatial boundary volume using streamlined, single-button sequential left-clicks in **`DESIGN`** mode:
+
+- **Streamlined Left-Click Corner Progression & Unified Authoritative Click Interception**:
+  - **Single Authoritative Left-Click Registration**: Left-click events in `DESIGN` mode are intercepted via `AttackBlockCallback` (for targeted blocks), `AttackEntityCallback` (for targeted entities), and `attackKey` raycasting in `ExampleModClient` (for extended reach up to 96 blocks). All triggers funnel through `CommandScepterItem.handleDesignClick`.
+  - **Double-Stepping Elimination & Key Queue Draining (`DESIGN_CLICK_CONSUMER`)**:
+    - *Prior Flaw*: Previously, left-clicking block $B$ to set `Pos2` fired `AttackBlockCallback` (which completed selection $A \to B$) followed immediately by `client.options.attackKey.wasPressed()` in client tick within the same frame. The second event saw a completed selection and instantly began a new selection cycle with $pos1 = B, pos2 = null$, which immediately collapsed the preview to a candidate box between $B$ and $B$ ($1 \times 1 \times 1$).
+    - *Unified Fix*: Whenever `AttackBlockCallback` handles a design click, it immediately calls `CommandScepterItem.DESIGN_CLICK_CONSUMER.run()`. This consumes all pending GLFW `attackKey.wasPressed()` queue events, records `lastDesignClickTick`, and sets a 150ms timestamp debounce window (`lastDesignClickTime`). The client tick handler checks these guards and drains any leftover events, ensuring exactly **one** `stepCorner()` invocation per physical click.
+  - **1st Left-Click (Corner 1 / `Pos1`) & Ground Offset Protection**: Left-clicking any block sets `Pos1`. When clicking the top face of a ground block, `Pos1` is automatically anchored on top of the clicked block (`pos.offset(direction)` / `pos.up()`). This ensures the bounding box begins directly at floor level, cleanly excluding the dirt/grass terrain beneath the structure. A vibrant magenta anchor box (`0xFFFF20D8`) marks the coordinate, sparkle particles (`ParticleTypes.END_ROD`) erupt, a note block chime sounds (`SoundEvents.BLOCK_NOTE_BLOCK_CHIME` at 1.2F pitch), and the action bar confirms: `§d✦ Design Pos1: §f[X, Y, Z]`.
+  - **Aiming Candidate Volume Preview**: As the player aims their crosshair around the world with `Pos1` set, the engine dynamically renders a candidate bounding box and live holographic ghost grid blocks spanning from `Pos1` to the targeted block (offset by hit face).
+  - **2nd Left-Click (Corner 2 / `Pos2`)**: A second left-click on the opposite diagonal block automatically sets `Pos2`, completing the horizontal footprint and spatial volume. Sparkle particles erupt, a resonant note block chime sounds (`1.4F` pitch), and the action bar confirms: `§d✦ Design Pos2: §f[X, Y, Z]`.
+  - **Subsequent Left-Clicks (Cycle / Reset)**: If both `Pos1` and `Pos2` are already defined, the next left-click automatically starts a new selection cycle: it sets `Pos1` to the clicked block and clears `Pos2`, enabling rapid re-selection without needing a separate reset action.
+- **Direct Right-Click Capture Trigger**:
+  - Once corners (`Pos1` and `Pos2`) are established, a standard **Right-Click** on the ground (or in the air) without needing Shift immediately launches the `BlueprintCaptureModalScreen` design modal to name, describe, categorize, and save the blueprint into the active catalog.
+  - **Shift + Right-Click** also acts as a modal launcher when corners are active, or opens the Command Hub when no corners are selected.
+- **Corner Invariance & Diagonal Independence**:
+  - The bounding region is calculated analytically via $X \in [\min(x_1, x_2), \max(x_1, x_2)]$, $Y \in [\min(y_1, y_2), \max(y_1, y_2)]$, and $Z \in [\min(z_1, z_2), \max(z_1, z_2)]$.
+  - Setting `Pos1` and `Pos2` in any diagonal permutation (e.g. top-north-west to bottom-south-east, or bottom-north-east to top-south-west) produces an identical normalized bounding volume.
+- **Bidirectional Corner Clearance & Pos1 Reset Guarantee**:
+  - **Shift + Left-Click**: Punching or clicking with Shift held in `DESIGN` mode (targeting a block or open air) executes `CommandScepterItem.handleDesignReset()`, immediately wiping both `Pos1` and `Pos2`, playing `BLOCK_NOTE_BLOCK_BASS`, and sending actionbar confirmation.
+  - **GUI Reset Actions**: Clicking **`⌫ Reset`** in `CommandScepterScreen` or **Discard** in `BlueprintCaptureModalScreen` synchronizes the reset across both `ClientDesignCaptureTracker` and the held scepter item stack data components (`ModDataComponents.DESIGN_POS1` and `DESIGN_POS2`).
+  - **Clean Cycle Guarantee**: Clearing corners resets the stepper state so that the very next left-click is mathematically guaranteed to register as `Pos1` (Step 1) rather than skipping or retaining previous corner coordinates.
+
+### 21.2 Real-Time 3D Holographic Volume Preview & Ghost Grid Rendering (`BlueprintHologramRenderer`)
+
+Whenever one or both corners are defined and the player holds the Command Scepter in `DESIGN` mode, the client rendering engine projects an in-world preview with full ghost grid structure rendering:
+
+- **In-World Ghost Grid Structure Rendering (`renderDesignGhostGrid`)**:
+  - Scans all non-air blocks within the spatial volume in real time and projects semantic color-coded 3D ghost grid block boxes around the targeted structure and ground:
+    - **🚪 Doors & Entrances**: Bright Emerald Green (`0.0F, 1.0F, 0.53F`) full 2-block tall portal boxes.
+    - **🏮 Lighting & Illumination**: Warm Amber Gold (`1.0F, 0.80F, 0.0F`) around lanterns, torches, wall torches, campfires, glowstone, sea lanterns, froglights, redstone lamps, and end rods.
+    - **📦 Containers, Beds & Workstations**: Arcane Purple (`0.70F, 0.25F, 1.0F`) around chests, trapped chests, barrels, furnaces, blast furnaces, smokers, crafting tables, anvils, smithing tables, enchanting tables, brewing stands, ender chests, hoppers, dispensers, droppers, shulker boxes, and beds.
+    - **🏠 Roofing, Stairs & Slabs**: Soft Ice Blue (`0.45F, 0.75F, 1.0F`) around stair blocks and slab trim.
+    - **🛡 Defenses, Walls, Fences & Gates**: Arcane Orange-Gold (`1.0F, 0.60F, 0.15F`) around stone walls, fences, fence gates, and iron bars.
+    - **🪟 Windows & Glass**: Crystal Cyan (`0.30F, 0.95F, 0.90F`) around glass blocks, stained glass, glass panes, and tinted glass.
+    - **🧱 General Walls, Ground & Foundation**: Vibrant Arcane Cyan-Magenta Grid (`0.85F, 0.35F, 1.0F`) around all structural masonry, solid blocks, and terrain foundation blocks.
+  - Ghost grid outlines render both during live candidate aiming (semi-transparent preview with vertex accent boxes stretching from `Pos1` to crosshair block) and when the completed volume (`Pos1` + `Pos2`) is confirmed.
+- **Dynamic Candidate Bounding Box & Aiming Guides**:
+  - While aiming with `Pos1` set, the engine renders an expanding 3D candidate bounding box with 8 gold vertex corner accent cubes (`0xFFFFD700`), a cyan crosshair target box (`0x33E6FF`), and live candidate ghost grid outlines scaled with 65% opacity.
+- **Active Corner Highlight Markers**:
+  - Selected `Pos1` (Magenta `0xFFFF20D8`) and `Pos2` (Cyan `0x33E6FF`) corner blocks are enclosed in vibrant, glowing wireframe anchor boxes with 8 gold vertex corner accent cubes.
+- **Translucent Pulsing Bounding Box**:
+  - When both corners are established, the engine renders a full 3D wireframe prism enclosing the entire volume with a pulsing magenta/purple arcane tint (`0xFFD044D0`).
+- **In-World Dimension & Voxel Count Badge**:
+  - Renders a camera-facing billboarding text badge above the center of the bounding volume displaying:
+    $$\text{Dimension: } W \times H \times D \quad | \quad \text{Volume: } V \text{ voxels}$$
+  - Turns warning yellow if dimensions approach limits, and red if bounds exceed the maximum spatial threshold.
+
+### 21.3 In-World Real-Time Height Adjustment (No Blocks Required)
+
+To eliminate the frustration of having to pillar up with temporary dirt or scaffolding blocks just to click an air block at the roof level, `DESIGN` mode features real-time in-world height adjustment:
+
+- **Mouse Scroll Interceptor (`MouseMixin`)**:
+  - Injected directly into `net.minecraft.client.Mouse.onMouseScroll`.
+  - When holding the Command Scepter in `DESIGN` mode with **`Ctrl`** held:
+    - Scrolling **Up** raises the top boundary ($Y$-max) by +1 block.
+    - Scrolling **Down** lowers the top boundary ($Y$-max) by -1 block.
+    - Holding **`Shift` + `Ctrl` + Scroll** fast-steps the height by $\pm 5$ blocks.
+    - Consumes the scroll event (`ci.cancel()`), preventing hotbar item cycling so the player remains holding the Scepter.
+- **Dynamic Clamping & Feedback**:
+  - Clamped safely between minimum 1 block and maximum 96 blocks (`ClientDesignCaptureTracker.MAX_HEIGHT`).
+  - Actionbar HUD displays live height updates: `§d✦ Design Box Height: §fX blocks §8(Y: minY → maxY) §8| §7Dimensions: WxHxD (Vb)`.
+  - Emits crisp note block chime audio feedback (`SoundEvents.BLOCK_NOTE_BLOCK_HAT`).
+- **Keyboard Fallback for Trackpad Users**:
+  - Handled in `ClientTickEvents.END_CLIENT_TICK`:
+  - Pressing **`]`** (Right Bracket) or **`Page Up`**: Raises height by +1 block (+5 with Shift).
+  - Pressing **`[`** (Left Bracket) or **`Page Down`**: Lowers height by -1 block (-5 with Shift).
+- **Modal Stepper Fine-Tuning**:
+  - Inside `BlueprintCaptureModalScreen`, interactive **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** stepper buttons allow commanders to fine-tune the structure height directly inside the capture dialog before saving.
+
+### 21.4 In-World Blueprint Capture Modal (`BlueprintCaptureModalScreen`)
+
+Performing **Right-Click** (or **Sneak + Right-Click**) on the ground or in the air with the Scepter in `DESIGN` mode when corners are set opens the **Capture Custom Blueprint** modal interface:
+
+- **Modal Controls**:
+  - **Blueprint Name Field**: Interactive text input for the user-facing blueprint title (defaults to `Custom Structure`).
+  - **Description Field**: Optional text field (empty by default; no pre-filled boilerplate text to delete; leaving empty never drops blocks or affects compilation).
+  - **Real-Time Solid Block Counter**: Dynamic detection displaying the exact count of solid, non-air blocks within the selection, with instant alerts if all selected voxels are air.
+  - **Category Archetype Selector**: Assigns the captured blueprint into a structural classification (`HOME`, `WATCHTOWER`, `BARRICADE`, `WORKSHOP`, `SUPPLY_DEPOT`, `OBELISK`) for procedural minion categorization.
+  - **Height Stepper Buttons**: Interactive `[ -5 ]`, `[ -1 ]`, `[ +1 ]`, `[ +5 ]` buttons allowing live adjustments of the top Y boundary before saving.
+  - **Capture & Save Button**: Compiles the bounding volume, validates spatial limits, and dispatches `CaptureSpatialBlueprintPayload` to the server.
+  - **Clear Corners Button**: Clears active corner coordinates without leaving the screen.
+
+### 21.4 Coordinate Normalization & Air Block Exclusion Engine
+
+When compiling captured blocks into a `StructureBlueprint`, the engine applies rigorous coordinate transformations:
+
+1. **Origin Shifting (Coordinate Normalization)**:
+   - Evaluates the minimum corner coordinate $\mathbf{p}_{\min} = (\min X, \min Y, \min Z)$.
+   - Translates every captured block position $\mathbf{p} = (x, y, z)$ into local blueprint space:
+     $$\mathbf{p}_{\text{offset}} = (x - \min X, \ y - \min Y, \ z - \min Z)$$
+   - The lowest foundation block is guaranteed to align precisely with local origin $(0, 0, 0)$, enabling flawless placement across any world location, altitude, or negative coordinate space ($Y < 0$ in the deepslate layer).
+2. **Air & Void Block Filtering**:
+   - Iterates through the 3D volume and queries `BlockState.isAir()`.
+   - All air, cave air, and void spaces are filtered out entirely, preventing minions from spending time attempting to place air blocks during construction.
+
+### 21.5 Deterministic Bottom-Up & Reverse Top-Down Topological Sorting
+
+Captured structures are topologically sorted via `BlueprintBlock.compareTo` to guarantee structural buildability and dismantling safety:
+
+1. **Bottom-Up Construction Sorting (`SessionMode.BUILD`)**:
+   - **Effective Vertical Layer ($Y$)**: Lower foundation blocks ($Y = 0$) are placed before walls ($Y = 1, 2$), which are placed before ceiling and roof structures ($Y = 3, 4$).
+   - **Hanging Block Dependencies**: Blocks with hanging states (lanterns, chains, weeping vines) have their effective sorting layer shifted upward ($Y_{\text{eff}} = Y + 1$), guaranteeing their supporting ceiling blocks are constructed before the hanging fixtures are placed.
+   - **Radial Manhattan Distance Core Ordering**: For blocks on the same vertical layer, blocks closest to the structural center ($|X| + |Z|$) are placed before outer walls and exterior buttresses, ensuring strong structural core stabilization.
+2. **Top-Down Reverse Demolition Sorting (`SessionMode.DISMANTLE`)**:
+   - In dismantling mode, task queues are reversed topologically ($Y_{\text{apex}}$ first, foundations last).
+   - Hanging fixtures and upper roofs are dismantled before supporting walls or foundation pillars are broken, preventing floating block collapses.
+
+### 21.6 Spatial Safeguards & Limits
+
+- **Maximum Dimension Clamp (`MAX_SPATIAL_DIMENSION = 64`, `MAX_SPATIAL_HEIGHT = 96`)**:
+  - Horizontal footprint length and width ($X$ and $Z$) cannot exceed 64 blocks ($64 \times 64$).
+  - Vertical structural height ($Y$) can reach up to **96 blocks tall**, enabling capture of towering cathedrals, grand watchtowers, and mega structures without clipping.
+- **Maximum Voxel Volume Limit (`MAX_SPATIAL_VOLUME = 393,216`)**:
+  - Total bounding volume $(sizeX \times sizeY \times sizeZ)$ accommodates up to 393,216 voxels (supporting a full $64 \times 96 \times 64$ mega build), safeguarding server tick performance and network packet buffers.
+- **Safe Out-of-Bounds Rejection**: Attempts to capture regions exceeding these thresholds display informative warning alerts on the client action bar without server desynchronization.
+
+### 21.7 Server Synchronization & World Save Persistence
+
+- **Networking Protocol**:
+  - Dispatches `CaptureSpatialBlueprintPayload` (or `CreateCustomBlueprintPayload`) over Fabric C2S networking.
+  - Server verifies ownership, samples world blocks non-destructively, registers the blueprint into `CustomBlueprintManager`, and saves it to `data/minion_custom_blueprints.dat`.
+- **Global Broadcast**:
+  - Synchronizes the new blueprint to all connected players via `SyncCustomBlueprintsPayload`.
+  - The captured blueprint instantly appears in the Command Hub's **Blueprint Catalog** and is ready for immediate deployment in `BUILD` mode!
+
+---
+
+## 22. Unified Surface Anchoring Contract & Hollow Grid Mechanics
+
+A fundamental design principle of **Sovereign: Arcane Strategy & Engineering** is the **Unified Surface Anchoring Contract** governing how hollow grid borders, wireframe holograms, spatial corner markers, and tactical beacons interact with terrain and block surfaces across all operational modes (`BUILD`, `MINE`, `DESIGN`, `PATHWAY`, and RTS Waypoint Pings).
+
+### 22.1 The Core Surface Anchoring Formula
+
+Across all client raycasting, tactical camera targeting, item interactions, and server-side packet handlers, target coordinates are computed using the canonical surface anchoring formula:
+
+```java
+BlockState state = world.getBlockState(hitPos);
+BlockPos anchorPos = state.isReplaceable() ? hitPos : hitPos.offset(hitSide);
+```
+
+```
+                                  [Raycast Hit on Target]
+                                             │
+                                  (Inspect BlockState)
+                                             │
+                       ┌─────────────────────┴─────────────────────┐
+                       ▼                                           ▼
+             [state.isReplaceable()]                     [!state.isReplaceable()]
+             • Air / Cave Air                            • Solid Terrain (Stone/Dirt)
+             • Short / Tall Grass, Flowers               • Architectural Masonry & Bricks
+             • Snow Layers, Ferns, Vines                 • Wooden Planks, Logs & Pillars
+             • Water, Lava & Fluids                      • Slabs, Stairs, Glass & Walls
+                       │                                           │
+                       ▼                                           ▼
+             [anchorPos = hitPos]                     [anchorPos = hitPos.offset(hitSide)]
+             • Occupies target voxel                  • Sits cleanly on target surface
+             • Replaces vegetation/fluids             • Never embeds inside solid block
+             • Zero skyward floating                  • Starts precisely at floor plane
+```
+
+### 22.2 Mode-by-Mode Architectural Invariants
+
+| Operating Mode / Feature | Solid Block Surface (`!isReplaceable()`) | Replaceable Block (`isReplaceable()`) | Visual & Kinematic Invariant |
+| :--- | :--- | :--- | :--- |
+| **`BUILD` Mode Placement & Preview** | Offsets along targeted face normal (`pos.offset(side)`). Blueprint foundation sits cleanly atop the floor surface. | Anchors directly at `pos`. Foundation replaces grass, snow layers, or water directly without floating 1 block in the air. | Neon cyan wireframe hologram and ghost blocks align 100% with the cursor and terrain surface. |
+| **`MINE` Mode Area Clearance** | **DIRECT**: Anchors directly at `clickedPos` volume. **AREA**: Corner selections `Pos1`/`Pos2` anchor on target face normal (`pos.offset(side)`). | **DIRECT**: Anchors at `clickedPos`. **AREA**: Corner anchors at `pos` replacing surface vegetation. | Fiery orange/amber wireframe encloses the actual structure or 3D bounding volume to excavate downward cleanly without floating gaps. |
+| **`DESIGN` Mode Spatial Capture** | `Pos1` / `Pos2` corner selections and candidate aiming offset by hit face (`pos.offset(direction)` or `pos.up()`), starting directly at the bottom floor level. | Anchors directly at `pos`, replacing surface foliage without jumping upward. | Ground terrain (dirt, stone) beneath floorboards is cleanly excluded from the captured custom blueprint bounding box. |
+| **`PATHWAY` Patrol Waypoints** | Waypoint box rests on top of the surface (`pos.offset(side)` or `y + 0.15D`), billboarding badge hovers above, and vector lasers connect at surface level. | Anchors at `pos`. Replaceable vegetation (tall grass, flowers, water) does not push waypoint wireframe or laser an extra block into the sky. | Luminous 3D laser tether lines float directly on top of walkable surfaces without clipping or burying. |
+| **RTS Waypoint Pings** | Marker beacon (`END_ROD` + `GLOW`) drops on top of solid surface; minions station upright at surface elevation. | Marker beacon drops at `hitPos`; minions step cleanly onto ground level. | Units auto-deselect upon arrival and hold station in the unified Stationed position (`holdingPosition == true`). |
+
+### 22.3 Cross-Cutting Integrity & Quality Invariants
+
+- **Zero Parallax Drift**: Raycasting initiates from the player's true eye coordinates along the camera look vector through the center-screen crosshair, matching server-side hit results up to 96 blocks away.
+- **Fluid & Vegetation Transparency**: Non-solid replaceable blocks (water, lava, tall grass, large ferns, peonies, snow layers) never cause hollow grid bounding boxes or tactical waypoints to lift into the air.
+- **Zero Embedding**: Solid surfaces never cause blueprints, waypoints, or spatial corners to embed inside solid stone, ensuring all multiblock structures and tactical routes maintain crisp surface-level fidelity.
+
+
 
 

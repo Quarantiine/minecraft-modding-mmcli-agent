@@ -39,6 +39,7 @@ public class MinionPatrolGoal extends Goal {
 	private int lingerTicks = 0;
 	private int lookAroundCooldown = 0;
 	private boolean wasInCombat = false;
+	private boolean wasInterrupted = false;
 	private int repathCooldown = 0;
 	private int patrolDirection = 1;
 
@@ -74,8 +75,9 @@ public class MinionPatrolGoal extends Goal {
 			return false;
 		}
 
-		// Yield during active construction work
-		if (this.minion.isActivelyBuilding()) {
+		// Yield during active construction work or healing
+		if (this.minion.isActivelyBuilding() || this.minion.isActivelyHealing()) {
+			this.wasInterrupted = true;
 			return false;
 		}
 
@@ -110,7 +112,8 @@ public class MinionPatrolGoal extends Goal {
 			return false;
 		}
 
-		if (this.minion.hasLeader() || this.minion.isActivelyBuilding()) {
+		if (this.minion.hasLeader() || this.minion.isActivelyBuilding() || this.minion.isActivelyHealing()) {
+			this.wasInterrupted = true;
 			return false;
 		}
 
@@ -136,30 +139,6 @@ public class MinionPatrolGoal extends Goal {
 
 	private void triggerBreachAlarm(LivingEntity target) {
 		if (this.minion.getWorld() instanceof ServerWorld serverWorld) {
-			net.minecraft.sound.SoundEvent hornSound = !net.minecraft.sound.SoundEvents.GOAT_HORN_SOUNDS.isEmpty()
-				? net.minecraft.sound.SoundEvents.GOAT_HORN_SOUNDS.get(0).value()
-				: net.minecraft.sound.SoundEvents.ITEM_GOAT_HORN_PLAY;
-			serverWorld.playSound(
-				null,
-				this.minion.getX(),
-				this.minion.getY(),
-				this.minion.getZ(),
-				hornSound,
-				net.minecraft.sound.SoundCategory.NEUTRAL,
-				1.6F,
-				0.9F
-			);
-			serverWorld.playSound(
-				null,
-				this.minion.getX(),
-				this.minion.getY(),
-				this.minion.getZ(),
-				net.minecraft.sound.SoundEvents.BLOCK_BELL_USE,
-				net.minecraft.sound.SoundCategory.NEUTRAL,
-				1.2F,
-				1.2F
-			);
-
 			serverWorld.spawnParticles(
 				ParticleTypes.ANGRY_VILLAGER,
 				this.minion.getX(),
@@ -198,23 +177,33 @@ public class MinionPatrolGoal extends Goal {
 			return;
 		}
 
-		// Smart Combat Resume: If returning from combat, snap to the nearest waypoint
-		if (this.wasInCombat) {
+		// Smart Combat/Interruption Resume: If returning from combat, building, or healing, snap to the nearest waypoint
+		if (this.wasInCombat || this.wasInterrupted) {
 			int closestIdx = findClosestWaypointIndex(route.waypoints());
 			this.minion.setCurrentWaypointIndex(closestIdx);
 			this.wasInCombat = false;
+			this.wasInterrupted = false;
 			this.lingerTicks = 0;
 		} else {
 			int clamped = MathHelper.clamp(this.minion.getCurrentWaypointIndex(), 0, route.waypoints().size() - 1);
 			this.minion.setCurrentWaypointIndex(clamped);
 		}
 
+		if (this.minion.isArcaneLevitating() && this.minion.isOnGround()) {
+			this.minion.setArcaneLevitating(false);
+			this.minion.setNoGravity(false);
+		}
 		navigateToCurrentWaypoint(route);
 	}
 
 	@Override
 	public void stop() {
 		this.minion.getNavigation().stop();
+		this.minion.clearActiveTraversalDestination();
+		if (this.minion.isArcaneLevitating()) {
+			this.minion.setArcaneLevitating(false);
+			this.minion.setNoGravity(false);
+		}
 		this.lingerTicks = 0;
 	}
 
@@ -331,12 +320,6 @@ public class MinionPatrolGoal extends Goal {
 		this.repathCooldown--;
 		if (this.repathCooldown <= 0) {
 			this.repathCooldown = 15;
-
-			double dy = targetVec.y - this.minion.getY();
-			// Activate Arcane Levitation if navigating across significant vertical obstacle (cliffs, ramparts)
-			if (dy > 1.25D || dy < -1.5D) {
-				this.minion.setArcaneLevitating(true);
-			}
 
 			this.minion.setActiveTraversalDestination(targetVec);
 			this.minion.getLookControl().lookAt(targetVec.x, targetVec.y + 1.0D, targetVec.z);

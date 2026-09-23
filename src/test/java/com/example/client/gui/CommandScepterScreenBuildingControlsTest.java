@@ -1,54 +1,22 @@
 package com.example.client.gui;
 
-import com.example.blueprint.ArchitectureStyle;
-import com.example.blueprint.BuildingCategory;
 import com.example.component.CommandMode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests validating Command Hub GUI Architecture Style bar swapping,
- * procedural size selection, and dynamic controls visibility.
+ * Unit tests validating Command Hub GUI building controls,
+ * blueprint rotation selection, and mode-specific state handling.
  */
 public class CommandScepterScreenBuildingControlsTest {
 
 	@Test
-	@DisplayName("CommandScepterScreen initializes with BIOME_NATIVE style and MEDIUM size by default")
+	@DisplayName("CommandScepterScreen initializes with default rotation and valid mode")
 	void testDefaultBuildingSettings() {
 		CommandScepterScreen screen = new CommandScepterScreen();
-		Assertions.assertEquals(ArchitectureStyle.BIOME_NATIVE, screen.getSelectedStyle());
-		Assertions.assertEquals(BuildingCategory.SIZE_MEDIUM, screen.getSelectedSize());
-	}
-
-	@Test
-	@DisplayName("Architecture style selection updates state correctly")
-	void testStyleSelection() {
-		CommandScepterScreen screen = new CommandScepterScreen();
-
-		screen.selectStyle(ArchitectureStyle.FORTRESS_STONE);
-		Assertions.assertEquals(ArchitectureStyle.FORTRESS_STONE, screen.getSelectedStyle());
-
-		screen.selectStyle(ArchitectureStyle.ARCANE_NETHER);
-		Assertions.assertEquals(ArchitectureStyle.ARCANE_NETHER, screen.getSelectedStyle());
-
-		screen.setSelectedStyle(ArchitectureStyle.FRONTIER_TIMBER);
-		Assertions.assertEquals(ArchitectureStyle.FRONTIER_TIMBER, screen.getSelectedStyle());
-	}
-
-	@Test
-	@DisplayName("Building size selection updates state correctly across presets")
-	void testSizeSelection() {
-		CommandScepterScreen screen = new CommandScepterScreen();
-
-		screen.selectSize(BuildingCategory.SIZE_SMALL);
-		Assertions.assertEquals(BuildingCategory.SIZE_SMALL, screen.getSelectedSize());
-
-		screen.selectSize(BuildingCategory.SIZE_GRAND);
-		Assertions.assertEquals(BuildingCategory.SIZE_GRAND, screen.getSelectedSize());
-
-		screen.selectSize(BuildingCategory.SIZE_RANDOM);
-		Assertions.assertEquals(BuildingCategory.SIZE_RANDOM, screen.getSelectedSize());
+		Assertions.assertEquals(0, screen.getSelectedRotation());
+		Assertions.assertEquals(CommandMode.FOLLOW, screen.getSelectedMode());
 	}
 
 	@Test

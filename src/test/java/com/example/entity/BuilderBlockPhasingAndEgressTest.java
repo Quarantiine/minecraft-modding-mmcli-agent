@@ -26,43 +26,37 @@ public class BuilderBlockPhasingAndEgressTest {
 	// =========================================================================
 
 	@Test
-	@DisplayName("Source Invariant: BlueprintRegistry resolves category and size variants without falling back to Watchtower")
+	@DisplayName("Source Invariant: BlueprintRegistry relies on custom blueprints without preset fallback")
 	void testBlueprintRegistryVariantResolutionSourceContracts() throws IOException {
 		Path path = Path.of("src/main/java/com/example/blueprint/BlueprintRegistry.java");
 		Assertions.assertTrue(Files.exists(path), "BlueprintRegistry.java must exist");
 		String content = Files.readString(path);
 
-		// Category names registered directly
-		Assertions.assertTrue(content.contains("REGISTRY.put(HOME_ID, HOME);"),
-			"BlueprintRegistry must register HOME_ID directly");
-		Assertions.assertTrue(content.contains("REGISTRY.put(WORKSHOP_ID, WORKSHOP);"),
-			"BlueprintRegistry must register WORKSHOP_ID directly");
-		Assertions.assertTrue(content.contains("REGISTRY.put(SUPPLY_DEPOT_ID, SUPPLY_DEPOT);"),
-			"BlueprintRegistry must register SUPPLY_DEPOT_ID directly");
-
-		// All size variants registered in static init
-		Assertions.assertTrue(content.contains("for (BuildingCategory cat : BuildingCategory.values())"),
-			"BlueprintRegistry must iterate over all BuildingCategory values in static init");
-		Assertions.assertTrue(content.contains("StructureBlueprint small = cat.createBlueprint(BuildingCategory.SIZE_SMALL"),
-			"BlueprintRegistry must register small variants for all categories");
-		Assertions.assertTrue(content.contains("StructureBlueprint grand = cat.createBlueprint(BuildingCategory.SIZE_GRAND"),
-			"BlueprintRegistry must register grand variants for all categories");
-
-		// Category + Size prefix/suffix match in get(String id)
-		Assertions.assertTrue(content.contains("cleanId.startsWith(catId) || (cat == BuildingCategory.SUPPLY_DEPOT && cleanId.startsWith(\"depot\"))"),
-			"BlueprintRegistry.get() must handle category prefix matching for variants like barricade_small, barricade_grand");
+		// Custom blueprint storage and registration
+		Assertions.assertTrue(content.contains("CUSTOM_REGISTRY"),
+			"BlueprintRegistry must maintain custom blueprint registry");
+		Assertions.assertTrue(content.contains("registerCustomBlueprint"),
+			"BlueprintRegistry must support custom blueprint registration");
+		Assertions.assertTrue(content.contains("unregisterCustomBlueprint"),
+			"BlueprintRegistry must support custom blueprint unregistration");
+		Assertions.assertTrue(content.contains("EMPTY"),
+			"BlueprintRegistry must provide an EMPTY fallback blueprint");
 	}
 
 	@Test
-	@DisplayName("Source Invariant: CommandScepterItem and BlueprintHologramRenderer resolve variants and dynamic buildings")
+	@DisplayName("Source Invariant: CommandScepterItem and BlueprintHologramRenderer use direct blueprint rotation without DynamicBuildingResolver")
 	void testScepterAndRendererVariantSourceContracts() throws IOException {
 		Path scepterPath = Path.of("src/main/java/com/example/item/custom/CommandScepterItem.java");
 		Assertions.assertTrue(Files.exists(scepterPath), "CommandScepterItem.java must exist");
 		String scepterContent = Files.readString(scepterPath);
 
 		Assertions.assertTrue(
-			scepterContent.contains("c.getId().equalsIgnoreCase(bpId) || bpId.toLowerCase().startsWith(c.getId().toLowerCase())"),
-			"CommandScepterItem executeBuildPlacement must support prefix matching on category ID"
+			scepterContent.contains("StructureBlueprint rotatedBlueprint = blueprint.rotate(rotation);"),
+			"CommandScepterItem executeBuildPlacement must directly rotate custom blueprint"
+		);
+		Assertions.assertFalse(
+			scepterContent.contains("DynamicBuildingResolver"),
+			"CommandScepterItem must not use DynamicBuildingResolver"
 		);
 
 		Path rendererPath = Path.of("src/client/java/com/example/client/renderer/BlueprintHologramRenderer.java");
@@ -70,12 +64,12 @@ public class BuilderBlockPhasingAndEgressTest {
 		String rendererContent = Files.readString(rendererPath);
 
 		Assertions.assertTrue(
-			rendererContent.contains("c.getId().equalsIgnoreCase(blueprintId) || blueprintId.toLowerCase().startsWith(c.getId().toLowerCase())"),
-			"BlueprintHologramRenderer must support prefix matching on category ID"
+			rendererContent.contains("StructureBlueprint rotatedBp = bp.rotate(sessionData.rotation());"),
+			"BlueprintHologramRenderer must directly rotate blueprint"
 		);
-		Assertions.assertTrue(
-			rendererContent.contains("rotatedBp = DynamicBuildingResolver.resolve(rotatedBp, client.world, sessionData.anchorPos(), ArchitectureStyle.BIOME_NATIVE);"),
-			"BlueprintHologramRenderer must resolve dynamic building foundation wireframe for active build sessions"
+		Assertions.assertFalse(
+			rendererContent.contains("DynamicBuildingResolver"),
+			"BlueprintHologramRenderer must not use DynamicBuildingResolver"
 		);
 	}
 
@@ -384,9 +378,9 @@ public class BuilderBlockPhasingAndEgressTest {
 		Assertions.assertTrue(Files.exists(mbgPath), "MinionBuildGoal.java must exist");
 		String mbgContent = Files.readString(mbgPath);
 
-		// MinionBuildGoal.canStart evaluates even if sitting, using 64 block radius
-		Assertions.assertTrue(mbgContent.contains("double searchRadius = this.minion.isSitting() ? 64.0D : 128.0D;"),
-			"MinionBuildGoal.canStart must allow sitting builders to search within 64 blocks");
+		// MinionBuildGoal.canStart evaluates even if sitting, using 112 block radius
+		Assertions.assertTrue(mbgContent.contains("double searchRadius = this.minion.isSitting() ? 112.0D : 128.0D;"),
+			"MinionBuildGoal.canStart must allow sitting builders to search within 112 blocks");
 		Assertions.assertTrue(mbgContent.contains("this.minion.setSitting(false);"),
 			"MinionBuildGoal.canStart must unseat sitting builder upon claiming a task");
 

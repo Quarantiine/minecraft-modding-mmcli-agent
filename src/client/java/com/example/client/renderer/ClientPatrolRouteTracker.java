@@ -32,6 +32,16 @@ public class ClientPatrolRouteTracker {
 		return ACTIVE_ROUTES.values();
 	}
 
+	public static List<PatrolRoute> getAllRoutesList() {
+		List<PatrolRoute> list = new ArrayList<>(ACTIVE_ROUTES.values());
+		list.sort(java.util.Comparator.comparingInt(PatrolRoute::routeId));
+		return list;
+	}
+
+	public static void removeRoute(int routeId) {
+		ACTIVE_ROUTES.remove(routeId);
+	}
+
 	public static void updateRoute(PatrolRoute route) {
 		if (route != null) {
 			ACTIVE_ROUTES.put(route.routeId(), route);

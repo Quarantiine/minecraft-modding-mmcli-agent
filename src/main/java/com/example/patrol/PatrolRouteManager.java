@@ -1,13 +1,16 @@
 package com.example.patrol;
 
+import com.example.entity.custom.MinionEntity;
 import com.example.network.SyncPatrolRoutesPayload;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 
 /**
@@ -82,33 +85,179 @@ public class PatrolRouteManager {
 	}
 
 	/**
-	 * Retrieves the designated patrol route for the given player and channel ID (0 to 4).
-	 * If no route exists yet, a default empty route is created and registered.
+	 * Retrieves the designated patrol route for the given player and channel ID.
+	 * If no route exists yet, a default route is created and registered.
 	 *
 	 * @param playerUuid The UUID of the player commander.
-	 * @param routeId    The channel index (0 to 4).
+	 * @param routeId    The channel index.
 	 * @return The active PatrolRoute.
 	 */
 	public PatrolRoute getRoute(UUID playerUuid, int routeId) {
 		if (playerUuid == null) {
 			return PatrolRoute.createDefault(routeId);
 		}
-		Map<Integer, PatrolRoute> routes = playerRoutes.computeIfAbsent(playerUuid, u -> new ConcurrentHashMap<>());
+		Map<Integer, PatrolRoute> routes = playerRoutes.computeIfAbsent(playerUuid, u -> {
+			Map<Integer, PatrolRoute> initial = new ConcurrentHashMap<>();
+			for (int i = 0; i < PatrolRoute.CHANNEL_COUNT; i++) {
+				initial.put(i, PatrolRoute.createDefault(i));
+			}
+			return initial;
+		});
 		return routes.computeIfAbsent(routeId, PatrolRoute::createDefault);
 	}
 
 	/**
-	 * Retrieves all 5 channel routes for a player commander.
+	 * Retrieves all patrol routes for a player commander sorted by route ID.
 	 *
 	 * @param playerUuid The UUID of the player commander.
-	 * @return List of 5 PatrolRoutes (Channels 0 to 4).
+	 * @return Sorted list of PatrolRoutes.
 	 */
 	public List<PatrolRoute> getAllRoutes(UUID playerUuid) {
-		List<PatrolRoute> list = new ArrayList<>();
-		for (int i = 0; i < PatrolRoute.CHANNEL_COUNT; i++) {
-			list.add(getRoute(playerUuid, i));
+		if (playerUuid == null) {
+			List<PatrolRoute> list = new ArrayList<>();
+			for (int i = 0; i < PatrolRoute.CHANNEL_COUNT; i++) {
+				list.add(PatrolRoute.createDefault(i));
+			}
+			return list;
 		}
-		return list;
+		Map<Integer, PatrolRoute> routes = playerRoutes.computeIfAbsent(playerUuid, u -> {
+			Map<Integer, PatrolRoute> initial = new ConcurrentHashMap<>();
+			for (int i = 0; i < PatrolRoute.CHANNEL_COUNT; i++) {
+				initial.put(i, PatrolRoute.createDefault(i));
+			}
+			return initial;
+		});
+		return routes.values().stream()
+			.sorted(Comparator.comparingInt(PatrolRoute::routeId))
+			.toList();
+	}
+
+	/**
+	 * Creates a new custom patrol route with the next available ID for the player.
+	 *
+	 * @param playerUuid The commanding player.
+	 * @param name       Custom route name.
+	 * @param colorRgb   24-bit RGB color.
+	 * @return The newly created PatrolRoute.
+	 */
+	public PatrolRoute createRoute(UUID playerUuid, String name, int colorRgb) {
+		if (playerUuid == null) {
+			return PatrolRoute.createCustom(0, name, colorRgb);
+		}
+		Map<Integer, PatrolRoute> routes = playerRoutes.computeIfAbsent(playerUuid, u -> new ConcurrentHashMap<>());
+		int nextId = 0;
+		while (routes.containsKey(nextId)) {
+			nextId++;
+		}
+		PatrolRoute newRoute = PatrolRoute.createCustom(nextId, name, colorRgb);
+		routes.put(nextId, newRoute);
+		markDirtyAndPersist();
+		return newRoute;
+	}
+
+	/**
+	 * Creates a new custom patrol route with the next available ID for the player using a hex color string.
+	 *
+	 * @param playerUuid The commanding player.
+	 * @param name       Custom route name.
+	 * @param hexColor   Hex color string (e.g. "#FFD700").
+	 * @return The newly created PatrolRoute.
+	 */
+	public PatrolRoute createRoute(UUID playerUuid, String name, String hexColor) {
+		return createRoute(playerUuid, name, PatrolRoute.parseHexColor(hexColor));
+	}
+
+	/**
+	 * Updates the configuration (name, color, mode) of an existing patrol route while preserving its waypoints.
+	 *
+	 * @param playerUuid The commanding player.
+	 * @param routeId    The channel ID to update.
+	 * @param name       New route name.
+	 * @param colorRgb   New 24-bit RGB color.
+	 * @param mode       New patrol mode (LOOP / PING_PONG).
+	 * @return The updated PatrolRoute.
+	 */
+	public PatrolRoute updateRouteConfig(UUID playerUuid, int routeId, String name, int colorRgb, PatrolRoute.PatrolMode mode) {
+		PatrolRoute current = getRoute(playerUuid, routeId);
+		PatrolRoute updated = new PatrolRoute(
+			routeId,
+			(name != null && !name.trim().isEmpty()) ? name.trim() : ("Route " + (routeId + 1)),
+			colorRgb & 0xFFFFFF,
+			current.waypoints(),
+			mode != null ? mode : current.patrolMode()
+		);
+		setRoute(playerUuid, updated);
+		return updated;
+	}
+
+	/**
+	 * Deletes a patrol route for a player, unbinds all assigned minions to prevent orphaned states,
+	 * places them into holding position, and flushes persistent state to disk.
+	 *
+	 * @param playerUuid The commanding player.
+	 * @param routeId    The channel ID to delete.
+	 * @param world      The server world to unbind minions in (can be null).
+	 * @return true if route was deleted, false otherwise.
+	 */
+	public boolean deleteRoute(UUID playerUuid, int routeId, ServerWorld world) {
+		if (playerUuid == null) return false;
+		Map<Integer, PatrolRoute> routes = playerRoutes.get(playerUuid);
+		if (routes == null || !routes.containsKey(routeId)) return false;
+
+		routes.remove(routeId);
+		markDirtyAndPersist();
+
+		if (world != null) {
+			List<MinionEntity> routeMinions = world.getEntitiesByClass(
+				MinionEntity.class,
+				new net.minecraft.util.math.Box(-30000000, -64, -30000000, 30000000, 320, 30000000),
+				m -> m.isAlive() && playerUuid.equals(m.getOwnerUuid()) && m.getPatrolRouteId() == routeId
+			);
+			for (MinionEntity m : routeMinions) {
+				m.setPatrolRouteId(-1);
+				m.setSitting(true);
+				m.getNavigation().stop();
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Deletes a patrol route for a player, unbinds all assigned minions to prevent orphaned states,
+	 * places them into holding position, flushes persistent state to disk, and syncs to player.
+	 *
+	 * @param playerUuid The commanding player.
+	 * @param routeId    The channel ID to delete.
+	 * @param world      The server world to unbind minions in (can be null).
+	 * @param player     The server player to sync to (can be null).
+	 * @return true if route was deleted, false otherwise.
+	 */
+	public boolean deleteRoute(UUID playerUuid, int routeId, ServerWorld world, ServerPlayerEntity player) {
+		boolean deleted = deleteRoute(playerUuid, routeId, world);
+		if (deleted && player != null) {
+			syncToPlayer(player);
+		}
+		return deleted;
+	}
+
+	/**
+	 * Deletes a patrol route for a player without server world entity lookup.
+	 */
+	public boolean deleteRoute(UUID playerUuid, int routeId) {
+		return deleteRoute(playerUuid, routeId, null);
+	}
+
+	/**
+	 * Finds the smallest unused route ID for the given player commander.
+	 */
+	public int getNextAvailableRouteId(UUID playerUuid) {
+		if (playerUuid == null) return 0;
+		Map<Integer, PatrolRoute> routes = playerRoutes.computeIfAbsent(playerUuid, u -> new ConcurrentHashMap<>());
+		int id = 0;
+		while (routes.containsKey(id)) {
+			id++;
+		}
+		return id;
 	}
 
 	/**
@@ -126,7 +275,6 @@ public class PatrolRouteManager {
 	 *
 	 * @param playerUuid The commanding player.
 	 * @param routeId    The channel index.
-	 * @param pos        The world block position.
 	 * @return The updated PatrolRoute.
 	 */
 	public PatrolRoute addWaypoint(UUID playerUuid, int routeId, BlockPos pos) {
@@ -141,7 +289,6 @@ public class PatrolRouteManager {
 	 *
 	 * @param playerUuid The commanding player.
 	 * @param routeId    The channel index.
-	 * @param pos        The world block position.
 	 * @return The updated PatrolRoute.
 	 */
 	public PatrolRoute removeWaypoint(UUID playerUuid, int routeId, BlockPos pos) {
@@ -154,7 +301,7 @@ public class PatrolRouteManager {
 	public record WaypointMatch(int routeId, BlockPos pos, PatrolRoute route) {}
 
 	/**
-	 * Scans across all 5 route channels for a player to find if any route contains any candidate position.
+	 * Scans across all route channels for a player to find if any route contains any candidate position.
 	 *
 	 * @param playerUuid         The commanding player.
 	 * @param candidatePositions One or more world block positions to check.
@@ -164,11 +311,14 @@ public class PatrolRouteManager {
 		if (playerUuid == null || candidatePositions == null) {
 			return null;
 		}
-		for (int routeId = 0; routeId < PatrolRoute.CHANNEL_COUNT; routeId++) {
-			PatrolRoute route = getRoute(playerUuid, routeId);
-			for (BlockPos cand : candidatePositions) {
-				if (cand != null && route.waypoints().contains(cand)) {
-					return new WaypointMatch(routeId, cand, route);
+		Map<Integer, PatrolRoute> routes = playerRoutes.get(playerUuid);
+		if (routes != null) {
+			for (PatrolRoute route : routes.values()) {
+				if (route == null) continue;
+				for (BlockPos cand : candidatePositions) {
+					if (cand != null && route.waypoints().contains(cand)) {
+						return new WaypointMatch(route.routeId(), cand, route);
+					}
 				}
 			}
 		}

@@ -6,6 +6,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.passive.IronGolemEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -22,8 +23,8 @@ import java.util.List;
 /**
  * Combat-medic AI goal for {@link MinionEntity} units assigned the {@link MinionRole#SENTINEL} role.
  * <p>
- * Sentinels channel the "Aegis of Restoration" to heal wounded ally minions and players:
- * 1. Scans a 10-block radius for allied players (commander priority) and minions under 70% max health.
+ * Sentinels channel the "Aegis of Restoration" to heal wounded ally minions, players, and friendly Iron Golems:
+ * 1. Scans a 10-block radius for allied players (commander priority), minions, and non-hostile Iron Golems under 70% max health.
  * 2. Channels a 1-second (20 ticks) restorative beam with emerald and enchanted sparkle particles.
  * 3. Restores 6.0 HP (3 hearts), grants Regeneration II for 5 seconds (100 ticks), spawns heart particles,
  *    and triggers an arcane resonance chime.
@@ -104,6 +105,7 @@ public class SentinelHealAllyGoal extends Goal {
 	@Override
 	public void start() {
 		this.channelTicks = 0;
+		this.minion.setActivelyHealing(true);
 		this.minion.getNavigation().stop();
 
 		this.minion.getWorld().playSound(
@@ -233,6 +235,7 @@ public class SentinelHealAllyGoal extends Goal {
 
 	@Override
 	public void stop() {
+		this.minion.setActivelyHealing(false);
 		this.targetAlly = null;
 		this.channelTicks = 0;
 	}
@@ -279,7 +282,26 @@ public class SentinelHealAllyGoal extends Goal {
 			}
 		}
 
-		// 3. Also check any other allied players in the vicinity (multiplayer allies)
+		// 3. Search nearby non-hostile Iron Golems within 10 blocks under 70% HP
+		List<IronGolemEntity> nearbyGolems = this.minion.getWorld().getEntitiesByClass(
+				IronGolemEntity.class,
+				searchBox,
+				g -> g != null
+						&& g.isAlive()
+						&& this.minion.squaredDistanceTo(g) <= HEAL_RANGE_SQ
+						&& g.getHealth() < g.getMaxHealth() * ALLY_HEALTH_THRESHOLD
+						&& isNonHostileGolem(g)
+		);
+
+		for (IronGolemEntity golem : nearbyGolems) {
+			float ratio = golem.getHealth() / golem.getMaxHealth();
+			if (ratio < lowestRatio) {
+				lowestRatio = ratio;
+				bestRecipient = golem;
+			}
+		}
+
+		// 4. Also check any other allied players in the vicinity (multiplayer allies)
 		if (bestRecipient == null || !(bestRecipient instanceof PlayerEntity)) {
 			List<PlayerEntity> nearbyPlayers = this.minion.getWorld().getEntitiesByClass(
 					PlayerEntity.class,
@@ -301,6 +323,35 @@ public class SentinelHealAllyGoal extends Goal {
 		}
 
 		return bestRecipient;
+	}
+
+	/**
+	 * Determines whether an Iron Golem is non-hostile towards the minion and its owner.
+	 *
+	 * @param golem The Iron Golem entity to inspect.
+	 * @return true if the golem is non-hostile (not targeting minion, owner, or fellow squad minions).
+	 */
+	public boolean isNonHostileGolem(IronGolemEntity golem) {
+		if (golem == null || !golem.isAlive()) {
+			return false;
+		}
+		LivingEntity target = golem.getTarget();
+		if (target == null) {
+			return true;
+		}
+		if (target.equals(this.minion)) {
+			return false;
+		}
+		LivingEntity owner = this.minion.getOwner();
+		if (owner != null) {
+			if (target.equals(owner)) {
+				return false;
+			}
+			if (target instanceof MinionEntity minionTarget && minionTarget.isOwner(owner)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public LivingEntity getTargetAlly() {

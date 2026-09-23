@@ -115,7 +115,7 @@ public class PathwayHologramRenderer {
 			// 1. Draw 3D Waypoint Tile Wireframes (elevated to sit on top of surface)
 			for (int i = 0; i < waypoints.size(); i++) {
 				BlockPos rawPos = waypoints.get(i);
-				BlockPos renderPos = (client.world != null && !client.world.getBlockState(rawPos).isAir()) ? rawPos.up() : rawPos;
+				BlockPos renderPos = (client.world != null && !client.world.getBlockState(rawPos).isReplaceable()) ? rawPos.up() : rawPos;
 				Box box = new Box(renderPos);
 
 				// Draw bounding wireframe
@@ -143,8 +143,8 @@ public class PathwayHologramRenderer {
 					BlockPos p1 = waypoints.get(i);
 					BlockPos p2 = waypoints.get((i + 1) % waypoints.size());
 
-					double y1 = (client.world != null && !client.world.getBlockState(p1).isAir()) ? p1.getY() + 1.15D : p1.getY() + 0.15D;
-					double y2 = (client.world != null && !client.world.getBlockState(p2).isAir()) ? p2.getY() + 1.15D : p2.getY() + 0.15D;
+					double y1 = (client.world != null && !client.world.getBlockState(p1).isReplaceable()) ? p1.getY() + 1.15D : p1.getY() + 0.15D;
+					double y2 = (client.world != null && !client.world.getBlockState(p2).isReplaceable()) ? p2.getY() + 1.15D : p2.getY() + 0.15D;
 
 					Vec3d c1 = new Vec3d(p1.getX() + 0.5D, y1, p1.getZ() + 0.5D);
 					Vec3d c2 = new Vec3d(p2.getX() + 0.5D, y2, p2.getZ() + 0.5D);
@@ -199,7 +199,7 @@ public class PathwayHologramRenderer {
 
 			for (int i = 0; i < waypoints.size(); i++) {
 				BlockPos pos = waypoints.get(i);
-				double badgeY = (client.world != null && !client.world.getBlockState(pos).isAir()) ? pos.getY() + 1.60D : pos.getY() + 1.25D;
+				double badgeY = (client.world != null && !client.world.getBlockState(pos).isReplaceable()) ? pos.getY() + 1.60D : pos.getY() + 1.25D;
 
 				matrices.push();
 				matrices.translate(pos.getX() + 0.5D, badgeY, pos.getZ() + 0.5D);

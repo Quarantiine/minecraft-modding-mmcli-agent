@@ -1,22 +1,22 @@
 package com.example.client.gui;
 
-import com.example.blueprint.ArchitectureStyle;
-import com.example.blueprint.BuildingCategory;
 import com.example.blueprint.BlueprintRegistry;
 import com.example.blueprint.StructureBlueprint;
 import com.example.client.ExampleModClient;
 import com.example.client.network.ModClientNetworking;
+import com.example.client.renderer.ClientDesignCaptureTracker;
+import com.example.client.renderer.ClientMiningCaptureTracker;
 import com.example.component.CommandMode;
+import com.example.component.MiningMode;
 import com.example.component.SquadGroup;
 import com.example.entity.custom.MinionEntity;
 import com.example.entity.custom.MinionRole;
 import com.example.item.custom.CommandScepterItem;
-import com.example.network.UpdateScepterPayload;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -29,47 +29,73 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockBox;
+import net.minecraft.util.math.BlockPos;
 import org.lwjgl.glfw.GLFW;
 
 /**
  * Interactive Client GUI for the Loki Command Scepter.
- * Allows the player to switch scepter operating modes, inspect and select
- * architectural blueprints from the catalog, observe nearby minion thralls,
- * and broadcast tactical directives to thralls via C2S packets.
+ * Allows switching scepter operating modes, inspecting/selecting architectural blueprints,
+ * observing nearby minions, configuring DESIGN spatial capture, and broadcasting tactical directives via C2S packets.
  */
 public class CommandScepterScreen extends Screen {
 
 	private static final int WINDOW_WIDTH = 340;
 	private static final int WINDOW_HEIGHT = 280;
 	private static final int BLUEPRINT_PAGE_SIZE = 3;
+	public static final int PATHWAY_PAGE_SIZE = 4;
 
-	private final Hand hand;
-	private final ItemStack scepterStack;
+	private Hand hand;
+	private ItemStack scepterStack;
 	private CommandMode selectedMode;
+	private MiningMode selectedMiningMode = MiningMode.AREA;
 	private String selectedBlueprintId;
 	private SquadGroup selectedSquad;
 	private MinionRole selectedRole;
 	private int nearbyThralls = 0;
 	private int nearbySelectedThralls = 0;
 	private int blueprintPage = 0;
+	private int pathwayPage = 0;
 
-	private ArchitectureStyle selectedStyle = ArchitectureStyle.BIOME_NATIVE;
-	private int selectedSize = BuildingCategory.SIZE_MEDIUM;
 	private int selectedRotation = 0;
 	private int activePatrolRouteId = 0;
 
 	private final List<ButtonWidget> squadButtons = new ArrayList<>();
 	private final List<ButtonWidget> roleButtons = new ArrayList<>();
-	private final List<ButtonWidget> architectureButtons = new ArrayList<>();
 	private final List<ButtonWidget> modeButtons = new ArrayList<>();
 	private final List<ButtonWidget> blueprintButtons = new ArrayList<>();
-	private final List<ButtonWidget> sizeButtons = new ArrayList<>();
+	private final List<ButtonWidget> blueprintDeleteButtons = new ArrayList<>();
 	private final List<ButtonWidget> pathwayWidgets = new ArrayList<>();
+	private final List<ButtonWidget> pathwaySelectButtons = new ArrayList<>();
+	private final List<ButtonWidget> pathwayModeButtons = new ArrayList<>();
+	private final List<ButtonWidget> pathwayEditButtons = new ArrayList<>();
+	private final List<ButtonWidget> pathwayClearButtons = new ArrayList<>();
+	private final List<ButtonWidget> pathwayDeleteButtons = new ArrayList<>();
+	private ButtonWidget addRouteBtn;
+	private ButtonWidget prevPathwayPageBtn;
+	private ButtonWidget nextPathwayPageBtn;
 	private ButtonWidget rotateBtn;
+	private ButtonWidget captureModalBtn;
+	private ButtonWidget clearCornersBtn;
+	private ButtonWidget miningModeBtn;
+	private ButtonWidget miningConfirmModalBtn;
+	private ButtonWidget clearMineCornersBtn;
 	private ButtonWidget prevPageBtn;
 	private ButtonWidget nextPageBtn;
 
-	// Open-state guard to prevent immediate dismissals when opening via sneak-right-click
+	public enum ConfirmationType {
+		NONE,
+		DELETE_BLUEPRINT,
+		DISMISS_MINIONS
+	}
+
+	private ConfirmationType pendingConfirmation = ConfirmationType.NONE;
+	private StructureBlueprint pendingBlueprintToDelete = null;
+
+	private ButtonWidget confirmDeleteBpBtn;
+	private ButtonWidget confirmDismissSelectedBtn;
+	private ButtonWidget confirmDismissAllBtn;
+	private ButtonWidget cancelModalBtn;
+
 	private boolean shiftHeldOnOpen = false;
 	private boolean initializedOpenState = false;
 	private boolean closed = false;
@@ -80,29 +106,27 @@ public class CommandScepterScreen extends Screen {
 		this.scepterStack = scepterStack;
 		if (scepterStack != null && !scepterStack.isEmpty()) {
 			this.selectedMode = CommandScepterItem.getMode(scepterStack);
+			this.selectedMiningMode = CommandScepterItem.getMiningMode(scepterStack);
 			this.selectedBlueprintId = CommandScepterItem.getBlueprintId(scepterStack);
+			if ((this.selectedBlueprintId == null || this.selectedBlueprintId.isBlank()) && !BlueprintRegistry.getAll().isEmpty()) {
+				this.selectedBlueprintId = BlueprintRegistry.getAll().iterator().next().getId();
+			}
 			this.selectedSquad = CommandScepterItem.getTargetSquad(scepterStack);
-			this.selectedRole = null; // Archetypes must never be selected by default
-			this.selectedStyle = CommandScepterItem.getArchitectureStyle(scepterStack);
-			this.selectedSize = CommandScepterItem.getBuildingSize(scepterStack);
+			this.selectedRole = null;
 			this.selectedRotation = CommandScepterItem.getRotationIndex(scepterStack);
 			this.activePatrolRouteId = CommandScepterItem.getActivePatrolRoute(scepterStack);
 		} else {
 			this.selectedMode = CommandMode.FOLLOW;
-			this.selectedBlueprintId = "modid-mmcli-agent-modding:watchtower";
+			this.selectedMiningMode = MiningMode.AREA;
+			this.selectedBlueprintId = BlueprintRegistry.getAll().isEmpty() ? "" : BlueprintRegistry.getAll().iterator().next().getId();
 			this.selectedSquad = SquadGroup.ALL;
 			this.selectedRole = null;
-			this.selectedStyle = ArchitectureStyle.BIOME_NATIVE;
-			this.selectedSize = BuildingCategory.SIZE_MEDIUM;
 			this.selectedRotation = 0;
 			this.activePatrolRouteId = 0;
 		}
 		this.shiftHeldOnOpen = isShiftOrSneakDown();
 	}
 
-	/**
-	 * Headless / testing constructor initializing the Command Hub screen with default settings.
-	 */
 	public CommandScepterScreen() {
 		this(Hand.MAIN_HAND, null);
 	}
@@ -112,13 +136,16 @@ public class CommandScepterScreen extends Screen {
 		super.init();
 		this.squadButtons.clear();
 		this.roleButtons.clear();
-		this.architectureButtons.clear();
 		this.modeButtons.clear();
 		this.blueprintButtons.clear();
-		this.sizeButtons.clear();
+		this.blueprintDeleteButtons.clear();
 		this.pathwayWidgets.clear();
+		this.pathwaySelectButtons.clear();
+		this.pathwayModeButtons.clear();
+		this.pathwayEditButtons.clear();
+		this.pathwayClearButtons.clear();
+		this.pathwayDeleteButtons.clear();
 
-		// Detect physical sneak/shift state on initial opening with state guard
 		if (!this.initializedOpenState) {
 			if (!this.shiftHeldOnOpen) {
 				this.shiftHeldOnOpen = isShiftOrSneakDown();
@@ -126,7 +153,6 @@ public class CommandScepterScreen extends Screen {
 			this.initializedOpenState = true;
 		}
 
-		// Count nearby owned minions and selected units
 		if (this.client != null && this.client.world != null && this.client.player != null) {
 			List<MinionEntity> minions = this.client.world.getEntitiesByClass(
 				MinionEntity.class,
@@ -140,7 +166,7 @@ public class CommandScepterScreen extends Screen {
 		int startX = (this.width - WINDOW_WIDTH) / 2;
 		int startY = (this.height - WINDOW_HEIGHT) / 2;
 
-		// Interactive Squad Selection Bar across top of controls (All / Alpha / Bravo / Charlie / Delta)
+		// 5 Squad Filter Buttons: ALL, ALPHA, BRAVO, CHARLIE, DELTA
 		SquadGroup[] squads = SquadGroup.values();
 		int squadBtnWidth = 58;
 		int squadGap = 5;
@@ -149,16 +175,19 @@ public class CommandScepterScreen extends Screen {
 		for (int i = 0; i < squads.length; i++) {
 			SquadGroup squad = squads[i];
 			int btnX = squadStartX + i * (squadBtnWidth + squadGap);
-			ButtonWidget btn = ButtonWidget.builder(getSquadButtonText(squad), b -> selectSquad(squad))
-				.dimensions(btnX, squadY, squadBtnWidth, 20)
-				.tooltip(getSquadTooltip(squad))
-				.build();
+			ButtonWidget btn = ButtonWidget.builder(
+				getSquadButtonText(squad),
+				b -> selectSquad(squad)
+			)
+			.dimensions(btnX, squadY, squadBtnWidth, 20)
+			.tooltip(getSquadTooltip(squad))
+			.build();
 
 			this.squadButtons.add(btn);
 			this.addDrawableChild(btn);
 		}
 
-		// Interactive Mass Role Assignment Bar (Warrior / Sentinel / Builder / Auto)
+		// 4 Minion Role Archetype Buttons
 		MinionRole[] roles = MinionRole.values();
 		int roleBtnWidth = 72;
 		int roleGap = 6;
@@ -179,38 +208,18 @@ public class CommandScepterScreen extends Screen {
 			this.addDrawableChild(btn);
 		}
 
-		// Interactive Architecture Style Bar (Biome Native / Fortress Stone / Frontier Timber / Arcane Nether)
-		ArchitectureStyle[] styles = ArchitectureStyle.values();
-		int styleBtnWidth = 72;
-		int styleGap = 6;
-		int styleStartX = startX + 17;
-		int styleY = startY + 80;
-		for (int i = 0; i < styles.length; i++) {
-			ArchitectureStyle style = styles[i];
-			int btnX = styleStartX + i * (styleBtnWidth + styleGap);
-			ButtonWidget btn = ButtonWidget.builder(
-				getStyleButtonText(style),
-				b -> selectStyle(style)
-			)
-			.dimensions(btnX, styleY, styleBtnWidth, 20)
-			.tooltip(getStyleTooltip(style))
-			.build();
 
-			this.architectureButtons.add(btn);
-			this.addDrawableChild(btn);
-		}
-
-		// 6 Command Mode Buttons in a 2-column grid
+		// Command Mode Buttons in a 2-column grid (7 modes)
 		CommandMode[] modes = CommandMode.values();
 		for (int i = 0; i < modes.length; i++) {
 			CommandMode mode = modes[i];
 			int col = i % 2;
 			int row = i / 2;
 			int btnX = startX + 16 + col * 70;
-			int btnY = startY + 118 + row * 24;
+			int btnY = startY + 118 + row * 21;
 
 			ButtonWidget btn = ButtonWidget.builder(getModeButtonText(mode), b -> selectMode(mode))
-				.dimensions(btnX, btnY, 66, 20)
+				.dimensions(btnX, btnY, 66, 19)
 				.build();
 
 			this.modeButtons.add(btn);
@@ -243,6 +252,25 @@ public class CommandScepterScreen extends Screen {
 
 			this.blueprintButtons.add(btn);
 			this.addDrawableChild(btn);
+
+			ButtonWidget delBtn = ButtonWidget.builder(Text.literal("§c✕"), b -> {
+				int index = this.blueprintPage * BLUEPRINT_PAGE_SIZE + slotIndex;
+				List<StructureBlueprint> bps = new ArrayList<>(BlueprintRegistry.getAll());
+				if (index >= 0 && index < bps.size()) {
+					StructureBlueprint target = bps.get(index);
+					if (BlueprintRegistry.isCustom(target.getId())) {
+						requestDeleteBlueprintConfirmation(target);
+					}
+				}
+			})
+			.dimensions(startX + 303, btnY + 4, 22, 22)
+			.tooltip(Tooltip.of(Text.literal("§c✕ Remove Custom Blueprint\n§7Delete this custom blueprint from your active catalog.")))
+			.build();
+			delBtn.visible = false;
+			delBtn.active = false;
+
+			this.blueprintDeleteButtons.add(delBtn);
+			this.addDrawableChild(delBtn);
 		}
 
 		// Blueprint Catalog Pagination Controls
@@ -258,21 +286,6 @@ public class CommandScepterScreen extends Screen {
 		.build();
 		this.addDrawableChild(this.prevPageBtn);
 
-		// Procedural Blueprint Size Selectors [ S ] [ M ] [ L ] [ 🎲 ]
-		for (int i = 0; i < 4; i++) {
-			final int sizeIdx = i;
-			int btnX = startX + 188 + i * 29;
-			ButtonWidget sizeBtn = ButtonWidget.builder(
-				getSizeButtonText(sizeIdx),
-				b -> selectSize(sizeIdx)
-			)
-			.dimensions(btnX, pageControlsY, 27, 18)
-			.tooltip(getSizeTooltip(sizeIdx))
-			.build();
-
-			this.sizeButtons.add(sizeBtn);
-			this.addDrawableChild(sizeBtn);
-		}
 
 		this.nextPageBtn = ButtonWidget.builder(Text.literal("▶"), b -> {
 			int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
@@ -286,57 +299,183 @@ public class CommandScepterScreen extends Screen {
 		.build();
 		this.addDrawableChild(this.nextPageBtn);
 
-		// Blueprint Rotation Button (visible only in BUILD mode)
+		// Blueprint Rotation Button (visible in BUILD mode)
 		this.rotateBtn = ButtonWidget.builder(
 			getRotateButtonText(),
 			b -> cycleRotationGui()
 		)
-		.dimensions(startX + 18, startY + 214, 136, 20)
+		.dimensions(startX + 16, pageControlsY, 142, 19)
 		.tooltip(Tooltip.of(Text.literal("§6✦ Rotate Blueprint 90° Clockwise\n§7In-Game: Press [R] or Left-Click with Scepter.")))
 		.build();
 		this.rotateBtn.visible = this.selectedMode == CommandMode.BUILD;
 		this.addDrawableChild(this.rotateBtn);
 
-		// Pathway Route Dashboard Controls (5 Channel Rows: Select Channel, Toggle Mode, Clear Route)
-		for (int i = 0; i < com.example.patrol.PatrolRoute.CHANNEL_COUNT; i++) {
-			final int routeId = i;
-			int rowY = startY + 118 + i * 25;
+		// Spatial Capture Modal Button (visible in DESIGN mode)
+		this.captureModalBtn = ButtonWidget.builder(
+			Text.literal("§d✦ Capture"),
+			b -> openCaptureModal()
+		)
+		.dimensions(startX + 16, pageControlsY, 68, 19)
+		.tooltip(Tooltip.of(Text.literal("§d✦ Open Blueprint Capture Modal\n§7Compile and name the in-world volume between Pos1 and Pos2.")))
+		.build();
+		this.captureModalBtn.visible = this.selectedMode == CommandMode.DESIGN;
+		this.addDrawableChild(this.captureModalBtn);
 
-			// Channel select button [ 🟡 Route 1 (3) ]
-			ButtonWidget selectBtn = ButtonWidget.builder(
-				getRouteChannelButtonText(routeId),
-				b -> selectActiveRoute(routeId)
-			)
-			.dimensions(startX + 165, rowY, 94, 20)
-			.tooltip(getRouteChannelTooltip(routeId))
+		// Clear Corners Button (visible in DESIGN mode)
+		this.clearCornersBtn = ButtonWidget.builder(
+			Text.literal("§6⌫ Reset"),
+			b -> clearCornersGui()
+		)
+		.dimensions(startX + 88, pageControlsY, 70, 19)
+		.tooltip(Tooltip.of(Text.literal("§6⌫ Reset Corner Points\n§7Clears Pos1 and Pos2 selection.")))
+		.build();
+		this.clearCornersBtn.visible = this.selectedMode == CommandMode.DESIGN;
+		this.addDrawableChild(this.clearCornersBtn);
+
+		// Mining Mode Toggle Button (visible in MINE mode)
+		this.miningModeBtn = ButtonWidget.builder(
+			getMiningModeButtonText(),
+			b -> toggleMiningModeGui()
+		)
+		.dimensions(startX + 16, pageControlsY, this.selectedMiningMode == MiningMode.AREA ? 44 : 142, 19)
+		.tooltip(getMiningModeTooltip())
+		.build();
+		this.miningModeBtn.visible = this.selectedMode == CommandMode.MINE;
+		this.addDrawableChild(this.miningModeBtn);
+
+		// Mining Confirm Modal Button (visible in MINE mode with AREA sub-mode)
+		this.miningConfirmModalBtn = ButtonWidget.builder(
+			Text.literal("§e⛏ Confirm"),
+			b -> openMiningConfirmModal()
+		)
+		.dimensions(startX + 62, pageControlsY, 52, 19)
+		.tooltip(Tooltip.of(Text.literal("§e✦ Confirm Mining Area\n§7Open modal to inspect area volume and start 3D quarry excavation.")))
+		.build();
+		this.miningConfirmModalBtn.visible = this.selectedMode == CommandMode.MINE && this.selectedMiningMode == MiningMode.AREA;
+		this.addDrawableChild(this.miningConfirmModalBtn);
+
+		// Clear Mining Corners Button (visible in MINE mode with AREA sub-mode)
+		this.clearMineCornersBtn = ButtonWidget.builder(
+			Text.literal("§6⌫ Reset"),
+			b -> clearMineCornersGui()
+		)
+		.dimensions(startX + 116, pageControlsY, 42, 19)
+		.tooltip(Tooltip.of(Text.literal("§6⌫ Reset Mining Corners\n§7Clears Pos1 and Pos2 mining selection.")))
+		.build();
+		this.clearMineCornersBtn.visible = this.selectedMode == CommandMode.MINE && this.selectedMiningMode == MiningMode.AREA;
+		this.addDrawableChild(this.clearMineCornersBtn);
+
+		// Pathway Route Dashboard Controls (Paginated 4 Channel Rows per page: Select, Mode, Edit, Clear, Delete)
+		for (int slot = 0; slot < PATHWAY_PAGE_SIZE; slot++) {
+			final int slotIndex = slot;
+			int rowY = startY + 118 + slot * 24;
+
+			ButtonWidget selectBtn = ButtonWidget.builder(Text.empty(), b -> {
+				int index = this.pathwayPage * PATHWAY_PAGE_SIZE + slotIndex;
+				List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+				if (index >= 0 && index < routes.size()) {
+					selectActiveRoute(routes.get(index).routeId());
+				}
+			})
+			.dimensions(startX + 165, rowY, 70, 20)
 			.build();
+			this.pathwaySelectButtons.add(selectBtn);
 			this.pathwayWidgets.add(selectBtn);
 			this.addDrawableChild(selectBtn);
 
-			// Mode toggle button [ Loop ] or [ Ping ]
-			ButtonWidget modeBtn = ButtonWidget.builder(
-				getRouteModeButtonText(routeId),
-				b -> toggleRouteMode(routeId)
-			)
-			.dimensions(startX + 262, rowY, 38, 20)
-			.tooltip(getRouteModeTooltip(routeId))
+			ButtonWidget modeBtn = ButtonWidget.builder(Text.empty(), b -> {
+				int index = this.pathwayPage * PATHWAY_PAGE_SIZE + slotIndex;
+				List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+				if (index >= 0 && index < routes.size()) {
+					toggleRouteMode(routes.get(index).routeId());
+				}
+			})
+			.dimensions(startX + 237, rowY, 26, 20)
 			.build();
+			this.pathwayModeButtons.add(modeBtn);
 			this.pathwayWidgets.add(modeBtn);
 			this.addDrawableChild(modeBtn);
 
-			// Clear route button [ ✕ ]
-			ButtonWidget clearBtn = ButtonWidget.builder(
-				Text.literal("§c✕"),
-				b -> clearRoute(routeId)
-			)
-			.dimensions(startX + 303, rowY, 22, 20)
-			.tooltip(Tooltip.of(Text.literal("§c✕ Clear Route\n§7Remove all waypoints from " + com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId])))
+			ButtonWidget editBtn = ButtonWidget.builder(Text.literal("§e✎"), b -> {
+				int index = this.pathwayPage * PATHWAY_PAGE_SIZE + slotIndex;
+				List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+				if (index >= 0 && index < routes.size()) {
+					openEditRouteModal(routes.get(index));
+				}
+			})
+			.dimensions(startX + 265, rowY, 18, 20)
+			.tooltip(Tooltip.of(Text.literal("§e✎ Edit Route\n§7Configure name, hex color, and behavior.")))
 			.build();
+			this.pathwayEditButtons.add(editBtn);
+			this.pathwayWidgets.add(editBtn);
+			this.addDrawableChild(editBtn);
+
+			ButtonWidget clearBtn = ButtonWidget.builder(Text.literal("§6⌫"), b -> {
+				int index = this.pathwayPage * PATHWAY_PAGE_SIZE + slotIndex;
+				List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+				if (index >= 0 && index < routes.size()) {
+					clearRoute(routes.get(index).routeId());
+				}
+			})
+			.dimensions(startX + 285, rowY, 18, 20)
+			.tooltip(Tooltip.of(Text.literal("§6⌫ Clear Waypoints\n§7Remove all waypoints from this route.")))
+			.build();
+			this.pathwayClearButtons.add(clearBtn);
 			this.pathwayWidgets.add(clearBtn);
 			this.addDrawableChild(clearBtn);
+
+			ButtonWidget delBtn = ButtonWidget.builder(Text.literal("§c✕"), b -> {
+				int index = this.pathwayPage * PATHWAY_PAGE_SIZE + slotIndex;
+				List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+				if (index >= 0 && index < routes.size()) {
+					deleteRouteGui(routes.get(index).routeId());
+				}
+			})
+			.dimensions(startX + 305, rowY, 20, 20)
+			.tooltip(Tooltip.of(Text.literal("§c✕ Delete Route\n§7Permanently delete this patrol route.")))
+			.build();
+			this.pathwayDeleteButtons.add(delBtn);
+			this.pathwayWidgets.add(delBtn);
+			this.addDrawableChild(delBtn);
 		}
 
+		// Pathway Dashboard Pagination & Add Route Controls
+		int pathwayControlsY = startY + 226;
+		this.prevPathwayPageBtn = ButtonWidget.builder(Text.literal("◀"), b -> {
+			if (this.pathwayPage > 0) {
+				this.pathwayPage--;
+				updatePathwayButtons();
+			}
+		})
+		.dimensions(startX + 165, pathwayControlsY, 18, 18)
+		.tooltip(Tooltip.of(Text.literal("Previous Page")))
+		.build();
+		this.pathwayWidgets.add(this.prevPathwayPageBtn);
+		this.addDrawableChild(this.prevPathwayPageBtn);
+
+		this.addRouteBtn = ButtonWidget.builder(Text.literal("§a+ New Route"), b -> openAddRouteModal())
+			.dimensions(startX + 185, pathwayControlsY, 118, 18)
+			.tooltip(Tooltip.of(Text.literal("§a+ Add New Patrol Route\n§7Create a new custom pathway with custom hex color.")))
+			.build();
+		this.pathwayWidgets.add(this.addRouteBtn);
+		this.addDrawableChild(this.addRouteBtn);
+
+		this.nextPathwayPageBtn = ButtonWidget.builder(Text.literal("▶"), b -> {
+			List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+			int totalPages = Math.max(1, (routes.size() + PATHWAY_PAGE_SIZE - 1) / PATHWAY_PAGE_SIZE);
+			if (this.pathwayPage + 1 < totalPages) {
+				this.pathwayPage++;
+				updatePathwayButtons();
+			}
+		})
+		.dimensions(startX + 305, pathwayControlsY, 18, 18)
+		.tooltip(Tooltip.of(Text.literal("Next Page")))
+		.build();
+		this.pathwayWidgets.add(this.nextPathwayPageBtn);
+		this.addDrawableChild(this.nextPathwayPageBtn);
+
 		updateBlueprintButtons();
+		updatePathwayButtons();
 		updateControlsVisibility();
 
 		// Action Buttons: Execute Directive, Deselect All, Teleport Minions, Dismiss All Minions, & Close
@@ -368,23 +507,20 @@ public class CommandScepterScreen extends Screen {
 			}
 		)
 		.dimensions(startX + 142, bottomY, 60, 20)
-		.tooltip(Tooltip.of(this.nearbyThralls > 0
-			? Text.literal("§dTeleport all " + this.nearbyThralls + " nearby owned minion(s) to you")
-			: Text.translatable("message.modid-mmcli-agent-modding.no_minions_to_teleport")))
+		.tooltip(Tooltip.of(this.nearbySelectedThralls > 0
+			? Text.literal("§dTeleport " + this.nearbySelectedThralls + " selected minion(s) to you")
+			: Text.literal("§7Select minion(s) first to teleport")))
 		.build();
-		teleportBtn.active = this.nearbyThralls > 0;
+		teleportBtn.active = this.nearbySelectedThralls > 0;
 		this.addDrawableChild(teleportBtn);
 
 		ButtonWidget dismissBtn = ButtonWidget.builder(
-			Text.literal("§c✖ Destroy All"),
-			b -> {
-				ModClientNetworking.sendDismissAllMinions();
-				this.close();
-			}
+			Text.literal("§c✖ Destroy"),
+			b -> requestDismissMinionsConfirmation()
 		)
 		.dimensions(startX + 206, bottomY, 66, 20)
 		.tooltip(Tooltip.of(this.nearbyThralls > 0
-			? Text.literal("§cDestroy all " + this.nearbyThralls + " nearby owned minion(s) and drop equipment")
+			? Text.literal("§cDecommission nearby owned minions\n§7Allows destroying Selected or All thralls.")
 			: Text.translatable("message.modid-mmcli-agent-modding.no_minions_to_dismiss")))
 		.build();
 		dismissBtn.active = this.nearbyThralls > 0;
@@ -398,6 +534,36 @@ public class CommandScepterScreen extends Screen {
 		.tooltip(Tooltip.of(Text.translatable("tooltip.modid-mmcli-agent-modding.command_hub.close_desc")))
 		.build();
 		this.addDrawableChild(closeBtn);
+
+		// Confirmation Modal Buttons (centered in screen)
+		int modalW = 240;
+		int modalH = 110;
+		int modalX = (this.width - modalW) / 2;
+		int modalBtnY = (this.height - modalH) / 2 + modalH - 28;
+
+		this.confirmDeleteBpBtn = ButtonWidget.builder(Text.literal("§c✕ Delete"), b -> confirmDeleteCustomBlueprint())
+			.dimensions(modalX + 24, modalBtnY, 90, 20)
+			.build();
+		this.confirmDeleteBpBtn.visible = false;
+		this.addDrawableChild(this.confirmDeleteBpBtn);
+
+		this.confirmDismissSelectedBtn = ButtonWidget.builder(Text.literal("§6Selected"), b -> confirmDismissSelectedMinions())
+			.dimensions(modalX + 10, modalBtnY, 78, 20)
+			.build();
+		this.confirmDismissSelectedBtn.visible = false;
+		this.addDrawableChild(this.confirmDismissSelectedBtn);
+
+		this.confirmDismissAllBtn = ButtonWidget.builder(Text.literal("§cAll"), b -> confirmDismissAllMinions())
+			.dimensions(modalX + 92, modalBtnY, 70, 20)
+			.build();
+		this.confirmDismissAllBtn.visible = false;
+		this.addDrawableChild(this.confirmDismissAllBtn);
+
+		this.cancelModalBtn = ButtonWidget.builder(Text.literal("Cancel"), b -> cancelConfirmation())
+			.dimensions(modalX + 166, modalBtnY, 64, 20)
+			.build();
+		this.cancelModalBtn.visible = false;
+		this.addDrawableChild(this.cancelModalBtn);
 	}
 
 	private static String getSquadLabel(SquadGroup squad) {
@@ -436,11 +602,9 @@ public class CommandScepterScreen extends Screen {
 	private Tooltip getRoleTooltip(MinionRole role) {
 		boolean isSelected = role == this.selectedRole;
 		String desc = isSelected
-			? "§a[Active Selection] Minions inside Banner of Courage rally ring will transform into this archetype.\n§eClick again to deselect."
-			: "§7Click to select this archetype for channeled rally ring transformation.";
-		return Tooltip.of(Text.literal(
-			"§6✦ Archetype: " + role.getFormattedName() + " §7(" + role.getIcon() + ")\n" + desc
-		));
+			? "§a[Active Selection] Minions inside rally ring will transform.\n§eClick again to deselect."
+			: "§7Click to select this archetype for channeled rally transfiguration.";
+		return Tooltip.of(Text.literal("§6✦ Archetype: " + role.getFormattedName() + " §7(" + role.getIcon() + ")\n" + desc));
 	}
 
 	private Text getModeButtonText(CommandMode mode) {
@@ -451,55 +615,13 @@ public class CommandScepterScreen extends Screen {
 
 	private Text getBlueprintButtonText(StructureBlueprint bp) {
 		boolean isSelected = bp.getId().equalsIgnoreCase(this.selectedBlueprintId);
-		StructureBlueprint resolved = BlueprintRegistry.resolveCategoryBlueprint(bp.getId(), this.selectedSize, 0L);
-		if (resolved == null) {
-			resolved = bp;
-		}
-		BlockBox box = resolved.getBoundingBox();
+		BlockBox box = bp.getBoundingBox();
 		int dimX = box.getBlockCountX();
 		int dimY = box.getBlockCountY();
 		int dimZ = box.getBlockCountZ();
 
 		String prefix = isSelected ? "§6✦ " : "§f";
-		return Text.literal(prefix + bp.getName() + "\n§8" + dimX + "x" + dimY + "x" + dimZ + " §8| §e" + resolved.getBlockCount() + "b");
-	}
-
-	private Text getStyleButtonText(ArchitectureStyle style) {
-		boolean isSelected = style == this.selectedStyle;
-		String prefix = isSelected ? "§6▶ " : "";
-		return Text.literal(prefix + style.getDisplayName());
-	}
-
-	private Tooltip getStyleTooltip(ArchitectureStyle style) {
-		boolean isSelected = style == this.selectedStyle;
-		String desc = isSelected
-			? "§a[Active Selection] " + style.getDescription()
-			: "§7" + style.getDescription() + "\n§eClick to select this architecture style.";
-		return Tooltip.of(Text.literal("§6✦ Style: " + style.getFormattedName() + "\n" + desc));
-	}
-
-	private Text getSizeButtonText(int size) {
-		boolean isSelected = size == this.selectedSize;
-		String label = switch (size) {
-			case BuildingCategory.SIZE_SMALL -> "S";
-			case BuildingCategory.SIZE_MEDIUM -> "M";
-			case BuildingCategory.SIZE_GRAND -> "L";
-			default -> "🎲";
-		};
-		String color = isSelected ? "§6§l" : "§7";
-		return Text.literal(color + label);
-	}
-
-	private Tooltip getSizeTooltip(int size) {
-		String label = switch (size) {
-			case BuildingCategory.SIZE_SMALL -> "Small (5x5 footprint)";
-			case BuildingCategory.SIZE_MEDIUM -> "Medium (7x7 footprint)";
-			case BuildingCategory.SIZE_GRAND -> "Grand (9x9 footprint)";
-			default -> "Random Procedural Size";
-		};
-		boolean isSelected = size == this.selectedSize;
-		String status = isSelected ? "§a[Active Size]\n" : "§eClick to select size.\n";
-		return Tooltip.of(Text.literal("§b✦ Size: §f" + label + "\n" + status + "§7Scales procedural categories (Home, Tower, Barricade, etc.)"));
+		return Text.literal(prefix + bp.getName() + "\n§8" + dimX + "x" + dimY + "x" + dimZ + " §8| §e" + bp.getBlockCount() + "b");
 	}
 
 	private void selectSquad(SquadGroup squad) {
@@ -511,13 +633,6 @@ public class CommandScepterScreen extends Screen {
 		refreshButtonLabels();
 	}
 
-	/**
-	 * Toggles or selects the active target archetype role. If the clicked role is already selected,
-	 * it is toggled off (unselected). Updates the held scepter item component, synchronizes with the server,
-	 * and refreshes button styling.
-	 *
-	 * @param role The MinionRole archetype to toggle.
-	 */
 	public void toggleRole(MinionRole role) {
 		if (this.selectedRole == role) {
 			this.selectedRole = null;
@@ -531,11 +646,6 @@ public class CommandScepterScreen extends Screen {
 		refreshButtonLabels();
 	}
 
-	/**
-	 * Directly sets the active target archetype role, updating the scepter stack and synchronizing with the server.
-	 *
-	 * @param role The MinionRole archetype to select, or null to clear selection.
-	 */
 	public void setSelectedRole(MinionRole role) {
 		this.selectedRole = role;
 		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
@@ -545,77 +655,43 @@ public class CommandScepterScreen extends Screen {
 		refreshButtonLabels();
 	}
 
-	/**
-	 * Resolves the currently selected target archetype role for mass conversion.
-	 *
-	 * @return The selected MinionRole, or null if no archetype is active.
-	 */
 	public MinionRole getSelectedRole() {
 		return this.selectedRole;
 	}
 
-	public void selectStyle(ArchitectureStyle style) {
-		this.selectedStyle = style;
-		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
-			CommandScepterItem.setArchitectureStyle(this.scepterStack, style);
-		}
-		syncToServer(false);
-		refreshButtonLabels();
-	}
-
-	public ArchitectureStyle getSelectedStyle() {
-		return this.selectedStyle;
-	}
-
-	public void setSelectedStyle(ArchitectureStyle style) {
-		this.selectedStyle = style;
-		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
-			CommandScepterItem.setArchitectureStyle(this.scepterStack, style);
-		}
-		syncToServer(false);
-		refreshButtonLabels();
-	}
-
-	public void selectSize(int size) {
-		this.selectedSize = size;
-		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
-			CommandScepterItem.setBuildingSize(this.scepterStack, size);
-		}
-		syncToServer(false);
-		refreshButtonLabels();
-	}
-
-	public int getSelectedSize() {
-		return this.selectedSize;
-	}
-
-	public void setSelectedSize(int size) {
-		this.selectedSize = size;
-		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
-			CommandScepterItem.setBuildingSize(this.scepterStack, size);
-		}
-		syncToServer(false);
-		refreshButtonLabels();
-	}
-
 	public void updateControlsVisibility() {
 		boolean isBuild = this.selectedMode == CommandMode.BUILD;
+		boolean isDesign = this.selectedMode == CommandMode.DESIGN;
+		boolean isMine = this.selectedMode == CommandMode.MINE;
 		boolean isPathway = this.selectedMode == CommandMode.PATHWAY;
+
 		for (ButtonWidget btn : this.roleButtons) {
-			btn.visible = !isBuild;
-		}
-		for (ButtonWidget btn : this.architectureButtons) {
-			btn.visible = isBuild;
-		}
-		for (ButtonWidget btn : this.sizeButtons) {
-			btn.visible = isBuild;
+			btn.visible = !isBuild && !isDesign && !isMine;
 		}
 		if (this.rotateBtn != null) {
 			this.rotateBtn.visible = isBuild;
 		}
+		if (this.captureModalBtn != null) {
+			this.captureModalBtn.visible = isDesign;
+		}
+		if (this.clearCornersBtn != null) {
+			this.clearCornersBtn.visible = isDesign;
+		}
+		if (this.miningModeBtn != null) {
+			this.miningModeBtn.visible = isMine;
+		}
+		if (this.miningConfirmModalBtn != null) {
+			this.miningConfirmModalBtn.visible = isMine && (this.selectedMiningMode == MiningMode.AREA);
+		}
+		if (this.clearMineCornersBtn != null) {
+			this.clearMineCornersBtn.visible = isMine && (this.selectedMiningMode == MiningMode.AREA);
+		}
 
 		for (ButtonWidget btn : this.blueprintButtons) {
 			btn.visible = !isPathway;
+		}
+		for (ButtonWidget btn : this.blueprintDeleteButtons) {
+			btn.visible = !isPathway && btn.visible;
 		}
 		if (this.prevPageBtn != null) {
 			this.prevPageBtn.visible = !isPathway;
@@ -627,42 +703,54 @@ public class CommandScepterScreen extends Screen {
 		for (ButtonWidget btn : this.pathwayWidgets) {
 			btn.visible = isPathway;
 		}
+		if (isPathway) {
+			updatePathwayButtons();
+		}
 	}
 
 	public List<ButtonWidget> getPathwayWidgets() {
 		return this.pathwayWidgets;
 	}
 
-	private Text getRouteChannelButtonText(int routeId) {
-		boolean isActive = (routeId == this.activePatrolRouteId);
-		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
-		int waypointCount = route != null ? route.waypoints().size() : 0;
+	private Text getRouteChannelButtonText(com.example.patrol.PatrolRoute route) {
+		if (route == null) return Text.empty();
+		boolean isActive = (route.routeId() == this.activePatrolRouteId);
+		int waypointCount = route.waypoints().size();
 		String prefix = isActive ? "▶ " : "";
-		String color = com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId].substring(0, 2);
-		return Text.literal(color + prefix + "Route " + (routeId + 1) + " §8[" + waypointCount + "]");
+		return Text.literal(prefix + route.name() + " §8[" + waypointCount + "]");
 	}
 
-	private Tooltip getRouteChannelTooltip(int routeId) {
-		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
-		int waypointCount = route != null ? route.waypoints().size() : 0;
-		boolean isActive = (routeId == this.activePatrolRouteId);
+	private Text getRouteChannelButtonText(int routeId) {
+		return getRouteChannelButtonText(com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId));
+	}
+
+	private Tooltip getRouteChannelTooltip(com.example.patrol.PatrolRoute route) {
+		if (route == null) return Tooltip.of(Text.empty());
+		int waypointCount = route.waypoints().size();
+		boolean isActive = (route.routeId() == this.activePatrolRouteId);
 		String status = isActive ? "§a[Active Channel]\n" : "§eClick to select as active pathway.\n";
 		return Tooltip.of(Text.literal(
-			"§6✦ " + com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId] + "\n" +
+			"§6✦ " + route.getFormattedName() + " §8[" + com.example.patrol.PatrolRoute.toHexCode(route.colorRgb()) + "]\n" +
 			status +
 			"§7Waypoints: §e" + waypointCount + "\n" +
 			"§7Hold Scepter & Right-Click blocks to append points."
 		));
 	}
 
-	private Text getRouteModeButtonText(int routeId) {
-		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+	private Tooltip getRouteChannelTooltip(int routeId) {
+		return getRouteChannelTooltip(com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId));
+	}
+
+	private Text getRouteModeButtonText(com.example.patrol.PatrolRoute route) {
 		com.example.patrol.PatrolRoute.PatrolMode mode = route != null ? route.patrolMode() : com.example.patrol.PatrolRoute.PatrolMode.LOOP;
 		return Text.literal(mode == com.example.patrol.PatrolRoute.PatrolMode.LOOP ? "§bLoop" : "§6Ping");
 	}
 
-	private Tooltip getRouteModeTooltip(int routeId) {
-		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+	private Text getRouteModeButtonText(int routeId) {
+		return getRouteModeButtonText(com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId));
+	}
+
+	private Tooltip getRouteModeTooltip(com.example.patrol.PatrolRoute route) {
 		com.example.patrol.PatrolRoute.PatrolMode mode = route != null ? route.patrolMode() : com.example.patrol.PatrolRoute.PatrolMode.LOOP;
 		String desc = mode == com.example.patrol.PatrolRoute.PatrolMode.LOOP
 			? "§bLoop: §7Closed loop traversal (1 → 2 → 3 → 1).\n§eClick to toggle Ping-Pong."
@@ -670,6 +758,10 @@ public class CommandScepterScreen extends Screen {
 		return Tooltip.of(Text.literal(
 			"§6✦ Patrol Mode: §f" + mode.getDisplayName() + "\n" + desc
 		));
+	}
+
+	private Tooltip getRouteModeTooltip(int routeId) {
+		return getRouteModeTooltip(com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId));
 	}
 
 	public int getActivePatrolRouteId() {
@@ -682,8 +774,11 @@ public class CommandScepterScreen extends Screen {
 			CommandScepterItem.setActivePatrolRoute(this.scepterStack, routeId);
 		}
 		if (this.client != null && this.client.player != null) {
-			this.client.player.sendMessage(Text.literal("§6✦ Active Patrol Channel: §r" + com.example.patrol.PatrolRoute.CHANNEL_FORMATTED_NAMES[routeId]), true);
+			com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+			String routeName = route != null ? route.getFormattedName() : ("Route " + (routeId + 1));
+			this.client.player.sendMessage(Text.literal("§6✦ Active Patrol Channel: §r" + routeName), true);
 		}
+		syncToServer(false);
 		refreshButtonLabels();
 	}
 
@@ -697,6 +792,10 @@ public class CommandScepterScreen extends Screen {
 		refreshButtonLabels();
 	}
 
+	public CommandMode getSelectedMode() {
+		return this.selectedMode;
+	}
+
 	public void clearRoute(int routeId) {
 		ModClientNetworking.sendClearPatrolRoute(routeId);
 		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
@@ -707,16 +806,318 @@ public class CommandScepterScreen extends Screen {
 		refreshButtonLabels();
 	}
 
-	public List<ButtonWidget> getArchitectureButtons() {
-		return this.architectureButtons;
+	public void deleteRouteGui(int routeId) {
+		com.example.patrol.PatrolRoute route = com.example.client.renderer.ClientPatrolRouteTracker.getRoute(routeId);
+		String name = route != null ? route.name() : ("Route " + (routeId + 1));
+		com.example.client.renderer.ClientPatrolRouteTracker.removeRoute(routeId);
+		ModClientNetworking.sendDeletePatrolRoute(routeId, name);
+
+		if (this.activePatrolRouteId == routeId) {
+			List<com.example.patrol.PatrolRoute> remaining = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+			if (!remaining.isEmpty()) {
+				this.activePatrolRouteId = remaining.get(0).routeId();
+			} else {
+				this.activePatrolRouteId = 0;
+			}
+			if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+				CommandScepterItem.setActivePatrolRoute(this.scepterStack, this.activePatrolRouteId);
+			}
+			syncToServer(false);
+		}
+
+		if (this.client != null && this.client.player != null) {
+			this.client.player.sendMessage(Text.literal("§c✦ Deleted Patrol Route: §f" + name + "§r"), true);
+		}
+		refreshButtonLabels();
 	}
 
-	public List<ButtonWidget> getSizeButtons() {
-		return this.sizeButtons;
+	public void openEditRouteModal(com.example.patrol.PatrolRoute route) {
+		if (this.client != null && route != null) {
+			this.client.setScreen(new PatrolRouteEditModalScreen(route, false, this));
+		}
+	}
+
+	public void openAddRouteModal() {
+		if (this.client != null) {
+			int nextId = getNextAvailableRouteId();
+			this.client.setScreen(new PatrolRouteEditModalScreen(nextId, true, this));
+		}
+	}
+
+	public int getNextAvailableRouteId() {
+		List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+		int id = 0;
+		boolean found = true;
+		while (found) {
+			found = false;
+			for (com.example.patrol.PatrolRoute r : routes) {
+				if (r.routeId() == id) {
+					id++;
+					found = true;
+					break;
+				}
+			}
+		}
+		return id;
 	}
 
 	public ButtonWidget getRotateButton() {
 		return this.rotateBtn;
+	}
+
+	public ButtonWidget getCaptureModalButton() {
+		return this.captureModalBtn;
+	}
+
+	public ButtonWidget getClearCornersButton() {
+		return this.clearCornersBtn;
+	}
+
+	public ButtonWidget getMiningModeButton() {
+		return this.miningModeBtn;
+	}
+
+	public ButtonWidget getMiningConfirmModalButton() {
+		return this.miningConfirmModalBtn;
+	}
+
+	public ButtonWidget getClearMineCornersButton() {
+		return this.clearMineCornersBtn;
+	}
+
+	public MiningMode getSelectedMiningMode() {
+		return this.selectedMiningMode;
+	}
+
+	public void setSelectedMiningMode(MiningMode mode) {
+		this.selectedMiningMode = mode != null ? mode : MiningMode.AREA;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setMiningMode(this.scepterStack, this.selectedMiningMode);
+		}
+		refreshButtonLabels();
+	}
+
+	public void toggleMiningModeGui() {
+		this.selectedMiningMode = this.selectedMiningMode == MiningMode.AREA ? MiningMode.DIRECT : MiningMode.AREA;
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.setMiningMode(this.scepterStack, this.selectedMiningMode);
+		}
+		if (this.client != null && this.client.player != null) {
+			this.client.player.sendMessage(Text.literal("§6✦ Mining Mode: §r" + this.selectedMiningMode.getFormattedName()), true);
+		}
+		refreshButtonLabels();
+	}
+
+	public void openMiningConfirmModal() {
+		if (this.client != null) {
+			this.client.setScreen(new MiningConfirmModalScreen(this.scepterStack, this));
+		}
+	}
+
+	public void clearMineCornersGui() {
+		ClientMiningCaptureTracker.clear();
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.clearMineCorners(this.scepterStack);
+		}
+		if (this.client != null && this.client.player != null) {
+			ItemStack held = CommandScepterItem.getHeldScepter(this.client.player);
+			if (!held.isEmpty()) {
+				CommandScepterItem.clearMineCorners(held);
+			}
+			this.client.player.sendMessage(Text.literal("§6✦ Cleared MINE corner selections (Pos1 & Pos2) - Ready for Pos1!§r"), true);
+		}
+		refreshButtonLabels();
+	}
+
+	private Text getMiningModeButtonText() {
+		if (this.selectedMiningMode == MiningMode.AREA) {
+			return Text.literal("§e🔲 Area");
+		}
+		return Text.literal("§6⛏ Mode: Direct");
+	}
+
+	private Tooltip getMiningModeTooltip() {
+		if (this.selectedMiningMode == MiningMode.AREA) {
+			return Tooltip.of(Text.literal("§e✦ Mining Sub-Mode: Custom Area Quarry\n§7Click to switch to Direct / Structure Dismantle."));
+		}
+		return Tooltip.of(Text.literal("§6✦ Mining Sub-Mode: Direct / Structure\n§7Click to switch to Custom Area Boundary Quarry."));
+	}
+
+	public List<ButtonWidget> getBlueprintDeleteButtons() {
+		return this.blueprintDeleteButtons;
+	}
+
+	public ConfirmationType getPendingConfirmation() {
+		return this.pendingConfirmation;
+	}
+
+	public StructureBlueprint getPendingBlueprintToDelete() {
+		return this.pendingBlueprintToDelete;
+	}
+
+	public void openCaptureModal() {
+		if (this.client != null) {
+			this.client.setScreen(new BlueprintCaptureModalScreen(this.scepterStack, this));
+		}
+	}
+
+	public void clearCornersGui() {
+		ClientDesignCaptureTracker.clear();
+		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+			CommandScepterItem.clearDesignCorners(this.scepterStack);
+		}
+		if (this.client != null && this.client.player != null) {
+			ItemStack held = CommandScepterItem.getHeldScepter(this.client.player);
+			if (!held.isEmpty()) {
+				CommandScepterItem.clearDesignCorners(held);
+			}
+			this.client.player.sendMessage(Text.literal("§6✦ Cleared DESIGN corner selections (Pos1 & Pos2) - Ready for Pos1!§r"), true);
+		}
+		refreshButtonLabels();
+	}
+
+	public void requestDeleteBlueprintConfirmation(StructureBlueprint bp) {
+		if (bp == null) return;
+		this.pendingBlueprintToDelete = bp;
+		this.pendingConfirmation = ConfirmationType.DELETE_BLUEPRINT;
+		updateConfirmationControls();
+	}
+
+	public void confirmDeleteCustomBlueprint() {
+		if (this.pendingBlueprintToDelete != null) {
+			String id = this.pendingBlueprintToDelete.getId();
+			try {
+				ModClientNetworking.sendDeleteCustomBlueprint(id);
+			} catch (Throwable ignored) {}
+			BlueprintRegistry.unregisterCustomBlueprint(id);
+
+			if (this.client != null && this.client.player != null && this.client.world != null) {
+				this.client.world.playSound(
+					null,
+					this.client.player.getX(),
+					this.client.player.getY(),
+					this.client.player.getZ(),
+					SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(),
+					SoundCategory.PLAYERS,
+					0.9F,
+					0.8F
+				);
+				this.client.player.sendMessage(Text.literal("§c✦ Deleted Custom Blueprint: §f" + id + "§r"), true);
+			}
+
+			if (id.equalsIgnoreCase(this.selectedBlueprintId)) {
+				Collection<StructureBlueprint> all = BlueprintRegistry.getAll();
+				if (!all.isEmpty()) {
+					this.selectedBlueprintId = all.iterator().next().getId();
+				} else {
+					this.selectedBlueprintId = "";
+				}
+				if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+					CommandScepterItem.setBlueprintId(this.scepterStack, this.selectedBlueprintId);
+				}
+				syncToServer(false);
+			}
+		}
+		cancelConfirmation();
+		refreshButtonLabels();
+	}
+
+	public void requestDismissMinionsConfirmation() {
+		if (this.nearbyThralls <= 0) return;
+		this.pendingConfirmation = ConfirmationType.DISMISS_MINIONS;
+		updateConfirmationControls();
+	}
+
+	public void confirmDismissSelectedMinions() {
+		try {
+			ModClientNetworking.sendDismissSelectedMinions();
+		} catch (Throwable ignored) {}
+		cancelConfirmation();
+		this.close();
+	}
+
+	public void confirmDismissAllMinions() {
+		try {
+			ModClientNetworking.sendDismissAllMinions();
+		} catch (Throwable ignored) {}
+		cancelConfirmation();
+		this.close();
+	}
+
+	public void cancelConfirmation() {
+		this.pendingConfirmation = ConfirmationType.NONE;
+		this.pendingBlueprintToDelete = null;
+		updateConfirmationControls();
+	}
+
+	public void updateConfirmationControls() {
+		boolean isConfirming = this.pendingConfirmation != ConfirmationType.NONE;
+
+		for (ButtonWidget b : this.squadButtons) b.active = !isConfirming;
+		for (ButtonWidget b : this.roleButtons) b.active = !isConfirming;
+		for (ButtonWidget b : this.modeButtons) b.active = !isConfirming;
+		for (ButtonWidget b : this.blueprintButtons) b.active = !isConfirming;
+		for (ButtonWidget b : this.blueprintDeleteButtons) b.active = !isConfirming;
+		for (ButtonWidget b : this.pathwayWidgets) b.active = !isConfirming;
+		if (this.rotateBtn != null) this.rotateBtn.active = !isConfirming;
+		if (this.captureModalBtn != null) this.captureModalBtn.active = !isConfirming;
+		if (this.clearCornersBtn != null) this.clearCornersBtn.active = !isConfirming;
+		if (this.miningModeBtn != null) this.miningModeBtn.active = !isConfirming;
+		if (this.miningConfirmModalBtn != null) this.miningConfirmModalBtn.active = !isConfirming;
+		if (this.clearMineCornersBtn != null) this.clearMineCornersBtn.active = !isConfirming;
+		if (this.prevPageBtn != null) this.prevPageBtn.active = !isConfirming && this.blueprintPage > 0;
+		if (this.nextPageBtn != null) this.nextPageBtn.active = !isConfirming;
+
+		int modalW = 240;
+		int modalH = 110;
+		int modalX = (this.width - modalW) / 2;
+		int modalBtnY = (this.height - modalH) / 2 + modalH - 28;
+
+		if (this.confirmDeleteBpBtn != null) {
+			this.confirmDeleteBpBtn.visible = (this.pendingConfirmation == ConfirmationType.DELETE_BLUEPRINT);
+			this.confirmDeleteBpBtn.active = this.confirmDeleteBpBtn.visible;
+			this.confirmDeleteBpBtn.setPosition(modalX + 24, modalBtnY);
+			this.confirmDeleteBpBtn.setWidth(90);
+		}
+		if (this.confirmDismissSelectedBtn != null) {
+			boolean showSelected = (this.pendingConfirmation == ConfirmationType.DISMISS_MINIONS && this.nearbySelectedThralls > 0);
+			this.confirmDismissSelectedBtn.visible = showSelected;
+			this.confirmDismissSelectedBtn.active = showSelected;
+			if (showSelected) {
+				this.confirmDismissSelectedBtn.setMessage(Text.literal("§6Selected (" + this.nearbySelectedThralls + ")"));
+				this.confirmDismissSelectedBtn.setPosition(modalX + 10, modalBtnY);
+				this.confirmDismissSelectedBtn.setWidth(78);
+			}
+		}
+		if (this.confirmDismissAllBtn != null) {
+			boolean showAll = (this.pendingConfirmation == ConfirmationType.DISMISS_MINIONS);
+			this.confirmDismissAllBtn.visible = showAll;
+			this.confirmDismissAllBtn.active = showAll;
+			if (showAll) {
+				this.confirmDismissAllBtn.setMessage(Text.literal("§cAll (" + this.nearbyThralls + ")"));
+				if (this.nearbySelectedThralls > 0) {
+					this.confirmDismissAllBtn.setPosition(modalX + 92, modalBtnY);
+					this.confirmDismissAllBtn.setWidth(70);
+				} else {
+					this.confirmDismissAllBtn.setPosition(modalX + 34, modalBtnY);
+					this.confirmDismissAllBtn.setWidth(94);
+				}
+			}
+		}
+		if (this.cancelModalBtn != null) {
+			this.cancelModalBtn.visible = isConfirming;
+			this.cancelModalBtn.active = isConfirming;
+			if (this.pendingConfirmation == ConfirmationType.DELETE_BLUEPRINT) {
+				this.cancelModalBtn.setPosition(modalX + 126, modalBtnY);
+				this.cancelModalBtn.setWidth(90);
+			} else if (this.nearbySelectedThralls > 0) {
+				this.cancelModalBtn.setPosition(modalX + 166, modalBtnY);
+				this.cancelModalBtn.setWidth(64);
+			} else {
+				this.cancelModalBtn.setPosition(modalX + 134, modalBtnY);
+				this.cancelModalBtn.setWidth(72);
+			}
+		}
 	}
 
 	public int getSelectedRotation() {
@@ -754,18 +1155,23 @@ public class CommandScepterScreen extends Screen {
 	}
 
 	private Text getRotateButtonText() {
-		int degrees = this.selectedRotation * 90;
 		String dir = switch (this.selectedRotation) {
 			case 1 -> "East";
 			case 2 -> "South";
 			case 3 -> "West";
 			default -> "North";
 		};
-		return Text.literal("§6↻ Rotate: §b" + degrees + "° §7(" + dir + ")");
+		return Text.literal("§6↻ Rotate: §b" + (this.selectedRotation * 90) + "° §7(" + dir + ")");
 	}
 
 	private void selectMode(CommandMode mode) {
 		this.selectedMode = mode;
+		if (mode == CommandMode.PATHWAY) {
+			this.activePatrolRouteId = 0;
+			if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
+				CommandScepterItem.setActivePatrolRoute(this.scepterStack, 0);
+			}
+		}
 		if (this.scepterStack != null && !this.scepterStack.isEmpty()) {
 			CommandScepterItem.setMode(this.scepterStack, mode);
 		}
@@ -785,25 +1191,24 @@ public class CommandScepterScreen extends Screen {
 
 	private void executeDirective() {
 		syncToServer(true);
-		this.close();
+		this.closed = true;
+		if (this.client != null) {
+			super.close();
+		}
 	}
 
 	private void syncToServer(boolean executeDirective) {
 		try {
-			int rotation = this.selectedRotation;
 			ModClientNetworking.sendUpdateScepter(
 				this.selectedMode,
 				this.selectedBlueprintId,
 				this.selectedSquad,
-				rotation,
+				this.selectedRotation,
 				Optional.ofNullable(this.selectedRole),
-				executeDirective,
-				this.selectedStyle,
-				this.selectedSize
+				this.activePatrolRouteId,
+				executeDirective
 			);
-		} catch (Throwable ignored) {
-			// Graceful fallback in headless or uninitialized test environments
-		}
+		} catch (Throwable ignored) {}
 	}
 
 	public void refreshButtonLabels() {
@@ -819,19 +1224,17 @@ public class CommandScepterScreen extends Screen {
 			this.roleButtons.get(i).setTooltip(getRoleTooltip(roles[i]));
 		}
 
-		ArchitectureStyle[] styles = ArchitectureStyle.values();
-		for (int i = 0; i < styles.length && i < this.architectureButtons.size(); i++) {
-			this.architectureButtons.get(i).setMessage(getStyleButtonText(styles[i]));
-			this.architectureButtons.get(i).setTooltip(getStyleTooltip(styles[i]));
-		}
-
-		for (int i = 0; i < this.sizeButtons.size(); i++) {
-			this.sizeButtons.get(i).setMessage(getSizeButtonText(i));
-			this.sizeButtons.get(i).setTooltip(getSizeTooltip(i));
-		}
-
 		if (this.rotateBtn != null) {
 			this.rotateBtn.setMessage(getRotateButtonText());
+		}
+
+		if (this.miningModeBtn != null) {
+			int startX = (this.width - WINDOW_WIDTH) / 2;
+			int pageControlsY = (this.height - WINDOW_HEIGHT) / 2 + 226;
+			this.miningModeBtn.setWidth(this.selectedMiningMode == MiningMode.AREA ? 44 : 142);
+			this.miningModeBtn.setPosition(startX + 16, pageControlsY);
+			this.miningModeBtn.setMessage(getMiningModeButtonText());
+			this.miningModeBtn.setTooltip(getMiningModeTooltip());
 		}
 
 		CommandMode[] modes = CommandMode.values();
@@ -839,29 +1242,105 @@ public class CommandScepterScreen extends Screen {
 			this.modeButtons.get(i).setMessage(getModeButtonText(modes[i]));
 		}
 
-		for (int i = 0; i < com.example.patrol.PatrolRoute.CHANNEL_COUNT; i++) {
-			int baseIdx = i * 3;
-			if (baseIdx + 2 < this.pathwayWidgets.size()) {
-				this.pathwayWidgets.get(baseIdx).setMessage(getRouteChannelButtonText(i));
-				this.pathwayWidgets.get(baseIdx).setTooltip(getRouteChannelTooltip(i));
-				this.pathwayWidgets.get(baseIdx + 1).setMessage(getRouteModeButtonText(i));
-				this.pathwayWidgets.get(baseIdx + 1).setTooltip(getRouteModeTooltip(i));
-			}
-		}
-
 		if (!this.blueprintButtons.isEmpty()) {
 			updateBlueprintButtons();
 		}
+		updatePathwayButtons();
+
 		updateControlsVisibility();
 	}
 
-	private void updateBlueprintButtons() {
-		if (this.blueprintButtons.isEmpty()) {
+	private void updatePathwayButtons() {
+		boolean isPathway = this.selectedMode == CommandMode.PATHWAY;
+		if (!isPathway) {
+			for (ButtonWidget btn : this.pathwayWidgets) {
+				btn.visible = false;
+				btn.active = false;
+			}
 			return;
 		}
+
+		List<com.example.patrol.PatrolRoute> routes = com.example.client.renderer.ClientPatrolRouteTracker.getAllRoutesList();
+		if (routes.isEmpty()) {
+			routes = List.of(com.example.patrol.PatrolRoute.createDefault(0));
+		}
+		int totalPages = Math.max(1, (routes.size() + PATHWAY_PAGE_SIZE - 1) / PATHWAY_PAGE_SIZE);
+		if (this.pathwayPage >= totalPages) {
+			this.pathwayPage = totalPages - 1;
+		}
+		if (this.pathwayPage < 0) {
+			this.pathwayPage = 0;
+		}
+
+		for (int slot = 0; slot < PATHWAY_PAGE_SIZE; slot++) {
+			int index = this.pathwayPage * PATHWAY_PAGE_SIZE + slot;
+			boolean hasRoute = index < routes.size();
+
+			ButtonWidget selectBtn = slot < this.pathwaySelectButtons.size() ? this.pathwaySelectButtons.get(slot) : null;
+			ButtonWidget modeBtn = slot < this.pathwayModeButtons.size() ? this.pathwayModeButtons.get(slot) : null;
+			ButtonWidget editBtn = slot < this.pathwayEditButtons.size() ? this.pathwayEditButtons.get(slot) : null;
+			ButtonWidget clearBtn = slot < this.pathwayClearButtons.size() ? this.pathwayClearButtons.get(slot) : null;
+			ButtonWidget delBtn = slot < this.pathwayDeleteButtons.size() ? this.pathwayDeleteButtons.get(slot) : null;
+
+			if (hasRoute) {
+				com.example.patrol.PatrolRoute r = routes.get(index);
+				if (selectBtn != null) {
+					selectBtn.visible = true;
+					selectBtn.active = (this.pendingConfirmation == ConfirmationType.NONE);
+					selectBtn.setMessage(getRouteChannelButtonText(r));
+					selectBtn.setTooltip(getRouteChannelTooltip(r));
+				}
+				if (modeBtn != null) {
+					modeBtn.visible = true;
+					modeBtn.active = (this.pendingConfirmation == ConfirmationType.NONE);
+					modeBtn.setMessage(getRouteModeButtonText(r));
+					modeBtn.setTooltip(getRouteModeTooltip(r));
+				}
+				if (editBtn != null) {
+					editBtn.visible = true;
+					editBtn.active = (this.pendingConfirmation == ConfirmationType.NONE);
+				}
+				if (clearBtn != null) {
+					clearBtn.visible = true;
+					clearBtn.active = (this.pendingConfirmation == ConfirmationType.NONE);
+				}
+				if (delBtn != null) {
+					delBtn.visible = true;
+					delBtn.active = (this.pendingConfirmation == ConfirmationType.NONE) && (routes.size() > 1);
+				}
+			} else {
+				if (selectBtn != null) { selectBtn.visible = false; selectBtn.active = false; }
+				if (modeBtn != null) { modeBtn.visible = false; modeBtn.active = false; }
+				if (editBtn != null) { editBtn.visible = false; editBtn.active = false; }
+				if (clearBtn != null) { clearBtn.visible = false; clearBtn.active = false; }
+				if (delBtn != null) { delBtn.visible = false; delBtn.active = false; }
+			}
+		}
+
+		if (this.prevPathwayPageBtn != null) {
+			this.prevPathwayPageBtn.visible = true;
+			this.prevPathwayPageBtn.active = (this.pendingConfirmation == ConfirmationType.NONE) && this.pathwayPage > 0;
+		}
+		if (this.nextPathwayPageBtn != null) {
+			this.nextPathwayPageBtn.visible = true;
+			this.nextPathwayPageBtn.active = (this.pendingConfirmation == ConfirmationType.NONE) && (this.pathwayPage + 1) < totalPages;
+		}
+		if (this.addRouteBtn != null) {
+			this.addRouteBtn.visible = true;
+			this.addRouteBtn.active = (this.pendingConfirmation == ConfirmationType.NONE);
+		}
+	}
+
+	private void updateBlueprintButtons() {
+		if (this.blueprintButtons.isEmpty()) return;
+
 		boolean isPathway = this.selectedMode == CommandMode.PATHWAY;
 		if (isPathway) {
 			for (ButtonWidget btn : this.blueprintButtons) {
+				btn.visible = false;
+				btn.active = false;
+			}
+			for (ButtonWidget btn : this.blueprintDeleteButtons) {
 				btn.visible = false;
 				btn.active = false;
 			}
@@ -878,6 +1357,7 @@ public class CommandScepterScreen extends Screen {
 
 		List<StructureBlueprint> blueprints = new ArrayList<>(BlueprintRegistry.getAll());
 		int totalPages = Math.max(1, (blueprints.size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
+
 		if (this.blueprintPage >= totalPages) {
 			this.blueprintPage = totalPages - 1;
 		}
@@ -888,30 +1368,47 @@ public class CommandScepterScreen extends Screen {
 		for (int slot = 0; slot < BLUEPRINT_PAGE_SIZE && slot < this.blueprintButtons.size(); slot++) {
 			int index = this.blueprintPage * BLUEPRINT_PAGE_SIZE + slot;
 			ButtonWidget btn = this.blueprintButtons.get(slot);
+			ButtonWidget delBtn = slot < this.blueprintDeleteButtons.size() ? this.blueprintDeleteButtons.get(slot) : null;
+
 			if (index < blueprints.size()) {
 				StructureBlueprint bp = blueprints.get(index);
+				boolean isCustom = BlueprintRegistry.isCustom(bp.getId());
 				btn.visible = true;
-				btn.active = true;
+				btn.active = (this.pendingConfirmation == ConfirmationType.NONE);
+				btn.setWidth(isCustom ? 134 : 160);
 				btn.setMessage(getBlueprintButtonText(bp));
+
+				if (delBtn != null) {
+					delBtn.visible = isCustom;
+					delBtn.active = isCustom && (this.pendingConfirmation == ConfirmationType.NONE);
+				}
 			} else {
 				btn.visible = false;
 				btn.active = false;
+				if (delBtn != null) {
+					delBtn.visible = false;
+					delBtn.active = false;
+				}
 			}
 		}
 
 		if (this.prevPageBtn != null) {
 			this.prevPageBtn.visible = true;
-			this.prevPageBtn.active = this.blueprintPage > 0;
+			this.prevPageBtn.active = (this.pendingConfirmation == ConfirmationType.NONE) && this.blueprintPage > 0;
 		}
 		if (this.nextPageBtn != null) {
 			this.nextPageBtn.visible = true;
-			this.nextPageBtn.active = (this.blueprintPage + 1) < totalPages;
+			this.nextPageBtn.active = (this.pendingConfirmation == ConfirmationType.NONE) && (this.blueprintPage + 1) < totalPages;
 		}
 	}
 
 	@Override
+	protected void applyBlur(float delta) {
+		// Disable background world blur post-processing shader while keeping screen darkening and UI elements crisp
+	}
+
+	@Override
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		// Zero-latency release transition check: clear open-state guard as soon as physical shift is released
 		if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
 			this.shiftHeldOnOpen = false;
 		}
@@ -921,144 +1418,106 @@ public class CommandScepterScreen extends Screen {
 		int startX = (this.width - WINDOW_WIDTH) / 2;
 		int startY = (this.height - WINDOW_HEIGHT) / 2;
 
-		// Main window modal background
+		// Main background plate with gold border
 		context.fill(startX, startY, startX + WINDOW_WIDTH, startY + WINDOW_HEIGHT, 0xEE111822);
 		context.drawBorder(startX, startY, WINDOW_WIDTH, WINDOW_HEIGHT, 0xFFE2B007);
 
-		// Header bar
+		// Header Plate
 		context.fill(startX + 1, startY + 1, startX + WINDOW_WIDTH - 1, startY + 30, 0xDD1B2A3A);
 		context.drawCenteredTextWithShadow(
 			this.textRenderer,
-			Text.literal("§6✦ LOKI COMMAND HUB ✦"),
+			Text.literal("§6✦ SOVEREIGN COMMAND HUB ✦"),
 			this.width / 2,
 			startY + 6,
 			0xFFFFFF
 		);
 
-		// Subtle header UX indicator for Shift-to-close fast exit
 		Text shiftCloseText = Text.literal("§e[Shift] §7Close");
-		int shiftCloseWidth = this.textRenderer.getWidth(shiftCloseText);
-		context.drawTextWithShadow(this.textRenderer, shiftCloseText, startX + WINDOW_WIDTH - shiftCloseWidth - 10, startY + 6, 0xE0E0E0);
+		context.drawTextWithShadow(
+			this.textRenderer,
+			shiftCloseText,
+			startX + WINDOW_WIDTH - this.textRenderer.getWidth(shiftCloseText) - 10,
+			startY + 6,
+			0xE0E0E0
+		);
 
-		// Subheader: Nearby thrall statistics & active squad channel
-		String thrallColor = this.nearbyThralls > 0 ? "§a" : "§c";
-		String selectedColor = this.nearbySelectedThralls > 0 ? "§e" : "§7";
 		context.drawCenteredTextWithShadow(
 			this.textRenderer,
-			Text.literal("§7Thralls: " + thrallColor + this.nearbyThralls + " §8| §7Selected: " + selectedColor + this.nearbySelectedThralls + " §8| §7Channel: " + this.selectedSquad.getFormattedName()),
+			Text.literal("§7Thralls: " + (this.nearbyThralls > 0 ? "§a" : "§c") + this.nearbyThralls +
+				" §8| §7Selected: " + (this.nearbySelectedThralls > 0 ? "§e" : "§7") + this.nearbySelectedThralls +
+				" §8| §7Channel: " + this.selectedSquad.getFormattedName()),
 			this.width / 2,
 			startY + 18,
 			0xAAAAAA
 		);
 
-		// Squad bar label
-		context.drawTextWithShadow(
-			this.textRenderer,
-			Text.literal("§eTarget Squad Channel:"),
-			startX + 16,
-			startY + 35,
-			0xFFD700
-		);
+		// Section: Squad Channel Bar
+		context.drawTextWithShadow(this.textRenderer, Text.literal("§eTarget Squad Channel:"), startX + 16, startY + 35, 0xFFD700);
 
-		// Active squad indicator underline
 		int selectedSquadIndex = this.selectedSquad.ordinal();
 		SquadGroup[] squads = SquadGroup.values();
 		if (selectedSquadIndex >= 0 && selectedSquadIndex < squads.length) {
-			int squadStartX = startX + 15;
-			int squadBtnWidth = 58;
-			int squadGap = 5;
-			int squadY = startY + 46;
-			int indX = squadStartX + selectedSquadIndex * (squadBtnWidth + squadGap);
-			int indicatorColor = this.selectedSquad.getFormatting().getColorValue() != null
-				? (0xFF000000 | this.selectedSquad.getFormatting().getColorValue())
-				: 0xFFFFD700;
-			context.fill(indX, squadY + 20, indX + squadBtnWidth, squadY + 22, indicatorColor);
+			int indX = startX + 15 + selectedSquadIndex * 63;
+			Integer colorVal = this.selectedSquad.getFormatting().getColorValue();
+			int barColor = colorVal != null ? (0xFF000000 | colorVal) : 0xFFFFD700;
+			context.fill(indX, startY + 66, indX + 58, startY + 68, barColor);
 		}
 
+		// Section: Mode-specific Sub-header (Architecture Style or Mass Role Archetype or Design or Mining)
 		if (this.selectedMode == CommandMode.BUILD) {
-			// Architecture Style Bar label
-			context.drawTextWithShadow(
-				this.textRenderer,
-				Text.literal("§bArchitecture Style: " + this.selectedStyle.getFormattedName()),
-				startX + 16,
-				startY + 69,
-				0x55FFFF
-			);
-
-			// Active style indicator underline
-			int selectedStyleIndex = this.selectedStyle.ordinal();
-			ArchitectureStyle[] styles = ArchitectureStyle.values();
-			if (selectedStyleIndex >= 0 && selectedStyleIndex < styles.length) {
-				int styleStartX = startX + 17;
-				int styleBtnWidth = 72;
-				int styleGap = 6;
-				int styleY = startY + 80;
-				int indX = styleStartX + selectedStyleIndex * (styleBtnWidth + styleGap);
-				int indicatorColor = this.selectedStyle.getFormatting().getColorValue() != null
-					? (0xFF000000 | this.selectedStyle.getFormatting().getColorValue())
-					: 0xFF55FFFF;
-				context.fill(indX, styleY + 20, indX + styleBtnWidth, styleY + 22, indicatorColor);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§b✦ Active Blueprint Construction Directives"), startX + 16, startY + 69, 0x55FFFF);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§7Constructs 100% exact captured blocks - zero substitutions."), startX + 16, startY + 84, 0xAAAAAA);
+		} else if (this.selectedMode == CommandMode.DESIGN) {
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§d✦ In-World Spatial Design Studio"), startX + 16, startY + 69, 0xFF55FF);
+			BlockPos p1 = ClientDesignCaptureTracker.getPos1();
+			BlockPos p2 = ClientDesignCaptureTracker.getPos2();
+			String p1Str = p1 != null ? ("[" + p1.getX() + "," + p1.getY() + "," + p1.getZ() + "]") : "Not Set";
+			String p2Str = p2 != null ? ("[" + p2.getX() + "," + p2.getY() + "," + p2.getZ() + "]") : "Not Set";
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§7Pos1: §f" + p1Str + "  §7Pos2: §f" + p2Str + " §8(L-Click Step, R-Click Save)"), startX + 16, startY + 84, 0xAAAAAA);
+		} else if (this.selectedMode == CommandMode.MINE) {
+			if (this.selectedMiningMode == MiningMode.DIRECT) {
+				context.drawTextWithShadow(this.textRenderer, Text.literal("§6✦ Direct / Structure Mining Mode"), startX + 16, startY + 69, 0xFFA500);
+				context.drawTextWithShadow(this.textRenderer, Text.literal("§7Point & right-click to dismantle targeted structures."), startX + 16, startY + 84, 0xAAAAAA);
+			} else {
+				context.drawTextWithShadow(this.textRenderer, Text.literal("§e✦ Custom Area Boundary Quarry"), startX + 16, startY + 69, 0xFFFF55);
+				BlockPos p1 = ClientMiningCaptureTracker.getPos1();
+				BlockPos p2 = ClientMiningCaptureTracker.getPos2();
+				String p1Str = p1 != null ? ("[" + p1.getX() + "," + p1.getY() + "," + p1.getZ() + "]") : "Not Set";
+				String p2Str = p2 != null ? ("[" + p2.getX() + "," + p2.getY() + "," + p2.getZ() + "]") : "Not Set";
+				context.drawTextWithShadow(this.textRenderer, Text.literal("§7Pos1: §f" + p1Str + "  §7Pos2: §f" + p2Str + " §8(L-Click Step, R-Click Confirm)"), startX + 16, startY + 84, 0xAAAAAA);
 			}
 		} else {
-			// Mass Role Archetype Bar label
 			String roleLabelSuffix = this.selectedRole != null
 				? " " + this.selectedRole.getFormattedName() + " §8(Rally Transform)"
 				: " §7[None]";
-			context.drawTextWithShadow(
-				this.textRenderer,
-				Text.literal("§eMass Role Archetype:" + roleLabelSuffix),
-				startX + 16,
-				startY + 69,
-				0xFFD700
-			);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§eMass Role Archetype:" + roleLabelSuffix), startX + 16, startY + 69, 0xFFD700);
 
-			// Active role indicator underline
 			if (this.selectedRole != null) {
 				int selectedRoleIndex = this.selectedRole.ordinal();
 				MinionRole[] roles = MinionRole.values();
 				if (selectedRoleIndex >= 0 && selectedRoleIndex < roles.length) {
-					int roleStartX = startX + 17;
-					int roleBtnWidth = 72;
-					int roleGap = 6;
-					int roleY = startY + 80;
-					int indX = roleStartX + selectedRoleIndex * (roleBtnWidth + roleGap);
-					int indicatorColor = this.selectedRole.getFormatting().getColorValue() != null
-						? (0xFF000000 | this.selectedRole.getFormatting().getColorValue())
-						: 0xFFFFD700;
-					context.fill(indX, roleY + 20, indX + roleBtnWidth, roleY + 22, indicatorColor);
+					int indX = startX + 17 + selectedRoleIndex * 78;
+					Integer colorVal = this.selectedRole.getFormatting().getColorValue();
+					int barColor = colorVal != null ? (0xFF000000 | colorVal) : 0xFFFFD700;
+					context.fill(indX, startY + 100, indX + 72, startY + 102, barColor);
 				}
 			}
 		}
 
-		// Section headers
-		context.drawTextWithShadow(
-			this.textRenderer,
-			Text.literal("§eCommand Mode:"),
-			startX + 16,
-			startY + 106,
-			0xFFD700
-		);
+		// Section: Command Modes & Blueprint Catalog / Pathway Dashboard
+		context.drawTextWithShadow(this.textRenderer, Text.literal("§eCommand Mode:"), startX + 16, startY + 106, 0xFFD700);
 
 		if (this.selectedMode == CommandMode.PATHWAY) {
-			context.drawTextWithShadow(
-				this.textRenderer,
-				Text.literal("§d✦ Patrol Route Dashboard:"),
-				startX + 165,
-				startY + 106,
-				0xFF55FF
-			);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§d✦ Patrol Route Dashboard:"), startX + 165, startY + 106, 0xFF55FF);
 		} else {
-			context.drawTextWithShadow(
-				this.textRenderer,
-				Text.literal("§bBlueprint Catalog:"),
-				startX + 165,
-				startY + 106,
-				0x55FFFF
-			);
-
-			// Blueprint pagination indicator (only shown when not in BUILD or PATHWAY mode)
-			if (this.selectedMode != CommandMode.BUILD) {
-				int totalPages = Math.max(1, (BlueprintRegistry.getAll().size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§bBlueprint Catalog:"), startX + 165, startY + 106, 0x55FFFF);
+			Collection<StructureBlueprint> allBlueprints = BlueprintRegistry.getAll();
+			if (allBlueprints.isEmpty()) {
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§8[ No Custom Blueprints ]"), startX + 245, startY + 145, 0x888888);
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§7Switch to §dDESIGN §7mode"), startX + 245, startY + 160, 0xAAAAAA);
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§7to capture your first structure!"), startX + 245, startY + 175, 0xAAAAAA);
+			} else {
+				int totalPages = Math.max(1, (allBlueprints.size() + BLUEPRINT_PAGE_SIZE - 1) / BLUEPRINT_PAGE_SIZE);
 				context.drawCenteredTextWithShadow(
 					this.textRenderer,
 					Text.literal("§7Page §f" + (this.blueprintPage + 1) + "§7/§f" + totalPages),
@@ -1069,44 +1528,109 @@ public class CommandScepterScreen extends Screen {
 			}
 		}
 
-		// Mode Description Footer Box
-		int descY = startY + 194;
-		context.fill(startX + 14, descY, startX + 158, descY + 46, 0x880D151D);
-		context.drawBorder(startX + 14, descY, 144, 46, 0xFF3A4E63);
+		// Selected Mode Description Box
+		renderModeDescription(context, startX, startY);
+
+		super.render(context, mouseX, mouseY, delta);
+
+		// Render Confirmation Modal Overlay if active
+		if (this.pendingConfirmation != ConfirmationType.NONE) {
+			context.getMatrices().push();
+			context.getMatrices().translate(0, 0, 400.0F);
+
+			context.fill(0, 0, this.width, this.height, 0xAA080C12);
+
+			int modalW = 240;
+			int modalH = 110;
+			int modalX = (this.width - modalW) / 2;
+			int modalY = (this.height - modalH) / 2;
+
+			context.fill(modalX, modalY, modalX + modalW, modalY + modalH, 0xFA141E2B);
+			context.drawBorder(modalX, modalY, modalW, modalH, 0xFFE2B007);
+
+			if (this.pendingConfirmation == ConfirmationType.DELETE_BLUEPRINT && this.pendingBlueprintToDelete != null) {
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§c✦ CONFIRM DELETION ✦"), modalX + modalW / 2, modalY + 10, 0xFF5555);
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§7Delete custom blueprint:"), modalX + modalW / 2, modalY + 28, 0xAAAAAA);
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§e\"" + this.pendingBlueprintToDelete.getName() + "\""), modalX + modalW / 2, modalY + 42, 0xFFFF55);
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§8This action cannot be undone."), modalX + modalW / 2, modalY + 58, 0x888888);
+			} else if (this.pendingConfirmation == ConfirmationType.DISMISS_MINIONS) {
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§c✦ DECOMMISSION MINIONS ✦"), modalX + modalW / 2, modalY + 10, 0xFF5555);
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§7Choose scope of minions to destroy:"), modalX + modalW / 2, modalY + 28, 0xAAAAAA);
+				if (this.nearbySelectedThralls > 0) {
+					context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§eSelected: §f" + this.nearbySelectedThralls + " §8| §cTotal Nearby: §f" + this.nearbyThralls), modalX + modalW / 2, modalY + 44, 0xFFFFFF);
+				} else {
+					context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§cAll Nearby Thralls: §f" + this.nearbyThralls), modalX + modalW / 2, modalY + 44, 0xFFFFFF);
+				}
+				context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§8All dropped items will fall to the ground."), modalX + modalW / 2, modalY + 58, 0x888888);
+			}
+
+			if (this.confirmDeleteBpBtn != null && this.confirmDeleteBpBtn.visible) {
+				this.confirmDeleteBpBtn.render(context, mouseX, mouseY, delta);
+			}
+			if (this.confirmDismissSelectedBtn != null && this.confirmDismissSelectedBtn.visible) {
+				this.confirmDismissSelectedBtn.render(context, mouseX, mouseY, delta);
+			}
+			if (this.confirmDismissAllBtn != null && this.confirmDismissAllBtn.visible) {
+				this.confirmDismissAllBtn.render(context, mouseX, mouseY, delta);
+			}
+			if (this.cancelModalBtn != null && this.cancelModalBtn.visible) {
+				this.cancelModalBtn.render(context, mouseX, mouseY, delta);
+			}
+
+			context.getMatrices().pop();
+		}
+	}
+
+	private void renderModeDescription(DrawContext context, int startX, int startY) {
+		int descY = startY + 203;
+		boolean hasBottomControls = (this.selectedMode == CommandMode.BUILD || this.selectedMode == CommandMode.DESIGN || this.selectedMode == CommandMode.MINE);
+		int boxHeight = hasBottomControls ? 20 : 44;
+
+		context.fill(startX + 14, descY, startX + 158, descY + boxHeight, 0x880D151D);
+		context.drawBorder(startX + 14, descY, 144, boxHeight, 0xFF3A4E63);
 
 		String modeDesc = switch (this.selectedMode) {
 			case FOLLOW -> "§aMinions actively follow & guard master.";
 			case STAY -> "§eMinions hold positions & guard zone.";
 			case MINE -> "§6Minions harvest ores & break blocks.";
-			case BUILD -> "§bMinions erect selected blueprint.";
+			case BUILD -> "§bMinions construct selected blueprint.";
+			case DESIGN -> "§7Capture spatial volume.";
 			case RECRUIT -> "§dEnthrall living mobs into thralls.";
 			case PATHWAY -> "§3Define & patrol waypoint routes.";
 		};
 
-		context.drawTextWithShadow(
-			this.textRenderer,
-			Text.literal("§fMode: " + this.selectedMode.getFormattedName() + " §8[" + this.selectedSquad.getFormattedName() + "§8]"),
-			startX + 18,
-			descY + 6,
-			0xFFFFFF
-		);
-		if (this.selectedMode != CommandMode.BUILD) {
-			context.drawTextWithShadow(
-				this.textRenderer,
-				Text.literal(modeDesc),
-				startX + 18,
-				descY + 22,
-				0xCCCCCC
-			);
+		float scale = 0.82F;
+		int availableWidth = (int) ((144 - 8) / scale);
+
+		context.getMatrices().push();
+		context.getMatrices().translate(startX + 18, descY + 4, 0);
+
+		if (hasBottomControls) {
+			Text bannerText = Text.literal("§f" + this.selectedMode.getFormattedName() + " §8| " + modeDesc);
+			int rawWidth = this.textRenderer.getWidth(bannerText);
+			int maxBoxWidth = 144 - 8;
+			float fittedScale = (rawWidth * scale > maxBoxWidth) ? ((float) maxBoxWidth / (float) rawWidth) : scale;
+			context.getMatrices().scale(fittedScale, fittedScale, 1.0F);
+			context.drawTextWithShadow(this.textRenderer, bannerText, 0, 2, 0xFFFFFF);
+		} else {
+			context.getMatrices().scale(scale, scale, 1.0F);
+			Text titleText = Text.literal("§fMode: " + this.selectedMode.getFormattedName() + " §8[" + this.selectedSquad.getFormattedName() + "§8]");
+			context.drawTextWithShadow(this.textRenderer, titleText, 0, 0, 0xFFFFFF);
+
+			List<net.minecraft.text.OrderedText> lines = this.textRenderer.wrapLines(Text.literal(modeDesc), availableWidth);
+			int lineY = 12;
+			for (net.minecraft.text.OrderedText line : lines) {
+				context.drawTextWithShadow(this.textRenderer, line, 0, lineY, 0xCCCCCC);
+				lineY += this.textRenderer.fontHeight + 1;
+			}
 		}
 
-		super.render(context, mouseX, mouseY, delta);
+		context.getMatrices().pop();
 	}
 
 	@Override
 	public void tick() {
 		super.tick();
-		// Periodic zero-latency fallback to clear shiftHeldOnOpen
 		if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
 			this.shiftHeldOnOpen = false;
 		}
@@ -1114,40 +1638,33 @@ public class CommandScepterScreen extends Screen {
 
 	@Override
 	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-		// 1. Shift or Sneak Key handling with open-state guard
-		if (isShiftOrSneakKey(keyCode, scanCode)) {
-			if (this.shiftHeldOnOpen) {
-				// Player opened GUI via sneak-right-click and Shift is still held.
-				// Suppress immediate close and absorb GLFW key repeats.
+		if (this.pendingConfirmation != ConfirmationType.NONE) {
+			if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+				cancelConfirmation();
 				return true;
 			}
-			// Shift pressed while GUI was already open -> fast dismiss
+			return true;
+		}
+
+		if (isShiftOrSneakKey(keyCode, scanCode)) {
+			if (this.shiftHeldOnOpen) {
+				return true;
+			}
 			this.close();
 			return true;
 		}
 
-		// 2. Command Hub hotkey toggle ('V')
-		if (isCommandHubKey(keyCode, scanCode)) {
+		if (isCommandHubKey(keyCode, scanCode) || isInventoryKey(keyCode, scanCode)) {
 			this.close();
 			return true;
 		}
 
-		// 3. Inventory key toggle ('E')
-		if (isInventoryKey(keyCode, scanCode)) {
-			this.close();
-			return true;
-		}
-
-		// 4. Default key handling (handles Escape to close via Screen.keyPressed)
 		return super.keyPressed(keyCode, scanCode, modifiers);
 	}
 
 	@Override
 	public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
-		if (isShiftOrSneakKey(keyCode, scanCode)) {
-			this.shiftHeldOnOpen = false;
-		}
-		if (this.shiftHeldOnOpen && !isShiftOrSneakDown()) {
+		if (isShiftOrSneakKey(keyCode, scanCode) || !isShiftOrSneakDown()) {
 			this.shiftHeldOnOpen = false;
 		}
 		return super.keyReleased(keyCode, scanCode, modifiers);
@@ -1156,24 +1673,19 @@ public class CommandScepterScreen extends Screen {
 	@Override
 	public void close() {
 		this.closed = true;
+		syncToServer(false);
 		if (this.client != null) {
 			super.close();
 		}
 	}
 
-	/**
-	 * Checks whether Left Shift, Right Shift, or the configured sneak key is physically held down.
-	 *
-	 * @return True if a shift or sneak key is physically pressed, false otherwise.
-	 */
 	public boolean isShiftOrSneakDown() {
 		try {
 			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
 			if (mc != null && mc.getWindow() != null) {
 				long handle = mc.getWindow().getHandle();
 				if (handle != 0L) {
-					if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_LEFT_SHIFT)
-						|| InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_RIGHT_SHIFT)) {
+					if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_RIGHT_SHIFT)) {
 						return true;
 					}
 					if (mc.options != null && mc.options.sneakKey != null) {
@@ -1187,123 +1699,63 @@ public class CommandScepterScreen extends Screen {
 					}
 				}
 			}
-		} catch (Throwable ignored) {
-			// Graceful fallback for headless or uninitialized test environments
-		}
+		} catch (Throwable ignored) {}
 		return false;
 	}
 
-	/**
-	 * Checks if the given GLFW keycode / scancode corresponds to Shift or the player's configured sneak key.
-	 *
-	 * @param keyCode GLFW keycode.
-	 * @param scanCode Physical scancode.
-	 * @return True if matching Left/Right Shift or Sneak.
-	 */
 	public boolean isShiftOrSneakKey(int keyCode, int scanCode) {
 		if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT || keyCode == GLFW.GLFW_KEY_RIGHT_SHIFT) {
 			return true;
 		}
 		try {
 			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
-			if (mc != null && mc.options != null && mc.options.sneakKey != null) {
-				if (mc.options.sneakKey.matchesKey(keyCode, scanCode)) {
-					return true;
-				}
+			if (mc != null && mc.options != null && mc.options.sneakKey != null && mc.options.sneakKey.matchesKey(keyCode, scanCode)) {
+				return true;
 			}
-		} catch (Throwable ignored) {
-		}
+		} catch (Throwable ignored) {}
 		return false;
 	}
 
-	/**
-	 * Checks if the given GLFW keycode / scancode corresponds to the Command Hub toggle key (default 'V').
-	 *
-	 * @param keyCode GLFW keycode.
-	 * @param scanCode Physical scancode.
-	 * @return True if matching Command Hub keybinding or GLFW_KEY_V.
-	 */
 	public boolean isCommandHubKey(int keyCode, int scanCode) {
 		try {
 			if (ExampleModClient.commandHubKey != null && ExampleModClient.commandHubKey.matchesKey(keyCode, scanCode)) {
 				return true;
 			}
-		} catch (Throwable ignored) {
-		}
+		} catch (Throwable ignored) {}
 		return keyCode == GLFW.GLFW_KEY_V;
 	}
 
-	/**
-	 * Checks if the given GLFW keycode / scancode corresponds to the Inventory key (default 'E').
-	 *
-	 * @param keyCode GLFW keycode.
-	 * @param scanCode Physical scancode.
-	 * @return True if matching inventory keybinding or GLFW_KEY_E.
-	 */
 	public boolean isInventoryKey(int keyCode, int scanCode) {
 		try {
 			MinecraftClient mc = this.client != null ? this.client : MinecraftClient.getInstance();
-			if (mc != null && mc.options != null && mc.options.inventoryKey != null) {
-				if (mc.options.inventoryKey.matchesKey(keyCode, scanCode)) {
-					return true;
-				}
+			if (mc != null && mc.options != null && mc.options.inventoryKey != null && mc.options.inventoryKey.matchesKey(keyCode, scanCode)) {
+				return true;
 			}
-		} catch (Throwable ignored) {
-		}
+		} catch (Throwable ignored) {}
 		return keyCode == GLFW.GLFW_KEY_E;
 	}
 
-	/**
-	 * Returns whether Shift was held down when this screen was first opened.
-	 *
-	 * @return True if Shift was held during screen opening, suppressing immediate closure.
-	 */
 	public boolean isShiftHeldOnOpen() {
 		return this.shiftHeldOnOpen;
 	}
 
-	/**
-	 * Sets the open-state guard flag for Shift and marks initialization complete.
-	 *
-	 * @param shiftHeldOnOpen Whether Shift should be treated as held on screen opening.
-	 */
 	public void setShiftHeldOnOpen(boolean shiftHeldOnOpen) {
 		this.shiftHeldOnOpen = shiftHeldOnOpen;
 		this.initializedOpenState = true;
 	}
 
-	/**
-	 * Returns whether this screen has been closed.
-	 *
-	 * @return True if {@link #close()} has been invoked.
-	 */
 	public boolean isClosed() {
 		return this.closed;
 	}
 
-	/**
-	 * Manually sets the closed state of this screen.
-	 *
-	 * @param closed True to mark the screen as closed.
-	 */
 	public void setClosed(boolean closed) {
 		this.closed = closed;
 	}
 
-	/**
-	 * Returns whether the screen's initial opening state has been captured.
-	 *
-	 * @return True if open-state guard has run once.
-	 */
 	public boolean isInitializedOpenState() {
 		return this.initializedOpenState;
 	}
 
-	/**
-	 * Sets whether the screen's initial opening state has been captured.
-	 *
-	 * @param initializedOpenState True if open-state initialization has completed.
-	 */
 	public void setInitializedOpenState(boolean initializedOpenState) {
 		this.initializedOpenState = initializedOpenState;
 	}
