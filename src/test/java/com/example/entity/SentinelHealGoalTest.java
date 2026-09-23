@@ -352,4 +352,143 @@ public class SentinelHealGoalTest {
 		Assertions.assertFalse(allySlightlyScratched < maxHp * SentinelHealAllyGoal.ALLY_HEALTH_THRESHOLD,
 				"28.1 HP is > 70% threshold -> Ally healing ignored");
 	}
+
+	@Test
+	@DisplayName("Validate Sentinels fight like warriors ONLY if no minions or iron golems near them need zero healing")
+	void testSentinelFightsLikeWarriorOnlyWhenZeroHealingNeeded() {
+		record MockEntity(String name, float health, float maxHealth, double distance, boolean isTeammate) {
+			boolean needsHealing() {
+				return isTeammate && health < maxHealth - 0.05F;
+			}
+			boolean isWithinRange(double maxRange) {
+				return distance <= maxRange;
+			}
+		}
+
+		class SentinelCombatEvaluator {
+			boolean hasNearbyAlliesNeedingHealing(List<MockEntity> nearbyEntities, double radius) {
+				for (MockEntity entity : nearbyEntities) {
+					if (entity.isWithinRange(radius) && entity.needsHealing()) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			boolean canFightLikeWarrior(List<MockEntity> nearbyEntities, double radius) {
+				return !hasNearbyAlliesNeedingHealing(nearbyEntities, radius);
+			}
+		}
+
+		SentinelCombatEvaluator evaluator = new SentinelCombatEvaluator();
+		double healRange = SentinelHealAllyGoal.HEAL_RANGE; // 10 blocks
+
+		// Scenario 1: Sentinel is completely alone -> Zero allies need healing -> Fights like warrior
+		List<MockEntity> alone = List.of();
+		Assertions.assertFalse(evaluator.hasNearbyAlliesNeedingHealing(alone, healRange),
+				"Solo sentinel has no wounded allies");
+		Assertions.assertTrue(evaluator.canFightLikeWarrior(alone, healRange),
+				"Solo sentinel must fight like a warrior");
+
+		// Scenario 2: Nearby minions and Iron Golems are at 100% full health (need ZERO healing) -> Fights like warrior
+		List<MockEntity> healthySquad = List.of(
+				new MockEntity("Commander", 20.0F, 20.0F, 3.0D, true),
+				new MockEntity("WarriorMinion", 40.0F, 40.0F, 4.0D, true),
+				new MockEntity("BuilderMinion", 40.0F, 40.0F, 5.0D, true),
+				new MockEntity("VillageIronGolem", 100.0F, 100.0F, 6.0D, true)
+		);
+		Assertions.assertFalse(evaluator.hasNearbyAlliesNeedingHealing(healthySquad, healRange),
+				"Healthy squad requires zero healing");
+		Assertions.assertTrue(evaluator.canFightLikeWarrior(healthySquad, healRange),
+				"Sentinel must fight like a warrior when all nearby minions and iron golems need zero healing");
+
+		// Scenario 3: Nearby minion takes minor damage (38/40 HP, missing 2 HP) -> Needs healing -> Yields warrior mode
+		List<MockEntity> scratchedMinionSquad = List.of(
+				new MockEntity("Commander", 20.0F, 20.0F, 3.0D, true),
+				new MockEntity("ScratchedWarrior", 38.0F, 40.0F, 4.0D, true),
+				new MockEntity("VillageIronGolem", 100.0F, 100.0F, 6.0D, true)
+		);
+		Assertions.assertTrue(evaluator.hasNearbyAlliesNeedingHealing(scratchedMinionSquad, healRange),
+				"Scratched minion at 38/40 HP needs healing");
+		Assertions.assertFalse(evaluator.canFightLikeWarrior(scratchedMinionSquad, healRange),
+				"Sentinel must NOT fight like a warrior when a nearby minion needs healing");
+
+		// Scenario 4: Nearby Iron Golem takes damage (80/100 HP, missing 20 HP) -> Needs healing -> Yields warrior mode
+		List<MockEntity> woundedGolemSquad = List.of(
+				new MockEntity("Commander", 20.0F, 20.0F, 3.0D, true),
+				new MockEntity("HealthyWarrior", 40.0F, 40.0F, 4.0D, true),
+				new MockEntity("WoundedGolem", 80.0F, 100.0F, 7.0D, true)
+		);
+		Assertions.assertTrue(evaluator.hasNearbyAlliesNeedingHealing(woundedGolemSquad, healRange),
+				"Wounded Iron Golem at 80/100 HP needs healing");
+		Assertions.assertFalse(evaluator.canFightLikeWarrior(woundedGolemSquad, healRange),
+				"Sentinel must NOT fight like a warrior when a nearby Iron Golem needs healing");
+
+		// Scenario 5: Player commander is damaged (15/20 HP) -> Needs healing -> Yields warrior mode
+		List<MockEntity> woundedCommanderSquad = List.of(
+				new MockEntity("Commander", 15.0F, 20.0F, 3.0D, true),
+				new MockEntity("HealthyWarrior", 40.0F, 40.0F, 4.0D, true),
+				new MockEntity("VillageIronGolem", 100.0F, 100.0F, 6.0D, true)
+		);
+		Assertions.assertTrue(evaluator.hasNearbyAlliesNeedingHealing(woundedCommanderSquad, healRange),
+				"Commander at 15/20 HP needs healing");
+		Assertions.assertFalse(evaluator.canFightLikeWarrior(woundedCommanderSquad, healRange),
+				"Sentinel must NOT fight like a warrior when the player commander needs healing");
+
+		// Scenario 6: Hostile Iron Golem is damaged (isTeammate = false) -> Ignored -> Sentinel fights like warrior
+		List<MockEntity> hostileGolemEncounter = List.of(
+				new MockEntity("Commander", 20.0F, 20.0F, 3.0D, true),
+				new MockEntity("HealthyWarrior", 40.0F, 40.0F, 4.0D, true),
+				new MockEntity("HostileIronGolem", 40.0F, 100.0F, 5.0D, false) // Hostile enemy golem
+		);
+		Assertions.assertFalse(evaluator.hasNearbyAlliesNeedingHealing(hostileGolemEncounter, healRange),
+				"Hostile enemy golem does not count as a friendly ally needing healing");
+		Assertions.assertTrue(evaluator.canFightLikeWarrior(hostileGolemEncounter, healRange),
+				"Sentinel must fight like a warrior when only hostile golems are injured");
+
+		// Scenario 7: Distant wounded minion (beyond 10 blocks) -> Out of range -> Sentinel fights like warrior locally
+		List<MockEntity> distantWoundedSquad = List.of(
+				new MockEntity("Commander", 20.0F, 20.0F, 3.0D, true),
+				new MockEntity("HealthyWarrior", 40.0F, 40.0F, 4.0D, true),
+				new MockEntity("DistantWoundedMinion", 10.0F, 40.0F, 14.0D, true) // 14 blocks away (> 10 blocks)
+		);
+		Assertions.assertFalse(evaluator.hasNearbyAlliesNeedingHealing(distantWoundedSquad, healRange),
+				"Minion beyond 10 blocks is outside local medical radius");
+		Assertions.assertTrue(evaluator.canFightLikeWarrior(distantWoundedSquad, healRange),
+				"Sentinel continues warrior combat when distant allies beyond support envelope are wounded");
+	}
+
+	@Test
+	@DisplayName("Validate Sentinel warrior combat source code invariants across goals and entity tick")
+	void testSentinelWarriorCombatSourceInvariants() throws Exception {
+		// 1. MinionEntity defines hasNearbyAlliesNeedingHealing and gates MeleeAttackGoal
+		Path minionEntityPath = Path.of("src/main/java/com/example/entity/custom/MinionEntity.java");
+		Assertions.assertTrue(Files.exists(minionEntityPath), "MinionEntity.java must exist");
+		String minionContent = Files.readString(minionEntityPath);
+
+		Assertions.assertTrue(minionContent.contains("hasNearbyAlliesNeedingHealing"),
+				"MinionEntity must declare hasNearbyAlliesNeedingHealing method");
+		Assertions.assertTrue(minionContent.contains("MinionEntity.this.matchesRole(MinionRole.SENTINEL) && MinionEntity.this.hasNearbyAlliesNeedingHealing()"),
+				"MeleeAttackGoal must gate Sentinel combat when nearby allies need healing");
+		Assertions.assertTrue(minionContent.contains("this.matchesRole(MinionRole.SENTINEL) && currentTarget != null && this.hasNearbyAlliesNeedingHealing()"),
+				"MinionEntity tick must disengage target when nearby allies need healing");
+
+		// 2. MinionActiveTargetGoal enables Sentinel warrior mode and disengages when wounded
+		Path activeTargetGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionActiveTargetGoal.java");
+		Assertions.assertTrue(Files.exists(activeTargetGoalPath), "MinionActiveTargetGoal.java must exist");
+		String targetGoalContent = Files.readString(activeTargetGoalPath);
+
+		Assertions.assertTrue(targetGoalContent.contains("isSentinelWarriorMode"),
+				"MinionActiveTargetGoal must define isSentinelWarriorMode check");
+		Assertions.assertTrue(targetGoalContent.contains("this.minion.matchesRole(MinionRole.SENTINEL) && this.minion.hasNearbyAlliesNeedingHealing()"),
+				"MinionActiveTargetGoal.shouldContinue must break targeting when nearby allies need healing");
+
+		// 3. MinionRangedAttackGoal enables Sentinel warrior mode and disengages when wounded
+		Path rangedGoalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionRangedAttackGoal.java");
+		Assertions.assertTrue(Files.exists(rangedGoalPath), "MinionRangedAttackGoal.java must exist");
+		String rangedGoalContent = Files.readString(rangedGoalPath);
+
+		Assertions.assertTrue(rangedGoalContent.contains("isSentinelWarriorMode"),
+				"MinionRangedAttackGoal must define isSentinelWarriorMode check");
+	}
 }

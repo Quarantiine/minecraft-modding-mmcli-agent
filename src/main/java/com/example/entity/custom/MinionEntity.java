@@ -1007,6 +1007,10 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				if (MinionEntity.isRangedWeapon(held) && !MinionEntity.isMeleeWeapon(held)) {
 					return false;
 				}
+				// Sentinels fight like warriors ONLY if no minions or iron golems near them need zero healing
+				if (MinionEntity.this.matchesRole(MinionRole.SENTINEL) && MinionEntity.this.hasNearbyAlliesNeedingHealing()) {
+					return false;
+				}
 				return super.canStart();
 			}
 
@@ -1014,6 +1018,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			public boolean shouldContinue() {
 				ItemStack held = MinionEntity.this.getMainHandStack();
 				if (MinionEntity.isRangedWeapon(held) && !MinionEntity.isMeleeWeapon(held)) {
+					return false;
+				}
+				if (MinionEntity.this.matchesRole(MinionRole.SENTINEL) && MinionEntity.this.hasNearbyAlliesNeedingHealing()) {
 					return false;
 				}
 				return super.shouldContinue();
@@ -1043,6 +1050,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 						|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(MinionEntity.this)) {
 					return false;
 				}
+				if (MinionEntity.this.matchesRole(MinionRole.SENTINEL) && MinionEntity.this.hasNearbyAlliesNeedingHealing()) {
+					return false;
+				}
 				return super.canStart();
 			}
 		});
@@ -1052,6 +1062,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			public boolean canStart() {
 				if (MinionEntity.this.hasLeader() || MinionEntity.this.isActivelyBuilding()
 						|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(MinionEntity.this)) {
+					return false;
+				}
+				if (MinionEntity.this.matchesRole(MinionRole.SENTINEL) && MinionEntity.this.hasNearbyAlliesNeedingHealing()) {
 					return false;
 				}
 				return super.canStart();
@@ -1107,6 +1120,12 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			}
 
 			LivingEntity currentTarget = this.getTarget();
+
+			// Sentinels fight like warriors ONLY if no minions or iron golems near them need zero healing
+			if (this.matchesRole(MinionRole.SENTINEL) && currentTarget != null && this.hasNearbyAlliesNeedingHealing()) {
+				this.setTarget(null);
+				currentTarget = null;
+			}
 
 			// If current combat target died, was removed, or is absent, chain to next queued assault target
 			if (currentTarget == null || !currentTarget.isAlive() || currentTarget.isRemoved()) {
@@ -2089,6 +2108,71 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Checks whether any nearby friendly allies (fellow squad minions, non-hostile Iron Golems,
+	 * or the commander player) within the specified radius need healing (i.e. health is below maximum).
+	 * Sentinels fight like warriors ONLY if no minions or iron golems near them need zero healing.
+	 *
+	 * @param radius The search radius in blocks.
+	 * @return true if at least one nearby friendly ally is injured / needs healing; false if all nearby allies need zero healing.
+	 */
+	public boolean hasNearbyAlliesNeedingHealing(double radius) {
+		if (this.getWorld() == null || this.getWorld().isClient()) {
+			return false;
+		}
+
+		double radiusSq = radius * radius;
+		Box searchBox = this.getBoundingBox().expand(radius);
+
+		// 1. Check owner/commander player
+		if (this.isTamed()) {
+			LivingEntity owner = this.getOwner();
+			if (owner != null && owner.isAlive()) {
+				if (this.squaredDistanceTo(owner) <= radiusSq) {
+					if (owner.getHealth() < owner.getMaxHealth() - 0.05F) {
+						return true;
+					}
+				}
+			}
+		}
+
+		// 2. Check nearby fellow squad minions
+		List<MinionEntity> nearbyMinions = this.getWorld().getEntitiesByClass(
+			MinionEntity.class,
+			searchBox,
+			other -> other != null && other != this && other.isAlive() && this.isTeammate(other)
+		);
+		for (MinionEntity ally : nearbyMinions) {
+			if (this.squaredDistanceTo(ally) <= radiusSq && ally.getHealth() < ally.getMaxHealth() - 0.05F) {
+				return true;
+			}
+		}
+
+		// 3. Check nearby non-hostile Iron Golems
+		List<IronGolemEntity> nearbyGolems = this.getWorld().getEntitiesByClass(
+			IronGolemEntity.class,
+			searchBox,
+			golem -> golem != null && golem.isAlive() && this.isTeammate(golem)
+		);
+		for (IronGolemEntity golem : nearbyGolems) {
+			if (this.squaredDistanceTo(golem) <= radiusSq && golem.getHealth() < golem.getMaxHealth() - 0.05F) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Checks whether any nearby friendly allies within standard Sentinel medical support range (10 blocks)
+	 * need healing.
+	 *
+	 * @return true if any nearby friendly minion, Iron Golem, or commander needs healing.
+	 */
+	public boolean hasNearbyAlliesNeedingHealing() {
+		return hasNearbyAlliesNeedingHealing(SentinelHealAllyGoal.HEAL_RANGE);
 	}
 
 	/**

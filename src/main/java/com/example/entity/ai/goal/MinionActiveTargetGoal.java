@@ -27,8 +27,12 @@ public class MinionActiveTargetGoal extends ActiveTargetGoal<HostileEntity> {
 		if (!this.minion.isAlive() || !this.minion.isTamed() || this.minion.isSitting()) {
 			return false;
 		}
-		// Warriors actively scan and engage hostiles across the tactical zone
-		if (!this.minion.matchesRole(MinionRole.WARRIOR)) {
+		// Warriors actively scan and engage hostiles across the tactical zone.
+		// Sentinels fight like warriors ONLY if no minions or iron golems near them need zero healing.
+		boolean isWarrior = this.minion.matchesRole(MinionRole.WARRIOR);
+		boolean isSentinelWarriorMode = this.minion.matchesRole(MinionRole.SENTINEL)
+				&& !this.minion.hasNearbyAlliesNeedingHealing();
+		if (!isWarrior && !isSentinelWarriorMode) {
 			return false;
 		}
 		if (this.minion.hasLeader()) {
@@ -38,6 +42,14 @@ public class MinionActiveTargetGoal extends ActiveTargetGoal<HostileEntity> {
 			}
 		}
 		return super.canStart();
+	}
+
+	@Override
+	public boolean shouldContinue() {
+		if (this.minion.matchesRole(MinionRole.SENTINEL) && this.minion.hasNearbyAlliesNeedingHealing()) {
+			return false;
+		}
+		return super.shouldContinue();
 	}
 
 	@Override

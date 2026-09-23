@@ -1,13 +1,13 @@
 # VISIBLE SOURCE & ALL RIGHTS RESERVED LICENSE
 
-Project: Sovereign: Arcane Strategy & Engineering
-Copyright (c) 2024-2025 Mino (and Project Contributors). All Rights Reserved.
+Project: Sovereign Simulator: Arcane Strategy & Engineering
+Copyright (c) 2026 Mino (and Project Contributors). All Rights Reserved.
 ================================================================================
 
 ## Preamble
 
 This License Agreement governs the use, inspection, modification, distribution,
-and compilation of "Sovereign: Arcane Strategy & Engineering" (hereinafter
+and compilation of "Sovereign Simulator: Arcane Strategy & Engineering" (hereinafter
 referred to as the "Software"), including all source code, compiled binaries,
 bytecode, mixins, textures, 3D models, animations, audio, graphical assets,
 documentation, and associated intellectual property.
@@ -21,7 +21,7 @@ Software.
 
 ---
 
-- "Software": The computer program known as "Sovereign: Arcane Strategy &
+- "Software": The computer program known as "Sovereign Simulator: Arcane Strategy &
   Engineering", including its source code, build scripts, class files, bytecode,
   mixins, shaders, configurations, network protocols, algorithms, and binary
   releases.
@@ -127,7 +127,7 @@ Software under this License or any subsequent license adopted by the Author.
 
 ---
 
-The names "Sovereign: Arcane Strategy & Engineering", "Sovereign Simulator", and associated
+The names "Sovereign Simulator: Arcane Strategy & Engineering", "Sovereign Simulator", and associated
 distinctive logos, emblems, and iconography are trademarks of the Author. This
 License does not grant permission to use the trade names, trademarks, service marks,
 or product names of the Licensor, except as required for reasonable and customary
