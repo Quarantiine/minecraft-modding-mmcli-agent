@@ -341,13 +341,16 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 	/**
 	 * Sets the arcane levitation state, suppressing gravity and resetting fall distance.
-	 * Arcane Levitation is strictly isolated to active construction in MinionBuildGoal.
+	 * Arcane Levitation is strictly isolated to active construction and post-task descent in MinionBuildGoal.
 	 * Non-builder minions navigate on the ground with 1.25D step height and companion catch-up teleportation.
 	 *
 	 * @param levitating true to activate 3D flight/hovering for builders, false to restore gravity.
 	 */
 	public void setArcaneLevitating(boolean levitating) {
-		if (levitating && !this.activelyBuilding && !this.exitingBuilding) {
+		// Levitation is only valid for builder-role minions.
+		// It may be active during building, egress, OR controlled post-task descent (gentleDescending).
+		// Non-builder roles are never permitted to levitate.
+		if (levitating && !this.matchesRole(MinionRole.BUILDER)) {
 			levitating = false;
 		}
 		this.arcaneLevitating = levitating;
@@ -363,11 +366,49 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	}
 
 	/**
+	 * Applies a single tick of gentle controlled descent for a builder minion that has finished
+	 * its task and needs to float smoothly back to solid ground.
+	 * Call this every tick while the minion is airborne and done building.
+	 * Returns true once the minion has landed and levitation has been deactivated.
+	 *
+	 * @param serverWorld The server world.
+	 * @return true when the minion has successfully landed.
+	 */
+	public boolean tickGentleDescent(ServerWorld serverWorld) {
+		if (!this.arcaneLevitating) {
+			return true; // Already landed or levitation was cleared externally
+		}
+		this.fallDistance = 0.0F;
+		BlockPos feet = this.getBlockPos();
+		BlockPos below = feet.down();
+		BlockState belowState = serverWorld.getBlockState(below);
+		boolean overSolid = this.isOnGround()
+				|| belowState.isSolidBlock(serverWorld, below)
+				|| this.hasSolidGroundBeneath(serverWorld);
+		if (overSolid) {
+			// Landed — disable levitation cleanly
+			this.arcaneLevitating = false;
+			this.setNoGravity(false);
+			this.arcaneLevitationTicks = 0;
+			this.setVelocity(0.0D, 0.0D, 0.0D);
+			this.velocityModified = true;
+			serverWorld.spawnParticles(ParticleTypes.PORTAL, this.getX(), this.getY() + 0.1D, this.getZ(), 4, 0.15D, 0.05D, 0.15D, 0.02D);
+			return true;
+		}
+		// Still airborne — glide straight down
+		this.setVelocity(this.getVelocity().x * 0.5D, -0.22D, this.getVelocity().z * 0.5D);
+		this.velocityModified = true;
+		return false;
+	}
+
+	/**
 	 * @return true if this minion is actively engaged in building/dismantling via MinionBuildGoal.
 	 */
 	public boolean isActivelyBuilding() {
 		return this.activelyBuilding;
 	}
+
+	private long lastConstructionActivityTick = 0L;
 
 	/**
 	 * Sets whether this minion is actively engaged in building/dismantling.
@@ -376,6 +417,19 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	 */
 	public void setActivelyBuilding(boolean activelyBuilding) {
 		this.activelyBuilding = activelyBuilding;
+		if (activelyBuilding) {
+			this.lastConstructionActivityTick = this.getWorld().getTime();
+			this.fallDistance = 0.0F;
+		}
+	}
+
+	public long getLastConstructionActivityTick() {
+		return this.lastConstructionActivityTick;
+	}
+
+	public void touchConstructionActivity() {
+		this.lastConstructionActivityTick = this.getWorld().getTime();
+		this.fallDistance = 0.0F;
 	}
 
 	/**
@@ -513,20 +567,34 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.lastStructureBox = null;
 		this.egressTicks = 0;
 		this.noClip = false;
-		this.setNoGravity(false);
-		this.setArcaneLevitating(false);
 		this.dataTracker.set(PHASING_BLOCKS, false);
-		this.setVelocity(0.0D, 0.0D, 0.0D);
-		this.velocityModified = true;
 
+		// Check if minion ended up inside solid blocks — if so, nudge to exit vector
 		BlockPos footPos = this.getBlockPos();
 		BlockState footState = serverWorld.getBlockState(footPos);
 		BlockState headState = serverWorld.getBlockState(footPos.up());
-		// Failsafe: if minion ended up inside solid blocks, nudge to structureExitVec or highest open ground
 		if (footState.isSolidBlock(serverWorld, footPos) || headState.isSolidBlock(serverWorld, footPos.up())) {
 			if (this.structureExitVec != null) {
 				this.requestTeleport(this.structureExitVec.x, this.structureExitVec.y, this.structureExitVec.z);
 			}
+		}
+
+		// If still airborne, keep levitation on and let tickGentleDescent() guide them smoothly down.
+		// Do NOT restore gravity here — that causes a free-fall and fall damage.
+		// tickGentleDescent is called from MinionBuildGoal.tick() every tick until landed.
+		boolean overSolid = this.isOnGround() || this.hasSolidGroundBeneath(serverWorld);
+		if (overSolid) {
+			// Already on ground — clean stop
+			this.setArcaneLevitating(false);
+			this.setNoGravity(false);
+			this.setVelocity(0.0D, 0.0D, 0.0D);
+			this.velocityModified = true;
+		} else {
+			// Still airborne — keep levitation active, MinionBuildGoal.tick() calls tickGentleDescent() each tick
+			this.fallDistance = 0.0F;
+			// Bleed off any lateral egress velocity so we descend cleanly
+			this.setVelocity(this.getVelocity().x * 0.2D, -0.22D, this.getVelocity().z * 0.2D);
+			this.velocityModified = true;
 		}
 		this.structureExitVec = null;
 
@@ -732,7 +800,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 
 		LivingEntity owner = this.getOwner();
 		if (owner != null && owner.isAlive()) {
-			boolean isFollowingOwner = this.isSelected() || (!this.isSitting() && this.getGuardAnchorPos() == null && this.getPatrolRouteId() < 0 && !this.hasLeader());
+			boolean isFollowingOwner = this.isSelected();
 			if (isFollowingOwner && (!this.getNavigation().isIdle() || this.getMoveControl().isMoving() || this.squaredDistanceTo(owner) > 4.0D)) {
 				return owner.getPos();
 			}
@@ -758,7 +826,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 
 		// 3D Airborne Fallback: If trapped in a hole/pit or obstructed by high wall, direct flight toward owner
-		if (owner != null && owner.isAlive() && !this.isSitting() && this.getGuardAnchorPos() == null && !this.hasLeader()) {
+		if (this.isSelected() && owner != null && owner.isAlive() && !this.isSitting() && this.getGuardAnchorPos() == null && !this.hasLeader()) {
 			if (this.squaredDistanceTo(owner) > 4.0D) {
 				return owner.getPos();
 			}
@@ -956,7 +1024,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.goalSelector.add(7, new WanderAroundFarGoal(this, 1.0D) {
 			@Override
 			public boolean canStart() {
-				if (MinionEntity.this.getGuardAnchorPos() != null || MinionEntity.this.isSelected() || MinionEntity.this.hasLeader()) {
+				if (MinionEntity.this.getGuardAnchorPos() != null || MinionEntity.this.isSelected() || MinionEntity.this.hasLeader()
+						|| MinionEntity.this.isActivelyBuilding()
+						|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(MinionEntity.this)) {
 					return false;
 				}
 				return super.canStart();
@@ -969,7 +1039,8 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.targetSelector.add(1, new TrackOwnerAttackerGoal(this) {
 			@Override
 			public boolean canStart() {
-				if (MinionEntity.this.hasLeader()) {
+				if (MinionEntity.this.hasLeader() || MinionEntity.this.isActivelyBuilding()
+						|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(MinionEntity.this)) {
 					return false;
 				}
 				return super.canStart();
@@ -979,13 +1050,23 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.targetSelector.add(2, new AttackWithOwnerGoal(this) {
 			@Override
 			public boolean canStart() {
-				if (MinionEntity.this.hasLeader()) {
+				if (MinionEntity.this.hasLeader() || MinionEntity.this.isActivelyBuilding()
+						|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(MinionEntity.this)) {
 					return false;
 				}
 				return super.canStart();
 			}
 		});
-		this.targetSelector.add(3, new RevengeGoal(this).setGroupRevenge());
+		this.targetSelector.add(3, new RevengeGoal(this) {
+			@Override
+			public boolean canStart() {
+				if (MinionEntity.this.isActivelyBuilding()
+						|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(MinionEntity.this)) {
+					return false;
+				}
+				return super.canStart();
+			}
+		}.setGroupRevenge());
 		this.targetSelector.add(4, new MinionActiveTargetGoal(this, 24.0D));
 	}
 
@@ -1002,6 +1083,13 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		this.noClip = phasing;
 		if (phasing) {
 			this.setNoGravity(true);
+			this.fallDistance = 0.0F;
+		}
+
+		// Minions working or descending from construction/mining never accumulate fall distance
+		if (this.isActivelyBuilding() || this.arcaneLevitating || this.exitingBuilding
+				|| (this.getWorld() != null && this.getWorld().getTime() - this.lastConstructionActivityTick <= 100L)
+				|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this)) {
 			this.fallDistance = 0.0F;
 		}
 
@@ -1285,8 +1373,20 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 		}
 
 		// Non-builder minions never levitate during navigation; they use pure ground pathfinding with 1.25D step height.
+		// IMPORTANT: When actively building, MinionBuildGoal is the SOLE authority over levitation velocity.
+		// This method must NOT apply any velocity to builder minions — doing so creates a velocity conflict that
+		// causes the levitation-teleport loop (goal applies velocity → this method overwrites it → stall watchdog
+		// fires → requestTeleport → repeat). Fall-safety particles are handled separately at the tick() call-site.
 		if (this.activelyBuilding || this.exitingBuilding) {
-			// Builder Arcane Levitation is maintained for active construction and egress
+			if (this.activelyBuilding) {
+				return;
+			}
+			// Egress mode: builder levitation state is maintained, velocity is controlled by tickBuildingEgress()
+		} else if (this.matchesRole(MinionRole.BUILDER)) {
+			// Builder/miner minions are managed exclusively by MinionBuildGoal.
+			// MinionBuildGoal handles all task navigation, hovering, and controlled landing.
+			// This method must NEVER apply universal traversal velocities or hole-escape launches to builders.
+			return;
 		} else {
 			if (this.arcaneLevitating) {
 				this.setArcaneLevitating(false);
@@ -1615,9 +1715,9 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	}
 
 	/**
-	 * Commands the minion to immediately pathfind back to its post or owner after combat concludes,
-	 * ensuring thralls quickly regroup at 1.35D sprint speed and do not get estranged or lost.
-	 * Sentinels return strictly to their guard anchor post; other roles return to the master.
+	 * Commands the minion to immediately pathfind back to its post, leader, or owner after combat concludes.
+	 * Stationed minions return to their guard anchor post, escorts return to their leader, and selected
+	 * minions return to the master at 1.35D sprint speed. Unselected wandering minions remain in their area.
 	 */
 	public void returnToOwnerPostCombat() {
 		if (this.isTamed() && !this.isSitting()) {
@@ -1638,12 +1738,7 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 				if (this.squaredDistanceTo(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D) > 4.0D) {
 					this.navigation.startMovingTo(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D, 1.35D);
 				}
-			} else if (this.getRole() == MinionRole.SENTINEL) {
-				LivingEntity owner = this.getOwner();
-				if (owner != null && this.squaredDistanceTo(owner) > 4.0D) {
-					this.navigation.startMovingTo(owner, 1.35D);
-				}
-			} else {
+			} else if (this.isSelected()) {
 				LivingEntity owner = this.getOwner();
 				if (owner != null && this.squaredDistanceTo(owner) > 4.0D) {
 					this.navigation.startMovingTo(owner, 1.35D);
@@ -2064,9 +2159,26 @@ public class MinionEntity extends TameableEntity implements InventoryOwner, Rang
 	}
 
 	@Override
+	public boolean handleFallDamage(float fallDistance, float damageMultiplier, DamageSource damageSource) {
+		if (this.arcaneLevitating || this.isActivelyBuilding() || this.exitingBuilding
+				|| (this.getWorld() != null && this.getWorld().getTime() - this.lastConstructionActivityTick <= 100L)
+				|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this)) {
+			return false;
+		}
+		return super.handleFallDamage(fallDistance, damageMultiplier, damageSource);
+	}
+
+	@Override
 	public boolean damage(DamageSource source, float amount) {
 		if (this.arcaneLevitating && source.isOf(DamageTypes.FALL)) {
 			return false;
+		}
+		if (source.isOf(DamageTypes.FALL)) {
+			if (this.isActivelyBuilding() || this.exitingBuilding
+					|| (this.getWorld() != null && this.getWorld().getTime() - this.lastConstructionActivityTick <= 100L)
+					|| com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this)) {
+				return false;
+			}
 		}
 		if (this.arcaneLevitating && source.isOf(DamageTypes.IN_WALL)) {
 			return false;

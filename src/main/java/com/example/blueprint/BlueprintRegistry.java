@@ -128,17 +128,6 @@ public class BlueprintRegistry {
 		return get(id).orElse(EMPTY);
 	}
 
-	/**
-	 * Resolves a blueprint dynamically. For custom blueprints, returns the exact blueprint as registered.
-	 *
-	 * @param id   The blueprint identifier.
-	 * @param size The size preset (retained for signature compatibility).
-	 * @param seed The generation seed (retained for signature compatibility).
-	 * @return The resolved StructureBlueprint.
-	 */
-	public static StructureBlueprint resolveCategoryBlueprint(String id, int size, long seed) {
-		return getOrDefault(id);
-	}
 
 	/**
 	 * Returns the active catalog of blueprints (all registered custom blueprints).

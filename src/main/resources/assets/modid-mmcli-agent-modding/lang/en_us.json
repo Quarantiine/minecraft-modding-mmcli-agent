@@ -124,7 +124,6 @@
   "gui.modid-mmcli-agent-modding.capture_modal.title": "Capture Custom Blueprint",
   "gui.modid-mmcli-agent-modding.capture_modal.name_label": "Blueprint Name:",
   "gui.modid-mmcli-agent-modding.capture_modal.desc_label": "Description:",
-  "gui.modid-mmcli-agent-modding.capture_modal.category_label": "Category Archetype:",
   "gui.modid-mmcli-agent-modding.capture_modal.save_button": "Capture & Save",
   "gui.modid-mmcli-agent-modding.capture_modal.cancel_button": "Cancel",
   "gui.modid-mmcli-agent-modding.capture_modal.clear_corners": "Clear Corners",

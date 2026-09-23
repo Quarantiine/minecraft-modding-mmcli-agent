@@ -28,7 +28,7 @@ A comprehensive, quick-reference manual for all minion commands, controls, squad
 | **Left-Click**                           | In **DESIGN** Mode            | **Set Corner Pos1 / Pos2 (Sequential)**: 1st Left-Click sets Corner 1 (`Pos1`) anchored **on top of the clicked block face** (excluding terrain dirt beneath); 2nd Left-Click sets Corner 2 (`Pos2`), completing the footprint and rendering full holographic ghost grid blocks. |
 | **Ctrl + Mouse Scroll**                  | In **DESIGN** Mode            | **In-World Height Adjustment (No Blocks Needed)**: Scroll up to raise the top boundary, scroll down to lower it (hold Shift for $\pm 5$ fast stepping). Dynamically expands the 3D box live without needing temporary scaffolding or air clicks! (Keys: `[` / `]` or `PageUp` / `PageDown`). |
 | **Shift + Left-Click**                   | In **DESIGN** Mode            | **Reset Corners to Pos1**: Clears both `Pos1` and `Pos2` selection corners and held scepter components with a bass tone. Guarantees the very next Left-Click will place `Pos1` afresh. |
-| **Right-Click** _(Quick Tap)_            | In **DESIGN** Mode            | **Capture Custom Blueprint Modal**: Opens the Spatial Blueprint Capture modal when corners (`Pos1` & `Pos2`) are set to name, categorize, fine-tune height (`[ - ]` / `[ + ]`), and save the blueprint (works without Shift on ground or air). |
+| **Right-Click** _(Quick Tap)_            | In **DESIGN** Mode            | **Capture Custom Blueprint Modal**: Opens the Spatial Blueprint Capture modal when corners (`Pos1` & `Pos2`) are set to name, fine-tune height (`[ -5 ]`, `[ -1 ]`, `[ +1 ]`, `[ +5 ]`), and save the blueprint (works without Shift on ground or air). |
 | **Shift + Right-Click**                  | In **DESIGN** Mode            | **Capture Modal / Command Hub**: Opens the Spatial Blueprint Capture modal when corners are set, or opens Command Hub GUI.                                                                                               |
 | **Left-Click**                           | Owned Minion                  | **Toggle Selection**: Select/deselect minion without friendly-fire damage. If the minion was on a **patrol route** or escorting another minion, selecting it **automatically detaches** it from its route or squad leader to follow you!                                                   |
 | **Left-Click**                           | Waypoint Block in **PATHWAY** | **Delete Waypoint Tile**: Punches/removes the targeted waypoint tile cleanly with sound and smoke particles across any of the 5 route channels without breaking the block!                                                                                                             |
@@ -97,7 +97,7 @@ Cycle through operating modes using **Shift + Right-Click** or by pressing **`V`
 
 | Mode          | Visual Theme     | Description & Behavior                                                                                     |
 | :------------ | :--------------- | :--------------------------------------------------------------------------------------------------------- |
-| **`FOLLOW`**  | 🟢 Emerald Green | Minions march in disciplined **Ranked Army Lines** behind you.                                             |
+| **`FOLLOW`**  | 🟢 Emerald Green | Selected minions march in disciplined **Ranked Army Lines** behind you. Unselected minions wander freely.   |
 | **`STAY`**    | 🟡 Gold Yellow   | Minions hold position at their current location and guard the immediate perimeter.                         |
 | **`MINE`**    | 🟠 Blaze Orange  | Anchors full 3D area mining & deconstruction. Minions clear all blocks top-to-bottom with zero air-mining. |
 | **`BUILD`**   | 🔵 Diamond Cyan  | Activates 3D neon cyan blueprint holograms. Builders construct multiblocks using Arcane Levitation flight. |
@@ -150,7 +150,7 @@ Patrol pathways can be customized with arbitrary 24-bit hex colors or selected f
    - Click **`[ + New Route ]`** to create a fresh custom patrol route on the fly.
    - Click **`[ Edit ]`** on any route to open the **Patrol Route Configuration Modal** (`PatrolRouteEditModalScreen`):
      - Edit custom display name.
-     - Pick from 5 quick preset color swatches or type an exact hex color (`#RRGGBB` / `0xRRGGBB`) with live preview.
+     - Pick from 8 quick preset color swatches (Gold, Cyan, Emerald, Purple, Crimson, Blaze Orange, Royal Blue, Hot Pink) rendered in their vibrant swatch colors with active selection highlight borders, or type an exact hex color (`#RRGGBB` / `0xRRGGBB`) with live preview.
      - Click **`[ ✔ Save Route ]`** to persist across server and world saves.
      - Click **`[ ✖ Delete Route ]`** to safely delete the route; all patrolling minions assigned to that route safely detach (`routeId = -1`) and hold position.
 3. **Right-Click Air** to cycle to your desired route channel (e.g. Route 1 Gold).
@@ -390,7 +390,7 @@ The **`AREA`** mining mode allows commanders to define exact 3D excavation bound
      - Displays `Pos1` and `Pos2` corner coordinates.
      - Displays Width $\times$ Height $\times$ Depth dimensions and total volume in voxels.
      - **Destructible Block Counter**: Analyzes and displays the exact count of destructible, non-air blocks within the boundary (excluding unbreakable bedrock).
-     - **Height Steppers**: Fine-tune the excavation height directly inside the modal with **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** buttons.
+     - **Dedicated Height Stepper Row**: Fine-tune the excavation height directly inside the modal with **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** buttons placed in a dedicated row cleanly isolated from modal title and spatial text, preventing visual overlap.
    - **Modal Actions**:
      - **`[ ✔ Start Mining ]`**: Dispatches `StartMiningAreaPayload` to the server, clears the client selection, plays horn & chime fanfare, and starts the top-down excavation session.
      - **`[ ⌫ Reset ]`**: Wipes `Pos1` and `Pos2` selection corners.
@@ -402,6 +402,11 @@ The **`AREA`** mining mode allows commanders to define exact 3D excavation bound
 Assigned **Builder** minions mobilize autonomously to execute the mining operation:
 - **Full Selected Area Clearance**: Builders mine **every** solid, destructible block within the selected volume from the highest Y level down to the lowest Y level.
 - **Zero Air-Mining Guarantee**: Builders strictly never claim, navigate to, or swing pickaxes at air blocks. If a block was destroyed or already air, minions instantly advance to the next real block without swinging or vocalizing.
+- **Anti-Bobbing Mining Flight**: Miners utilize the exact same Arcane Levitation flight as builders during mining. Minions fly to a stable elevated station at `targetY + 1.25D`, maintain zero gravity and zero vertical velocity oscillation, and freeze velocity (`0.0D`) during mining swings, never falling into trenches when mining blocks beneath them.
+- **Mining Completion Perimeter Teleportation & Hold Position**: When all mining tasks are complete, miners receive identical post-completion treatment as builders:
+  - Teleported directly to assigned perimeter waypoints along the rim of the quarry (`baseY = box.getMaxY() + 1`) or ground footprint.
+  - Golden beacon beams (`END_ROD` + `GLOW`) and chime audio fanfare (`SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME`) play at each perimeter station.
+  - Placed into defensive hold position (`sitting = true`, `guardAnchorPos` assigned, `selected = false`), guarding the rim without wandering or following uncommanded.
 - **Bedrock & Indestructible Immunity**: Bedrock and indestructible blocks (negative hardness) are strictly protected and never targeted.
 - **Survival Direct Collection & Chest Storage vs. Creative Zero-Drop**: In Survival mode, broken blocks are collected directly into the builder's backpack (`drop = false`). When backpacks fill or sessions finish, builders deposit 100% of excess/surplus materials into nearby chests (within 24 blocks) or craft/deploy autonomous chests, leaving zero dropped items on the ground. In Creative mode, blocks are cleared cleanly without entity drops or chests to completely eliminate world clutter.
 - **Automatic Wireframe Dismissal**: The moment the entire selected area is cleared (all blocks in the volume become air or indestructible), the session finishes with celebratory particles and sound, and the highlighted wireframe **immediately disappears**!

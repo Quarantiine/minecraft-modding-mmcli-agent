@@ -11,9 +11,10 @@ import net.minecraft.util.math.Vec3d;
 /**
  * Tactical perimeter defense AI goal for {@link MinionEntity} thralls assigned the {@link MinionRole#SENTINEL} role.
  * <p>
- * Sentinels are anchored to a designated guard position (or the master's position if unset).
+ * Sentinels are anchored to a designated guard position set via {@link MinionEntity#getGuardAnchorPos()}.
+ * Unanchored Sentinels wander freely unless selected to follow in formation.
  * They maintain vigilance within an 8-block perimeter. If an engaged hostile target retreats or lures
- * the minion further than 12 blocks from the anchor position, the sentinel immediately breaks aggro
+ * the minion further than 128 blocks from the anchor position, the sentinel immediately breaks aggro
  * (clearing target) and sprints back to its anchor post at 1.35D speed.
  */
 public class SentinelGuardGoal extends Goal {
@@ -33,20 +34,14 @@ public class SentinelGuardGoal extends Goal {
 
 	/**
 	 * Resolves the active anchor position for the sentinel minion.
-	 * Prioritizes {@link MinionEntity#getGuardAnchorPos()}, falling back to the living owner's position.
+	 * Sentinels guard a designated anchor post when set via {@link MinionEntity#getGuardAnchorPos()}.
+	 * Unanchored sentinels do not anchor to the player; they wander freely when unselected and follow
+	 * in formation via {@link MinionFormationFollowGoal} when selected.
 	 *
-	 * @return The anchor BlockPos, or null if neither is available.
+	 * @return The anchor BlockPos, or null if unset.
 	 */
 	public BlockPos getAnchorPos() {
-		BlockPos anchor = this.minion.getGuardAnchorPos();
-		if (anchor != null) {
-			return anchor;
-		}
-		LivingEntity owner = this.minion.getOwner();
-		if (owner != null) {
-			return owner.getBlockPos();
-		}
-		return null;
+		return this.minion.getGuardAnchorPos();
 	}
 
 	@Override

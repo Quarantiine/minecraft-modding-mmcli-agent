@@ -1,6 +1,5 @@
 package com.example.client.gui;
 
-import com.example.blueprint.BuildingCategory;
 import com.example.blueprint.StructureBlueprint;
 import com.example.client.renderer.ClientDesignCaptureTracker;
 import net.minecraft.util.math.BlockPos;
@@ -13,7 +12,7 @@ import org.junit.jupiter.api.Test;
  * Unit tests validating BlueprintCaptureModalScreen logic:
  * - Corner coordinate ingestion
  * - Spatial dimension and volume validation
- * - Building category selection
+ * - Window dimensions
  * - Modal close states
  */
 public class BlueprintCaptureModalScreenTest {
@@ -38,7 +37,6 @@ public class BlueprintCaptureModalScreenTest {
 		Assertions.assertEquals(8, modal.getDimensionY());
 		Assertions.assertEquals(7, modal.getDimensionZ());
 		Assertions.assertEquals(392L, modal.getVolume());
-		Assertions.assertEquals(BuildingCategory.WATCHTOWER, modal.getSelectedCategory());
 	}
 
 	@Test
@@ -87,24 +85,13 @@ public class BlueprintCaptureModalScreenTest {
 	}
 
 	@Test
-	@DisplayName("Category selection updates state across all building categories")
-	void testCategorySelection() {
+	@DisplayName("Modal window dimensions and pause state")
+	void testModalDimensionsAndPause() {
+		Assertions.assertEquals(320, BlueprintCaptureModalScreen.WINDOW_WIDTH);
+		Assertions.assertEquals(220, BlueprintCaptureModalScreen.WINDOW_HEIGHT);
+
 		BlueprintCaptureModalScreen modal = new BlueprintCaptureModalScreen();
-
-		modal.setSelectedCategory(BuildingCategory.HOME);
-		Assertions.assertEquals(BuildingCategory.HOME, modal.getSelectedCategory());
-
-		modal.setSelectedCategory(BuildingCategory.BARRICADE);
-		Assertions.assertEquals(BuildingCategory.BARRICADE, modal.getSelectedCategory());
-
-		modal.setSelectedCategory(BuildingCategory.WORKSHOP);
-		Assertions.assertEquals(BuildingCategory.WORKSHOP, modal.getSelectedCategory());
-
-		modal.setSelectedCategory(BuildingCategory.SUPPLY_DEPOT);
-		Assertions.assertEquals(BuildingCategory.SUPPLY_DEPOT, modal.getSelectedCategory());
-
-		modal.setSelectedCategory(BuildingCategory.OBELISK);
-		Assertions.assertEquals(BuildingCategory.OBELISK, modal.getSelectedCategory());
+		Assertions.assertFalse(modal.shouldPause());
 	}
 
 	@Test

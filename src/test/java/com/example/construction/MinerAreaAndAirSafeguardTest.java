@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 /**
@@ -253,5 +256,57 @@ public class MinerAreaAndAirSafeguardTest {
 		Assertions.assertEquals(-58, scanned.get(0).y());
 		Assertions.assertEquals(-59, scanned.get(1).y());
 		Assertions.assertEquals(-60, scanned.get(2).y());
+	}
+
+	@Test
+	@DisplayName("Mining and Building Symmetry: Miners teleport to perimeter waypoints and enter hold position upon completion")
+	public void testMinerAndBuilderCompletionSymmetrySourceInvariants() throws IOException {
+		Path managerPath = Path.of("src/main/java/com/example/construction/ConstructionManager.java");
+		Assertions.assertTrue(Files.exists(managerPath));
+		String managerContent = Files.readString(managerPath);
+
+		// 1. baseY accounts for quarry rim vs structure foundation
+		Assertions.assertTrue(
+			managerContent.contains("int baseY = session.isDismantle() ? (box.getMaxY() + 1) : box.getMinY();"),
+			"ConstructionManager.completeSession must compute perimeter rim baseY for both mining and building"
+		);
+
+		// 2. Stationing condition is NOT restricted to !session.isDismantle()
+		Assertions.assertFalse(
+			managerContent.contains("if (!session.isDismantle() && !perimeterWaypoints.isEmpty())"),
+			"ConstructionManager.completeSession must not gate perimeter stationing behind !session.isDismantle()"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("if (!perimeterWaypoints.isEmpty())"),
+			"ConstructionManager.completeSession must station all minions when perimeter waypoints are available"
+		);
+
+		// 3. Teleportation and hold position (sitting + guard anchor + deselect) applied to minions
+		Assertions.assertTrue(
+			managerContent.contains("minion.requestTeleport(wx, waypoint.getY(), wz);"),
+			"ConstructionManager.completeSession must teleport minions to assigned perimeter waypoints"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("minion.setSitting(true);"),
+			"ConstructionManager.completeSession must set sitting=true (hold position) for completed minions"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("minion.setGuardAnchorPos(waypoint);"),
+			"ConstructionManager.completeSession must set guard anchor to perimeter waypoint for completed minions"
+		);
+		Assertions.assertTrue(
+			managerContent.contains("minion.setSelected(false);"),
+			"ConstructionManager.completeSession must deselect minions so only explicitly selected minions follow"
+		);
+
+		// 4. MinionBuildGoal cleans up levitation when sitting
+		Path goalPath = Path.of("src/main/java/com/example/entity/ai/goal/MinionBuildGoal.java");
+		Assertions.assertTrue(Files.exists(goalPath));
+		String goalContent = Files.readString(goalPath);
+
+		Assertions.assertTrue(
+			goalContent.contains("if (this.minion.isSitting())"),
+			"MinionBuildGoal.stop() must check if minion is sitting"
+		);
 	}
 }

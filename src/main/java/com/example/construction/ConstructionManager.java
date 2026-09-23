@@ -449,8 +449,8 @@ public class ConstructionManager {
 			0.3
 		);
 
-		// Signal all builder minions working nearby to complete, station at perimeter waypoints, and egress structure
-		Box searchBox = new Box(box.getMinX() - 12, box.getMinY() - 6, box.getMinZ() - 12, box.getMaxX() + 12, box.getMaxY() + 10, box.getMaxZ() + 12);
+		// Signal all builder/miner minions working nearby to complete, station at perimeter waypoints, and egress structure
+		Box searchBox = new Box(box.getMinX() - 16, box.getMinY() - 8, box.getMinZ() - 16, box.getMaxX() + 16, box.getMaxY() + 16, box.getMaxZ() + 16);
 		List<com.example.entity.custom.MinionEntity> nearbyMinions = world.getEntitiesByClass(
 			com.example.entity.custom.MinionEntity.class,
 			searchBox,
@@ -458,29 +458,29 @@ public class ConstructionManager {
 		);
 
 		List<BlockPos> perimeterWaypoints = new ArrayList<>();
-		if (!session.isDismantle()) {
-			int minX = box.getMinX();
-			int maxX = box.getMaxX();
-			int minZ = box.getMinZ();
-			int maxZ = box.getMaxZ();
-			int baseY = box.getMinY();
+		int minX = box.getMinX();
+		int maxX = box.getMaxX();
+		int minZ = box.getMinZ();
+		int maxZ = box.getMaxZ();
+		// For mining (dismantle) sessions, the perimeter rim of the quarry pit is at the top of the box (maxY + 1),
+		// whereas for building sessions, the ground perimeter is at the foundation level (minY).
+		int baseY = session.isDismantle() ? (box.getMaxY() + 1) : box.getMinY();
 
-			// 1. South perimeter (Front / maxZ + 2): West to East
-			for (int x = minX; x <= maxX; x++) {
-				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(x, baseY, maxZ + 2)));
-			}
-			// 2. East flank (maxX + 2): South to North
-			for (int z = maxZ + 1; z >= minZ - 1; z--) {
-				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(maxX + 2, baseY, z)));
-			}
-			// 3. North perimeter (Back / minZ - 2): East to West
-			for (int x = maxX; x >= minX; x--) {
-				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(x, baseY, minZ - 2)));
-			}
-			// 4. West flank (minX - 2): North to South
-			for (int z = minZ - 1; z <= maxZ + 1; z++) {
-				perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(minX - 2, baseY, z)));
-			}
+		// 1. South perimeter (Front / maxZ + 2): West to East
+		for (int x = minX; x <= maxX; x++) {
+			perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(x, baseY, maxZ + 2), box.getMinY(), new BlockPos(x, box.getMinY(), maxZ)));
+		}
+		// 2. East flank (maxX + 2): South to North
+		for (int z = maxZ + 1; z >= minZ - 1; z--) {
+			perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(maxX + 2, baseY, z), box.getMinY(), new BlockPos(maxX, box.getMinY(), z)));
+		}
+		// 3. North perimeter (Back / minZ - 2): East to West
+		for (int x = maxX; x >= minX; x--) {
+			perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(x, baseY, minZ - 2), box.getMinY(), new BlockPos(x, box.getMinY(), minZ)));
+		}
+		// 4. West flank (minX - 2): North to South
+		for (int z = minZ - 1; z <= maxZ + 1; z++) {
+			perimeterWaypoints.add(findSafePerimeterGround(world, new BlockPos(minX - 2, baseY, z), box.getMinY(), new BlockPos(minX, box.getMinY(), z)));
 		}
 
 		int startIdx = 0;
@@ -508,7 +508,7 @@ public class ConstructionManager {
 				minion.getBlockPos(),
 				session.getOwnerUuid(),
 				128.0D,
-				MinionRole.BUILDER
+				minion.getEffectiveRole()
 			);
 
 			if (nextSession.isPresent()) {
@@ -527,7 +527,7 @@ public class ConstructionManager {
 				continue;
 			}
 
-			if (!session.isDismantle() && !perimeterWaypoints.isEmpty()) {
+			if (!perimeterWaypoints.isEmpty()) {
 				int ringSize = perimeterWaypoints.size();
 				int targetIdx = (startIdx + (int) Math.round(minionIdx * ((double) ringSize / (double) Math.max(1, totalMinions)))) % ringSize;
 				int probe = 0;
@@ -550,14 +550,25 @@ public class ConstructionManager {
 				}
 				world.playSound(null, wx, waypoint.getY(), wz, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0F, 1.3F);
 
-				// Station minion at this perimeter waypoint
+				// Station minion at this perimeter waypoint in hold position
 				minion.requestTeleport(wx, waypoint.getY(), wz);
 				minion.setSelected(false);
 				minion.setSitting(true);
 				minion.setGuardAnchorPos(waypoint);
-				minion.startEgressFromStructure(box, anchor, Vec3d.ofBottomCenter(waypoint));
+				minion.clearAssaultTargets();
+				minion.getNavigation().stop();
+				minion.setTarget(null);
+				if (!session.isDismantle()) {
+					minion.startEgressFromStructure(box, anchor, Vec3d.ofBottomCenter(waypoint));
+				}
 				minion.finishBuildingEgress(world);
 			} else {
+				minion.setSelected(false);
+				minion.setSitting(true);
+				minion.setGuardAnchorPos(minion.getBlockPos());
+				minion.clearAssaultTargets();
+				minion.getNavigation().stop();
+				minion.setTarget(null);
 				if (minion.isInsideStructure(box)) {
 					minion.startEgressFromStructure(box, anchor, null);
 				} else {
@@ -621,13 +632,32 @@ public class ConstructionManager {
 	}
 
 	private BlockPos findSafePerimeterGround(ServerWorld world, BlockPos pos) {
-		for (int dy = 3; dy >= -4; dy--) {
-			BlockPos check = pos.add(0, dy, 0);
+		return findSafePerimeterGround(world, pos, pos.getY(), null);
+	}
+
+	private BlockPos findSafePerimeterGround(ServerWorld world, BlockPos pos, int minY, BlockPos fallbackPos) {
+		int startY = pos.getY();
+		int lowestY = Math.max(world.getBottomY() + 1, minY - 3);
+		for (int y = startY + 2; y >= lowestY; y--) {
+			BlockPos check = new BlockPos(pos.getX(), y, pos.getZ());
 			BlockPos ground = check.down();
 			if (world.getBlockState(ground).isSolidBlock(world, ground)
 					&& !world.getBlockState(check).isSolidBlock(world, check)
-					&& !world.getBlockState(check.up()).isSolidBlock(world, check.up())) {
+					&& !world.getBlockState(check.up()).isSolidBlock(world, check.up())
+					&& world.getFluidState(check).isEmpty()) {
 				return check;
+			}
+		}
+		if (fallbackPos != null) {
+			for (int y = fallbackPos.getY() + 2; y >= lowestY; y--) {
+				BlockPos check = new BlockPos(fallbackPos.getX(), y, fallbackPos.getZ());
+				BlockPos ground = check.down();
+				if (world.getBlockState(ground).isSolidBlock(world, ground)
+						&& !world.getBlockState(check).isSolidBlock(world, check)
+						&& !world.getBlockState(check.up()).isSolidBlock(world, check.up())
+						&& world.getFluidState(check).isEmpty()) {
+					return check;
+				}
 			}
 		}
 		return pos;
@@ -680,7 +710,7 @@ public class ConstructionManager {
 			);
 			for (com.example.entity.custom.MinionEntity minion : nearbyMinions) {
 				minion.setActivelyBuilding(false);
-				if (minion.isInsideStructure(box)) {
+				if (!session.isDismantle() && minion.isInsideStructure(box)) {
 					minion.startEgressFromStructure(box, anchor, null);
 				} else {
 					if (minion.isArcaneLevitating()) {
@@ -917,7 +947,7 @@ public class ConstructionManager {
 			if (!session.isActive() || !session.getDimension().equals(world.getRegistryKey())) {
 				continue;
 			}
-			if (role != null && role != MinionRole.BUILDER) {
+			if (role != null && role != MinionRole.BUILDER && role != MinionRole.AUTO) {
 				continue;
 			}
 

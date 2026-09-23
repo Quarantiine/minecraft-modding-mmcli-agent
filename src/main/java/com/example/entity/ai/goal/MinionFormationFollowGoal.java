@@ -100,7 +100,7 @@ public class MinionFormationFollowGoal extends Goal {
 		}
 
 		// Minions actively building or engaged in construction work never follow formation
-		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
+		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 			return false;
 		}
 
@@ -145,7 +145,7 @@ public class MinionFormationFollowGoal extends Goal {
 		}
 
 		// Minions actively building or engaged in construction work never follow formation
-		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
+		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 			return false;
 		}
 
@@ -220,7 +220,7 @@ public class MinionFormationFollowGoal extends Goal {
 
 		boolean shouldCatchUpTeleport = distToOwnerSq > 576.0D || (this.stuckTicks >= 40 && distToOwnerSq > 100.0D);
 		if (shouldCatchUpTeleport) {
-			if (!this.minion.isActivelyBuilding() && !com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion.getUuid())) {
+			if (!this.minion.isActivelyBuilding() && !com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 				if (owner instanceof ServerPlayerEntity serverPlayer) {
 					this.stuckTicks = 0;
 					this.minion.teleportToPlayer(serverPlayer);

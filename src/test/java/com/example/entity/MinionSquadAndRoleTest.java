@@ -411,8 +411,7 @@ public class MinionSquadAndRoleTest {
 		public boolean aggroBroken = false;
 
 		public Vec3 resolveAnchor() {
-			if (guardAnchorPos != null) return guardAnchorPos;
-			return ownerPos;
+			return guardAnchorPos;
 		}
 
 		public boolean canStart() {
@@ -556,13 +555,13 @@ public class MinionSquadAndRoleTest {
 		logic.role = MinionRole.BUILDER;
 		Assertions.assertFalse(logic.canStart(), "Builder role must not execute Sentinel guard goal");
 
-		// Case 7: Anchor fallback to owner when guardAnchorPos is null
+		// Case 7: Unanchored Sentinel does NOT anchor to owner (wanders freely unless selected)
 		logic.role = MinionRole.SENTINEL;
 		logic.guardAnchorPos = null;
 		logic.ownerPos = new TestSentinelGuardLogic.Vec3(50.0, 64.0, 50.0);
 		logic.minionPos = new TestSentinelGuardLogic.Vec3(65.0, 64.0, 50.0); // 15 blocks from owner (> 12)
-		Assertions.assertEquals(logic.ownerPos, logic.resolveAnchor());
-		Assertions.assertTrue(logic.canStart(), "Should use owner position as anchor fallback and trigger return");
+		Assertions.assertNull(logic.resolveAnchor(), "Unanchored sentinel should not anchor to owner");
+		Assertions.assertFalse(logic.canStart(), "Unanchored sentinel must not execute guard return goal");
 	}
 
 	// =========================================================================

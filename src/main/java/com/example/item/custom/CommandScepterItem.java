@@ -2305,6 +2305,13 @@ public class CommandScepterItem extends Item {
 		Direction side,
 		boolean isDismantle
 	) {
+		// Direct blueprint-based dismantle mode is removed.
+		// Mining is exclusively handled via area selection (two-corner marking).
+		if (isDismantle) {
+			player.sendMessage(Text.literal("§e⚠ Use the area mining tool to mark two corners for miners.§r"), true);
+			return false;
+		}
+
 		if (player.getItemCooldownManager().isCoolingDown(stack.getItem())) {
 			return false;
 		}
@@ -2321,12 +2328,7 @@ public class CommandScepterItem extends Item {
 
 		// Rotate to commander's orientation with 100% exact captured blocks
 		blueprint = blueprint.rotate(getRotation(stack));
-
-		if (isDismantle) {
-			ConstructionManager.getInstance().startDismantleSession(serverWorld, anchorPos, blueprint, player);
-		} else {
-			ConstructionManager.getInstance().startSession(serverWorld, anchorPos, blueprint, player);
-		}
+		ConstructionManager.getInstance().startSession(serverWorld, anchorPos, blueprint, player);
 		return true;
 	}
 

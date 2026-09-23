@@ -121,8 +121,8 @@ public class MinionFollowLeaderGoal extends Goal {
 			return false;
 		}
 
-		// Yield during active building
-		if (this.minion.isActivelyBuilding()) {
+		// Yield during active building or construction engagement
+		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 			return false;
 		}
 
@@ -165,7 +165,7 @@ public class MinionFollowLeaderGoal extends Goal {
 			return false;
 		}
 
-		if (this.minion.isActivelyBuilding()) {
+		if (this.minion.isActivelyBuilding() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 			return false;
 		}
 

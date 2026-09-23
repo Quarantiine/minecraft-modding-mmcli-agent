@@ -136,13 +136,16 @@ public class PatrolRouteEditModalScreen extends Screen {
 			final String colorName = PRESET_NAMES[i];
 			int bx = fieldX + i * (presetWidth + presetGap);
 
-			ButtonWidget btn = ButtonWidget.builder(Text.literal("■"), b -> {
-				this.selectedColorRgb = color;
-				if (this.hexField != null) {
-					this.hexField.setText(PatrolRoute.toHexCode(color));
+			ButtonWidget btn = ButtonWidget.builder(
+				Text.literal("■").styled(style -> style.withColor(net.minecraft.text.TextColor.fromRgb(color))),
+				b -> {
+					this.selectedColorRgb = color;
+					if (this.hexField != null) {
+						this.hexField.setText(PatrolRoute.toHexCode(color));
+					}
+					updateSaveButtonState();
 				}
-				updateSaveButtonState();
-			})
+			)
 			.dimensions(bx, presetY, presetWidth, presetHeight)
 			.tooltip(Tooltip.of(Text.literal("§6Preset: §f" + colorName + "\n§7" + PatrolRoute.toHexCode(color))))
 			.build();
@@ -328,6 +331,14 @@ public class PatrolRouteEditModalScreen extends Screen {
 		if (this.hexField != null) this.hexField.render(context, mouseX, mouseY, delta);
 
 		super.render(context, mouseX, mouseY, delta);
+
+		// Highlight currently active preset swatch button
+		for (int i = 0; i < PRESET_COLORS.length && i < this.presetButtons.size(); i++) {
+			if ((this.selectedColorRgb & 0xFFFFFF) == (PRESET_COLORS[i] & 0xFFFFFF)) {
+				ButtonWidget b = this.presetButtons.get(i);
+				context.drawBorder(b.getX() - 1, b.getY() - 1, b.getWidth() + 2, b.getHeight() + 2, 0xFFFFFFFF);
+			}
+		}
 	}
 
 	@Override

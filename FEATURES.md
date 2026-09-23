@@ -201,8 +201,7 @@ The **Minion Thrall** is an autonomous bipedal worker, builder, and combat entit
   - `getAssaultTargets()`: Returns an unmodifiable view of pending assault targets.
   - `acquireNextAssaultTarget()`: Automatically selects the closest living target in the queue within 48 blocks (`2304.0D` sq blocks), updates entity target, and sets sprint navigation at 1.35D.
   - `clearAssaultTargets()`: Immediately purges the queue upon retreat, ground repositioning, or hold directives.
-- **Relentless Combat Chaining**: When a minion kills its target (`onKilledOther`) or its combat target dies/despawns in `tick()`, it queries `hasAssaultTargets()`. If targets remain, it immediately chains to the next target instead of disengaging.
-- **Orderly Post-Combat Formation Return**: Only once the assault queue is completely empty (`hasAssaultTargets() == false`) does the minion increment `outOfCombatTicks` and execute `returnToOwnerPostCombat()`, returning to its commander or sentinel guard anchor.
+- **Orderly Post-Combat Formation Return**: Only once the assault queue is completely empty (`hasAssaultTargets() == false`) does the minion increment `outOfCombatTicks` and execute `returnToOwnerPostCombat()`. If assigned a guard anchor or patrol, it returns to its station; if selected (`isSelected() == true`), it returns to its commander; unselected wandering minions remain in their area and resume normal wandering. Only selected minions ever follow the commander.
 
 ### Minion Hearts Health Display & Real-Time Visualization
 
@@ -697,7 +696,7 @@ To prevent accidental excavation of large areas, establishing an `AREA` mining b
   - **Coordinates**: Displays exact `Pos1` and `Pos2` coordinates.
   - **Dimensions & Volume**: Displays Width $\times$ Height $\times$ Depth and total voxel volume.
   - **Destructible Block Counter**: Counts and displays the exact number of solid, destructible blocks queued for mining (excluding air and indestructible bedrock).
-- **Height Steppers**: Interactive **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** buttons allow fine-tuning boundary height directly within the modal.
+- **Dedicated Height Stepper Row**: Interactive **`[ -5 ]`**, **`[ -1 ]`**, **`[ +1 ]`**, and **`[ +5 ]`** buttons placed in a dedicated row cleanly separated from title and boundary descriptions, allowing fine-tuning boundary height directly within the modal without visual overlap.
 - **Modal Action Buttons**:
   - **`[ ✔ Start Mining ]`**: Dispatches `StartMiningAreaPayload(pos1, pos2)` to the server, clears client corner selections, plays horn/chime audio, and initiates top-to-bottom excavation.
   - **`[ ⌫ Reset ]`**: Wipes `Pos1` and `Pos2` corners across tracker and scepter data components.
@@ -713,6 +712,17 @@ To prevent accidental excavation of large areas, establishing an `AREA` mining b
 - **Automatic Wireframe Dismissal & Celebration**:
   - The construction manager continuously monitors active dismantle sessions (`hasRemainingBlocksInWorld()`).
   - As soon as all destructible blocks in the selected volume are cleared, the session marks `COMPLETED`, broadcasts `EndConstructionSessionPayload`, plays challenge completion fanfare (`UI_TOAST_CHALLENGE_COMPLETE`), spawns celebratory particles (`HAPPY_VILLAGER`, `TOTEM_OF_UNDYING`), and **instantly dismisses the wireframe outline**.
+- **Mining & Building Completion Symmetry (Perimeter Teleportation & Hold Position)**:
+  - When mining operations conclude, minions receive identical post-completion treatment as builders:
+    - **Perimeter Waypoints**: Waypoints are generated along the rim of the quarry ($Y_{\max} + 1$) or excavated ground footprint ($Y_{\min}$), ensuring stations are safely grounded above pits and caverns.
+    - **Perimeter Teleportation**: Minions are distributed evenly along the perimeter and teleported directly to their assigned stations (`requestTeleport(wx, waypoint.getY(), wz)`).
+    - **Beacon Fanfare**: Golden beacon particle beams (`END_ROD` + `GLOW`) and chime audio (`BLOCK_AMETHYST_BLOCK_CHIME`) erupt at every perimeter waypoint.
+    - **Hold Position Defense**: Minions are automatically placed into defensive hold position (`isSitting() = true`, `setGuardAnchorPos(waypoint)`, `isSelected() = false`), standing guard at attention encircling the cleared quarry/site without wandering into pits or following uncommanded.
+- **Anti-Bobbing Mining Flight & Uniform Hover Kinematics**:
+  - Minions share the exact same 3D Arcane Levitation flight as builders during mining operations.
+  - Hover stations are calculated at a uniform elevated altitude `targetPos.getY() + 1.25D` directly above the mined block (or `+0.05D` under tight ceilings), eliminating the vertical oscillation between trench floor and elevated air.
+  - Mining swings freeze velocity completely (`setVelocity(0, 0, 0)`) during work ticks.
+  - Zero gravity is maintained throughout the operation, preventing miners from falling when blocks beneath them are broken.
 - **Dynamic Tool Equipping**: Automatically equips pickaxes for stone/brick/ore, shovels for dirt/gravel, and axes for wood.
 - **Survival Direct Collection & Chest Logistics vs. Creative Zero-Drop Demolition**: In Survival mode, broken blocks are collected directly into minion inventories via `Block.getDroppedStacks` with `drop = false` rather than scattering across the ground. When inventory is full, minions deposit materials into nearby chests (up to 24 blocks) or craft and deploy autonomous supply depot chests. In Creative mode, blocks are cleared cleanly without spawning entity drops or deploying chests, preventing world and inventory clutter during large excavations.
 
@@ -750,8 +760,16 @@ All ephemeral scaffolding and combat sapper goals (`MinionSapperGoal`, `Traversa
   - **Companion Catch-Up Teleportation**: If separated from their owner or leader and navigationally stuck in deep holes or behind walls for $\ge 40$ ticks ($2.0\text{s}$), followers automatically catch up via teleportation, preventing estrangement without aerial launches into the sky.
 - **Universal Indoor Navigation Safeguards & Door Auto-Opening**:
   - Closed wooden doors and gates in a minion's path automatically open (`autoOpenNearbyDoors`), allowing fluid movement through doorways.
-- **Builder Kinematics Isolation**:
-  - `MinionEntity.tickUniversalArcaneLevitation()` grants `MinionBuildGoal` 100% isolated control over 3D hover stationing, deconstruction trajectories, and phase-shifting. Non-builders immediately release levitation and maintain gravity.
+- **Builder & Miner Kinematics Isolation**:
+  - `MinionEntity.tickUniversalArcaneLevitation()` returns immediately for all minions matching `MinionRole.BUILDER` (including `AUTO` minions adapting to construction/mining). Builders and miners are governed 100% exclusively by `MinionBuildGoal`, completely preventing universal obstacle clearance or hole/pit escape logic from launching workers into the sky toward the player.
+- **Quarry Miner Fly-Away Elimination**:
+  - **Inter-Task State Preservation**: When waiting for the next block lease in an active session, minions maintain `activelyBuilding = true`, freeze their velocity to `(0.0D, 0.0D, 0.0D)`, and hover in place rather than dropping state or triggering formation follow.
+  - **Dismantle Kinematics**: Wall scrapes during deconstruction never impart upward rocket velocity; velocity dampening guides miners directly to elevated hover stations (`targetPos.getY() + 1.25D`).
+  - **Quarry Stall Phase-Shift**: Collision stalls in pits immediately phase-shift directly to the hover station instead of falling back to ground navigation or searching for non-existent structure exit doors.
+  - **Construction Proximity Gating**: Formation follow, catch-up teleports, leader follow, and patrol goals check `isMinionEngagedInConstruction(this.minion)` (within 48 blocks of an active session), preventing minions from abandoning active quarries.
+- **Complete Fall Damage Immunity & Safe Descents**:
+  - **Zero Fall Damage**: Minions working atop buildings or mining elevated ledges never take fall damage or play hurt sounds upon descending or falling (`handleFallDamage` and `damage(DamageTypes.FALL)` are completely negated during building, mining, levitating, exiting, or within a 100-tick grace window of construction activity).
+  - **Controlled Landing Glide**: Airborne minions descending from completed work or heights execute `tickGentleDescent(serverWorld)` with an anti-gravity glide straight to solid ground with zero accumulated fall distance.
 
 ---
 
@@ -1107,7 +1125,7 @@ The commander's active game mode dynamically dictates minion logistics, resource
   - **Custom Routes**: Players can create, rename, recolor, and delete custom routes on the fly.
 - **Dedicated Route Edit Modal Screen (`PatrolRouteEditModalScreen`)**:
   - Accessible directly by clicking the **`Edit`** button on any patrol route card in the Command Hub GUI.
-  - Includes a text input field for route naming, a live color swatch preview square, a custom hex color code text input (`#RRGGBB` / `0xRRGGBB`), and 5 quick-select preset color palette swatch buttons (`#FFD700`, `#00E5FF`, `#00FF66`, `#B300FF`, `#FF2244`).
+  - Includes a text input field for route naming, a live color swatch preview square, a custom hex color code text input (`#RRGGBB` / `0xRRGGBB`), and 8 quick-select preset color palette swatch buttons (`#FFD700` Gold, `#00E5FF` Cyan, `#00FF66` Emerald, `#B300FF` Purple, `#FF2244` Crimson, `#FF8800` Blaze Orange, `#3366FF` Royal Blue, `#FF3399` Hot Pink) rendering their vibrant swatch colors with active selection highlight borders.
   - Modal action buttons: **`[ ✔ Save Route ]`**, **`[ ✖ Delete Route ]`**, and **`[ Cancel ]`**.
   - Deleting a route safely detaches all patrolling minions assigned to that route (`setPatrolRouteId(-1)`), sets them into a stationed holding position (`setSitting(true)`), and cleanses persistent world state.
 - **Paginated Pathway Dashboard in Command Hub (`CommandScepterScreen`)**:
@@ -1329,7 +1347,7 @@ The **In-World Spatial Blueprint Capture** system (`CommandMode.DESIGN`, `Bluepr
                   [Right-Click / Sneak + Right-Click: Capture Modal]
                   • Opens BlueprintCaptureModalScreen GUI
                   • Blueprint Name & Description Fields
-                  • Category Archetype Selector (Home, Watchtower, Barricade, etc.)
+                  • Real-Time Solid Block Counter & Height Steppers
                                            │
                                            ▼
                  [Server-Side Non-Destructive Ingestion Engine]
@@ -1360,7 +1378,7 @@ Commanders select the 3D spatial boundary volume using streamlined, single-butto
   - **2nd Left-Click (Corner 2 / `Pos2`)**: A second left-click on the opposite diagonal block automatically sets `Pos2`, completing the horizontal footprint and spatial volume. Sparkle particles erupt, a resonant note block chime sounds (`1.4F` pitch), and the action bar confirms: `§d✦ Design Pos2: §f[X, Y, Z]`.
   - **Subsequent Left-Clicks (Cycle / Reset)**: If both `Pos1` and `Pos2` are already defined, the next left-click automatically starts a new selection cycle: it sets `Pos1` to the clicked block and clears `Pos2`, enabling rapid re-selection without needing a separate reset action.
 - **Direct Right-Click Capture Trigger**:
-  - Once corners (`Pos1` and `Pos2`) are established, a standard **Right-Click** on the ground (or in the air) without needing Shift immediately launches the `BlueprintCaptureModalScreen` design modal to name, describe, categorize, and save the blueprint into the active catalog.
+  - Once corners (`Pos1` and `Pos2`) are established, a standard **Right-Click** on the ground (or in the air) without needing Shift immediately launches the `BlueprintCaptureModalScreen` design modal to name, describe, and save the blueprint into the active catalog.
   - **Shift + Right-Click** also acts as a modal launcher when corners are active, or opens the Command Hub when no corners are selected.
 - **Corner Invariance & Diagonal Independence**:
   - The bounding region is calculated analytically via $X \in [\min(x_1, x_2), \max(x_1, x_2)]$, $Y \in [\min(y_1, y_2), \max(y_1, y_2)]$, and $Z \in [\min(z_1, z_2), \max(z_1, z_2)]$.
@@ -1422,11 +1440,10 @@ To eliminate the frustration of having to pillar up with temporary dirt or scaff
 Performing **Right-Click** (or **Sneak + Right-Click**) on the ground or in the air with the Scepter in `DESIGN` mode when corners are set opens the **Capture Custom Blueprint** modal interface:
 
 - **Modal Controls**:
-  - **Blueprint Name Field**: Interactive text input for the user-facing blueprint title (defaults to `Custom Structure`).
+  - **Blueprint Name Field**: Interactive text input for the user-facing blueprint title (defaults to `Custom Blueprint`).
   - **Description Field**: Optional text field (empty by default; no pre-filled boilerplate text to delete; leaving empty never drops blocks or affects compilation).
   - **Real-Time Solid Block Counter**: Dynamic detection displaying the exact count of solid, non-air blocks within the selection, with instant alerts if all selected voxels are air.
-  - **Category Archetype Selector**: Assigns the captured blueprint into a structural classification (`HOME`, `WATCHTOWER`, `BARRICADE`, `WORKSHOP`, `SUPPLY_DEPOT`, `OBELISK`) for procedural minion categorization.
-  - **Height Stepper Buttons**: Interactive `[ -5 ]`, `[ -1 ]`, `[ +1 ]`, `[ +5 ]` buttons allowing live adjustments of the top Y boundary before saving.
+  - **Dedicated Height Stepper Row**: Interactive `[ -5 ]`, `[ -1 ]`, `[ +1 ]`, `[ +5 ]` stepper buttons placed in a dedicated row cleanly isolated from modal title, coordinates, and volume descriptions, preventing any visual overlap.
   - **Capture & Save Button**: Compiles the bounding volume, validates spatial limits, and dispatches `CaptureSpatialBlueprintPayload` to the server.
   - **Clear Corners Button**: Clears active corner coordinates without leaving the screen.
 

@@ -146,23 +146,23 @@ public class MiningConfirmModalScreen extends Screen {
 		int startX = (this.width - WINDOW_WIDTH) / 2;
 		int startY = (this.height - WINDOW_HEIGHT) / 2;
 
-		// 1. Height adjustment buttons in header/sub-header
+		// 1. Height adjustment buttons in dedicated row below spatial info
 		if (this.pos1 != null && this.pos2 != null) {
-			int hBtnY = startY + 40;
+			int hBtnY = startY + 64;
 			ButtonWidget minus5 = ButtonWidget.builder(Text.literal("§c-5"), b -> adjustModalHeight(-5))
-				.dimensions(startX + WINDOW_WIDTH - 104, hBtnY, 22, 16)
+				.dimensions(startX + 104, hBtnY, 24, 18)
 				.tooltip(Tooltip.of(Text.literal("Decrease height by 5 blocks")))
 				.build();
 			ButtonWidget minus1 = ButtonWidget.builder(Text.literal("§c-1"), b -> adjustModalHeight(-1))
-				.dimensions(startX + WINDOW_WIDTH - 80, hBtnY, 18, 16)
+				.dimensions(startX + 132, hBtnY, 20, 18)
 				.tooltip(Tooltip.of(Text.literal("Decrease height by 1 block")))
 				.build();
 			ButtonWidget plus1 = ButtonWidget.builder(Text.literal("§a+1"), b -> adjustModalHeight(1))
-				.dimensions(startX + WINDOW_WIDTH - 60, hBtnY, 18, 16)
+				.dimensions(startX + 156, hBtnY, 20, 18)
 				.tooltip(Tooltip.of(Text.literal("Increase height by 1 block")))
 				.build();
 			ButtonWidget plus5 = ButtonWidget.builder(Text.literal("§a+5"), b -> adjustModalHeight(5))
-				.dimensions(startX + WINDOW_WIDTH - 40, hBtnY, 22, 16)
+				.dimensions(startX + 180, hBtnY, 24, 18)
 				.tooltip(Tooltip.of(Text.literal("Increase height by 5 blocks")))
 				.build();
 
@@ -287,18 +287,17 @@ public class MiningConfirmModalScreen extends Screen {
 		context.drawBorder(startX, startY, WINDOW_WIDTH, WINDOW_HEIGHT, 0xFFE2B007);
 
 		// Framed Header
-		context.fill(startX + 1, startY + 1, startX + WINDOW_WIDTH - 1, startY + 28, 0xDD1B2A3A);
-		context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§6✦ CONFIRM MINING AREA ✦"), this.width / 2, startY + 6, 0xFFFFFF);
+		context.fill(startX + 1, startY + 1, startX + WINDOW_WIDTH - 1, startY + 26, 0xDD1B2A3A);
+		context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("§6✦ CONFIRM MINING AREA ✦"), this.width / 2, startY + 8, 0xFFFFFF);
 
 		Text escText = Text.literal("§e[Esc] §7Close");
-		context.drawTextWithShadow(this.textRenderer, escText, startX + WINDOW_WIDTH - this.textRenderer.getWidth(escText) - 10, startY + 6, 0xE0E0E0);
+		context.drawTextWithShadow(this.textRenderer, escText, startX + WINDOW_WIDTH - this.textRenderer.getWidth(escText) - 10, startY + 8, 0xE0E0E0);
 
 		// Spatial Dimension & Volume info bar
-		int infoY = startY + 36;
 		if (this.pos1 != null && this.pos2 != null) {
 			String p1Str = "P1: [" + this.pos1.getX() + ", " + this.pos1.getY() + ", " + this.pos1.getZ() + "]";
 			String p2Str = "P2: [" + this.pos2.getX() + ", " + this.pos2.getY() + ", " + this.pos2.getZ() + "]";
-			context.drawTextWithShadow(this.textRenderer, Text.literal("§7" + p1Str + "  " + p2Str), startX + 16, infoY, 0xAAAAAA);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§7" + p1Str + "  " + p2Str), startX + 16, startY + 34, 0xAAAAAA);
 
 			boolean valid = hasValidGeometry();
 			int destructibleBlocks = getDestructibleBlockCount();
@@ -308,17 +307,20 @@ public class MiningConfirmModalScreen extends Screen {
 			} else if (destructibleBlocks == 0) {
 				geomText = "§e⚠ 0 destructible blocks in selection (all air or bedrock)";
 			} else {
-				geomText = "§6Size: §f" + getDimensionX() + "x" + getDimensionY() + "x" + getDimensionZ() + " §8| §e" + destructibleBlocks + " blocks §8(§7" + getVolume() + "b volume§8)";
+				geomText = "§6Size: §f" + getDimensionX() + "x" + getDimensionY() + "x" + getDimensionZ() + " §8| §e" + destructibleBlocks + " blocks §8(§7" + getVolume() + "b§8)";
 			}
-			context.drawTextWithShadow(this.textRenderer, Text.literal(geomText), startX + 16, infoY + 14, valid && destructibleBlocks > 0 ? 0xFFA500 : 0xFF5555);
+			context.drawTextWithShadow(this.textRenderer, Text.literal(geomText), startX + 16, startY + 48, valid && destructibleBlocks > 0 ? 0xFFA500 : 0xFF5555);
+
+			// Height adjustment label in dedicated row
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§eAdjust Height:"), startX + 16, startY + 68, 0xFFD700);
 
 			// Instruction / Description lines
-			context.drawTextWithShadow(this.textRenderer, Text.literal("§eExcavation Method: §fTop-to-Bottom Reverse Topological"), startX + 16, startY + 76, 0xFFD700);
-			context.drawTextWithShadow(this.textRenderer, Text.literal("§7Minions will systematically dismantle this 3D quarry."), startX + 16, startY + 92, 0xAAAAAA);
-			context.drawTextWithShadow(this.textRenderer, Text.literal("§8Bedrock & indestructible blocks are safeguarded."), startX + 16, startY + 106, 0x888888);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§eExcavation Method: §fTop-to-Bottom Reverse Topological"), startX + 16, startY + 90, 0xFFD700);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§7Minions will systematically dismantle this 3D quarry."), startX + 16, startY + 104, 0xAAAAAA);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§8Bedrock & indestructible blocks are safeguarded."), startX + 16, startY + 118, 0x888888);
 		} else {
-			context.drawTextWithShadow(this.textRenderer, Text.literal("§c⚠ Incomplete corner selection (Set Pos1 & Pos2)"), startX + 16, infoY, 0xFF5555);
-			context.drawTextWithShadow(this.textRenderer, Text.literal("§7Left-click blocks in AREA mode to set Pos1 and Pos2."), startX + 16, startY + 76, 0xAAAAAA);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§c⚠ Incomplete corner selection (Set Pos1 & Pos2)"), startX + 16, startY + 34, 0xFF5555);
+			context.drawTextWithShadow(this.textRenderer, Text.literal("§7Left-click blocks in AREA mode to set Pos1 and Pos2."), startX + 16, startY + 54, 0xAAAAAA);
 		}
 
 		super.render(context, mouseX, mouseY, delta);

@@ -202,6 +202,8 @@ public class MinionBuildGoal extends Goal {
 		this.groundNavigationForced = false;
 		this.pendingNextTask = null;
 		this.hoverStationVec = null;
+		this.minion.clearActiveTraversalDestination();
+		this.minion.touchConstructionActivity();
 
 		if (this.currentTask != null) {
 			this.minion.setActivelyBuilding(true);
@@ -218,7 +220,7 @@ public class MinionBuildGoal extends Goal {
 			}
 
 			if (this.minion.getWorld() instanceof ServerWorld serverWorld) {
-				setupNavigationForTask(serverWorld);
+				setupTaskKinematics(serverWorld, this.currentTask.getWorldPos());
 			}
 		}
 	}
@@ -248,12 +250,23 @@ public class MinionBuildGoal extends Goal {
 		// Restore held weapon when stopping
 		restoreHeldWeapon();
 
-		// If minion is inside the structure when stopping, initiate structure egress before dropping flight/noClip
-		if (sessionBox != null && sessionAnchor != null && this.minion.isInsideStructure(sessionBox)) {
+		// For BUILD sessions: if inside the completed structure, phase through walls to exit.
+		// For DISMANTLE (mining) sessions: skip wall-phasing egress entirely — the "exterior" of a
+		// mined cave may be solid rock. Just let tickGentleDescent float them to the cave floor.
+		boolean isBuilder = this.currentSession != null && !this.currentSession.isDismantle();
+		if (this.minion.isSitting()) {
+			if (this.minion.isArcaneLevitating()) {
+				this.minion.setArcaneLevitating(false);
+			}
+			this.minion.setNoGravity(false);
+		} else if (isBuilder && sessionBox != null && sessionAnchor != null && this.minion.isInsideStructure(sessionBox)) {
 			this.minion.startEgressFromStructure(sessionBox, sessionAnchor, null);
 		} else if (!this.minion.isExitingBuilding()) {
-			this.minion.setArcaneLevitating(false);
-			this.minion.setNoGravity(false);
+			// Miner or already outside: keep levitation active if airborne so tickGentleDescent glides them down.
+			if (!this.minion.isArcaneLevitating()) {
+				this.minion.setNoGravity(false);
+			}
+			// else: leave levitation on; tickGentleDescent in tick() will handle landing
 		}
 	}
 
@@ -268,8 +281,21 @@ public class MinionBuildGoal extends Goal {
 				return;
 			}
 
-			// If current session is non-null and not active, trigger egress if inside structure
-			if (this.currentSession != null && !this.minion.isExitingBuilding()) {
+			// If current session is still active, stay committed!
+			// Other workers may have claimed current available tasks or dependencies are being resolved.
+			// Maintain activelyBuilding state and hover steadily in place rather than dropping state or flying off.
+			if (this.currentSession != null && this.currentSession.isActive()) {
+				this.minion.setActivelyBuilding(true);
+				this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+				this.minion.velocityModified = true;
+				return;
+			}
+
+			// For BUILD sessions: phase through walls to get outside the completed structure.
+			// For DISMANTLE (mining) sessions: skip wall-phasing — go straight to gentle descent.
+			// Underground miners would otherwise try to phase toward a "perimeter" that is solid rock.
+			if (this.currentSession != null && !this.currentSession.isDismantle()
+					&& !this.minion.isExitingBuilding()) {
 				BlockBox sessionBox = this.currentSession.getWorldBoundingBox();
 				BlockPos sessionAnchor = this.currentSession.getAnchorPos();
 				if (sessionBox != null && sessionAnchor != null && this.minion.isInsideStructure(sessionBox)) {
@@ -279,20 +305,23 @@ public class MinionBuildGoal extends Goal {
 
 			this.minion.setActivelyBuilding(false);
 			restoreHeldWeapon();
-			// If idle or tasks finished and still levitating, check if an active destination exists.
-			// If active destination exists (e.g. commander on ground or waypoint), allow universal traversal to guide them;
-			// otherwise float gently down to ground.
-			if (this.minion.isArcaneLevitating()) {
-				Vec3d activeDest = this.minion.resolveActiveTargetDestination();
+			// Tasks finished and still levitating: consult active destination for builders, or gently glide down to ground
+			if (this.minion.isArcaneLevitating() && !this.minion.isExitingBuilding()) {
+				boolean isDismantleSession = this.currentSession != null && this.currentSession.isDismantle();
+				Vec3d activeDest = !isDismantleSession ? this.minion.resolveActiveTargetDestination() : null;
 				if (activeDest == null) {
 					BlockPos feet = this.minion.getBlockPos();
 					BlockPos below = feet.down();
 					BlockState belowState = serverWorld.getBlockState(below);
-					if (!this.minion.isOnGround() && !belowState.isSolidBlock(serverWorld, below) && feet.getY() > serverWorld.getBottomY()) {
+					boolean overSolid = this.minion.isOnGround()
+							|| belowState.isSolidBlock(serverWorld, below)
+							|| this.minion.hasSolidGroundBeneath(serverWorld);
+					if (!overSolid && feet.getY() > serverWorld.getBottomY()) {
 						this.minion.setVelocity(0.0D, -0.22D, 0.0D);
 						this.minion.velocityModified = true;
 					} else {
 						this.minion.setArcaneLevitating(false);
+						this.minion.setNoGravity(false);
 						this.minion.setVelocity(0.0D, 0.0D, 0.0D);
 						this.minion.velocityModified = true;
 					}
@@ -340,8 +369,10 @@ public class MinionBuildGoal extends Goal {
 				if (!tryClaimTaskOrChainNextSession(serverWorld)) {
 					this.currentTask = null;
 					this.hoverStationVec = null;
-					this.minion.setActivelyBuilding(false);
-					restoreHeldWeapon();
+					if (this.currentSession == null || !this.currentSession.isActive()) {
+						this.minion.setActivelyBuilding(false);
+						restoreHeldWeapon();
+					}
 				}
 				return;
 			}
@@ -366,11 +397,13 @@ public class MinionBuildGoal extends Goal {
 		// Check for ceiling clearance above the minion
 		boolean hasCeilingObstruction = hasCeilingAboveMinion(serverWorld, 3);
 
+		boolean isDismantle = this.currentSession != null && this.currentSession.isDismantle();
+
 		// If minion is not levitating and ground navigation was not forced, evaluate if levitation is appropriate
 		if (!this.minion.isArcaneLevitating() && !this.groundNavigationForced) {
 			Vec3d optimalStation = findOptimalHoverStation(serverWorld, targetPos);
-			if (this.minion.isPhasingBlocks() || hasLineOfSightToStation(serverWorld, optimalStation)) {
-				if (this.minion.isPhasingBlocks() || !hasCeilingObstruction || !hasCeilingAboveMinion(serverWorld, 2) || optimalStation.getY() <= this.minion.getY() + 0.5D) {
+			if (isDismantle || this.minion.isPhasingBlocks() || hasLineOfSightToStation(serverWorld, optimalStation)) {
+				if (isDismantle || this.minion.isPhasingBlocks() || !hasCeilingObstruction || !hasCeilingAboveMinion(serverWorld, 2) || optimalStation.getY() <= this.minion.getY() + 0.5D) {
 					this.minion.setArcaneLevitating(true);
 					this.hoverStationVec = optimalStation;
 				} else {
@@ -386,8 +419,8 @@ public class MinionBuildGoal extends Goal {
 				this.hoverStationVec = findOptimalHoverStation(serverWorld, targetPos);
 			}
 
-			// Validate line of sight from eye position to hover station
-			if (!this.minion.isPhasingBlocks() && !hasLineOfSightToStation(serverWorld, this.hoverStationVec)) {
+			// Validate line of sight from eye position to hover station (builders only; miners hover in open air quarry stations)
+			if (!isDismantle && !this.minion.isPhasingBlocks() && !hasLineOfSightToStation(serverWorld, this.hoverStationVec)) {
 				// If target is inside while minion is outside/elevated, glide to entrance doorstep first
 				BlockPos exitPos = findStructureExitWaypoint(serverWorld);
 				if (exitPos != null && this.minion.getY() > exitPos.getY() + 1.5D) {
@@ -419,7 +452,8 @@ public class MinionBuildGoal extends Goal {
 			} else {
 				this.ticksNavigating++;
 
-				// Track collision and stall duration during levitation: only stall if actively colliding and stuck
+				// Track collision and stall duration during levitation: only count as stalled when physically
+				// stuck AND making no meaningful progress (velocity nearly zero while blocked).
 				boolean isColliding = this.minion.horizontalCollision || (this.minion.verticalCollision && delta.y > 0.0D);
 				boolean isActuallyStuck = isColliding && (this.minion.getVelocity().horizontalLengthSquared() < 0.005D || Math.abs(this.minion.getVelocity().y) < 0.01D);
 				if (isActuallyStuck || (hasCeilingObstruction && this.minion.verticalCollision && delta.y > 0.0D)) {
@@ -430,9 +464,11 @@ public class MinionBuildGoal extends Goal {
 
 				// If stalled or colliding for 12+ ticks, fallback to ground navigation or phase-shift if persistent
 				if (this.stallCollisionTicks >= 12 || this.ticksNavigating > 40) {
-					BlockPos standPos = findSafeStandPositionNear(serverWorld, targetPos);
-					if (this.ticksNavigating > 40) {
-						Vec3d phaseDest = standPos != null ? Vec3d.ofBottomCenter(standPos) : (this.hoverStationVec != null ? this.hoverStationVec : Vec3d.ofBottomCenter(targetPos));
+					// Miners in dismantle sessions never drop to ground navigation in a pit; they phase-shift directly to their hover station.
+					if (isDismantle || this.minion.isPhasingBlocks() || this.ticksNavigating > 40 || this.stallCollisionTicks >= 80) {
+						Vec3d phaseDest = (this.hoverStationVec != null)
+							? this.hoverStationVec
+							: (isDismantle ? Vec3d.ofBottomCenter(targetPos).add(0, 1.25D, 0) : Vec3d.ofBottomCenter(targetPos));
 						serverWorld.spawnParticles(
 							ParticleTypes.PORTAL,
 							this.minion.getX(), this.minion.getY() + 0.5D, this.minion.getZ(),
@@ -448,6 +484,7 @@ public class MinionBuildGoal extends Goal {
 					}
 
 					if (!this.minion.isPhasingBlocks()) {
+						BlockPos standPos = findSafeStandPositionNear(serverWorld, targetPos);
 						this.minion.setArcaneLevitating(false);
 						this.hoverStationVec = null;
 						this.groundNavigationForced = true;
@@ -467,7 +504,7 @@ public class MinionBuildGoal extends Goal {
 				// Distance-dampened velocity prevents overshooting and oscillation
 				double speed = Math.min(0.35D, Math.max(0.08D, distToHover * 0.5D));
 				Vec3d vel = delta.normalize().multiply(speed);
-				if (this.minion.horizontalCollision || (targetPos.getY() > this.minion.getBlockY() && delta.y > 0.1D)) {
+				if (!isDismantle && delta.y > 0.1D && (this.minion.horizontalCollision || targetPos.getY() > this.minion.getBlockY())) {
 					vel = new Vec3d(vel.x * 0.4D, Math.max(vel.y, 0.40D), vel.z * 0.4D);
 				}
 
@@ -511,8 +548,8 @@ public class MinionBuildGoal extends Goal {
 						}
 
 						// Minion cannot pathfind on foot to target and has no line of sight to station (enclosed indoors/under ceiling).
-						// Route toward the nearest exterior doorway or open-sky perimeter exit:
-						BlockPos exitPos = findStructureExitWaypoint(serverWorld);
+						// Route toward the nearest exterior doorway or open-sky perimeter exit (builders only):
+						BlockPos exitPos = !isDismantle ? findStructureExitWaypoint(serverWorld) : null;
 						if (exitPos != null && !this.minion.isPhasingBlocks()) {
 							this.exitTraverseTicks++;
 							this.minion.getNavigation().startMovingTo(
@@ -1060,10 +1097,53 @@ public class MinionBuildGoal extends Goal {
 		double targetY = targetPos.getY() + 0.05D;
 		double targetZ = targetPos.getZ() + 0.5D;
 
+		boolean isDismantle = this.currentSession != null && this.currentSession.isDismantle();
+
 		int[][] offsets = {
 			{ 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 },
 			{ 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 }
 		};
+
+		// For dismantle (mining) sessions: hover in stable open air at a consistent elevation above targetPos.
+		// If at least 2 blocks headroom overhead, hover at targetPos.getY() + 1.25D.
+		// If in a tight 2-block tunnel, hover at targetPos.getY() + 0.05D to avoid ceiling collision.
+		// Using a uniform elevation prevents vertical oscillation between trench floor and air, eliminating bobbing.
+		if (isDismantle) {
+			BlockPos twoAbove = targetPos.up(2);
+			boolean hasHeadroom = world.getBlockState(twoAbove).isAir() || !world.getBlockState(twoAbove).isSolidBlock(world, twoAbove);
+			double elevatedY = hasHeadroom ? targetPos.getY() + 1.25D : targetPos.getY() + 0.05D;
+
+			Vec3d bestCandidate = null;
+			double bestDist = Double.MAX_VALUE;
+
+			for (int[] offset : offsets) {
+				double dist = (offset[0] != 0 && offset[1] != 0) ? 1.4D : 1.8D;
+				double candX = targetX + (offset[0] * dist);
+				double candZ = targetZ + (offset[1] * dist);
+				BlockPos candPos = BlockPos.ofFloored(candX, elevatedY, candZ);
+				BlockPos candHeadPos = candPos.up();
+				BlockState feetState = world.getBlockState(candPos);
+				BlockState headState = world.getBlockState(candHeadPos);
+
+				boolean open = (feetState.isAir() || !feetState.isSolidBlock(world, candPos))
+						&& (headState.isAir() || !headState.isSolidBlock(world, candHeadPos));
+				if (open) {
+					Vec3d candVec = new Vec3d(candX, elevatedY, candZ);
+					double d = candVec.squaredDistanceTo(this.minion.getPos());
+					if (d < bestDist) {
+						bestDist = d;
+						bestCandidate = candVec;
+					}
+				}
+			}
+
+			if (bestCandidate != null) {
+				return bestCandidate;
+			}
+
+			// If all horizontal offsets are encased in rock, hover directly above the target block
+			return new Vec3d(targetX, elevatedY, targetZ);
+		}
 
 		Vec3d bestCandidate = null;
 		double bestScore = Double.MAX_VALUE;
@@ -1145,11 +1225,12 @@ public class MinionBuildGoal extends Goal {
 		BlockPos targetPos = this.currentTask.getWorldPos();
 		int diffY = targetPos.getY() - this.minion.getBlockY();
 		boolean hasCeiling = hasCeilingAboveMinion(world, 3);
+		boolean isDismantle = this.currentSession != null && this.currentSession.isDismantle();
 
-		// If task is elevated, minion is already levitating, or minion is phasing blocks: engage Arcane Levitation
-		if ((diffY > 1 || this.minion.isArcaneLevitating() || this.minion.isPhasingBlocks()) && !this.groundNavigationForced) {
+		// If dismantle (mining), task is elevated, minion is already levitating, or minion is phasing blocks: engage Arcane Levitation
+		if ((isDismantle || diffY > 1 || this.minion.isArcaneLevitating() || this.minion.isPhasingBlocks()) && !this.groundNavigationForced) {
 			Vec3d candidateStation = findOptimalHoverStation(world, targetPos);
-			if (this.minion.isPhasingBlocks() || hasLineOfSightToStation(world, candidateStation)) {
+			if (isDismantle || this.minion.isPhasingBlocks() || hasLineOfSightToStation(world, candidateStation)) {
 				this.minion.setArcaneLevitating(true);
 				this.hoverStationVec = candidateStation;
 				this.minion.getNavigation().stop();
@@ -1191,9 +1272,9 @@ public class MinionBuildGoal extends Goal {
 			return;
 		}
 
-		// Minion is indoors or obstructed: route toward exterior exit (only if NOT phasing blocks)
+		// Minion is indoors or obstructed: route toward exterior exit (builders only, if NOT phasing blocks)
 		if (!this.minion.isPhasingBlocks()) {
-			BlockPos exitPos = findStructureExitWaypoint(world);
+			BlockPos exitPos = !isDismantle ? findStructureExitWaypoint(world) : null;
 			if (exitPos != null) {
 				this.minion.getNavigation().startMovingTo(
 					exitPos.getX() + 0.5D,
@@ -1519,6 +1600,8 @@ public class MinionBuildGoal extends Goal {
 		this.minion.getNavigation().stop();
 		this.minion.setJumping(false);
 		this.minion.fallDistance = 0.0F;
+		this.minion.setVelocity(0.0D, 0.0D, 0.0D);
+		this.minion.velocityModified = true;
 
 		this.workTicks++;
 
@@ -1673,7 +1756,8 @@ public class MinionBuildGoal extends Goal {
 		if (!tryClaimTaskOrChainNextSession(serverWorld)) {
 			this.currentTask = null;
 			this.hoverStationVec = null;
-			if (!this.minion.isArcaneLevitating()) {
+			if (this.currentSession == null || !this.currentSession.isActive()) {
+				this.minion.setActivelyBuilding(false);
 				restoreHeldWeapon();
 			}
 		}
@@ -1683,10 +1767,11 @@ public class MinionBuildGoal extends Goal {
 	 * Configures kinematics, levitation, or ground navigation towards the target task position.
 	 */
 	private void setupTaskKinematics(ServerWorld serverWorld, BlockPos nextPos) {
+		boolean isDismantle = this.currentSession != null && this.currentSession.isDismantle();
 		boolean nextCeiling = hasCeilingAboveMinion(serverWorld, 3);
-		if (nextPos.getY() > this.minion.getBlockY() + 1 || this.minion.isArcaneLevitating()) {
+		if (isDismantle || nextPos.getY() > this.minion.getBlockY() + 1 || this.minion.isArcaneLevitating()) {
 			Vec3d nextStation = findOptimalHoverStation(serverWorld, nextPos);
-			if (hasLineOfSightToStation(serverWorld, nextStation)) {
+			if (isDismantle || hasLineOfSightToStation(serverWorld, nextStation)) {
 				this.minion.setArcaneLevitating(true);
 				this.hoverStationVec = nextStation;
 			} else {
@@ -1706,7 +1791,7 @@ public class MinionBuildGoal extends Goal {
 	 * @return True if a task was claimed from the current or a newly chained session.
 	 */
 	private boolean tryClaimTaskOrChainNextSession(ServerWorld serverWorld) {
-		// 1. Try to claim from current session if active
+		// 1. Try to claim the next task from the current session if still active
 		if (this.currentSession != null && this.currentSession.isActive()) {
 			ConstructionTask nextTask = this.currentSession.claimNextTask(this.minion.getUuid(), serverWorld.getTime(), serverWorld);
 			if (nextTask != null) {
@@ -1719,9 +1804,14 @@ public class MinionBuildGoal extends Goal {
 				setupTaskKinematics(serverWorld, nextTask.getWorldPos());
 				return true;
 			}
+			// Current session is active but all remaining tasks are either:
+			// - claimed by other minions, or waiting on block-placement dependencies.
+			// Stay committed to this session — do NOT abandon it for a nearer one.
+			return false;
 		}
 
-		// 2. If current session is complete or has no tasks, search for nearest active session within 128 blocks
+		// 2. Current session is fully done (completed/cancelled) or never assigned.
+		//    Search for the nearest active session from the same owner within 128 blocks.
 		if (this.minion.getOwnerUuid() != null) {
 			Optional<ConstructionSession> chainedOpt = ConstructionManager.getInstance().findNearestSessionForMinion(
 				serverWorld,
@@ -1747,7 +1837,7 @@ public class MinionBuildGoal extends Goal {
 					setupTaskKinematics(serverWorld, chainedTask.getWorldPos());
 					return true;
 				}
-				// Session is active but waiting on dependency / ally: keep active builder posture
+				// New session is active but all tasks claimed or blocked by dependencies
 				this.currentTask = null;
 				this.minion.setActivelyBuilding(true);
 				this.minion.setSitting(false);

@@ -75,8 +75,8 @@ public class MinionPatrolGoal extends Goal {
 			return false;
 		}
 
-		// Yield during active construction work or healing
-		if (this.minion.isActivelyBuilding() || this.minion.isActivelyHealing()) {
+		// Yield during active construction work, construction engagement, or healing
+		if (this.minion.isActivelyBuilding() || this.minion.isActivelyHealing() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 			this.wasInterrupted = true;
 			return false;
 		}
@@ -112,7 +112,7 @@ public class MinionPatrolGoal extends Goal {
 			return false;
 		}
 
-		if (this.minion.hasLeader() || this.minion.isActivelyBuilding() || this.minion.isActivelyHealing()) {
+		if (this.minion.hasLeader() || this.minion.isActivelyBuilding() || this.minion.isActivelyHealing() || com.example.construction.ConstructionManager.getInstance().isMinionEngagedInConstruction(this.minion)) {
 			this.wasInterrupted = true;
 			return false;
 		}
