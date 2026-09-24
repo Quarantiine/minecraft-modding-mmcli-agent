@@ -6,10 +6,12 @@
 	"description": "Tactical real-time strategy (RTS) and multiblock arcane engineering mod for Fabric 1.21.",
 	"authors": ["Mino"],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://github.com/Quarantiine/minecraft-sovereign-sim",
+		"sources": "https://github.com/Quarantiine/minecraft-sovereign-sim",
+		"issues": "https://github.com/Quarantiine/minecraft-sovereign-sim/issues"
 	},
 	"license": "All Rights Reserved",
+	"icon": "assets/modid-mmcli-agent-modding/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": ["com.example.ExampleMod"],
@@ -23,6 +25,7 @@
 		"fabric-api": "*"
 	},
 	"suggests": {
-		"another-mod": "*"
+		"modmenu": "*",
+		"sodium": "*"
 	}
 }
