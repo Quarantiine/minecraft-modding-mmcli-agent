@@ -46,6 +46,7 @@ This project is distributed under a **Visible Source & All Rights Reserved (ARR)
   - [Architecture Blueprint & Codebase Map](#architecture-blueprint--codebase-map)
   - [Local Development Setup](#local-development-setup)
   - [Compiling & Running](#compiling--running)
+  - [Publishing & Releases](#publishing--releases)
   - [Writing Addons & API Usage](#writing-addons--api-usage)
   - [Automated Testing & Invariants](#automated-testing--invariants)
 - [📚 Companion Documentation](#-companion-documentation)
@@ -209,6 +210,27 @@ All builds and runtime tasks are managed via the included Gradle wrapper (`./gra
 
 # Compile and package the production mod JAR (outputs to build/libs/)
 ./gradlew build
+```
+
+---
+
+### Publishing & Releases
+
+To bump the version, commit, build, and publish a GitHub release with the compiled mod `.jar` in a single command:
+
+```bash
+VERSION="1.1.0"
+TITLE="v${VERSION} - Title"
+NOTES="Description here..."
+
+sed -i '' "s/^mod_version=.*/mod_version=${VERSION}/" gradle.properties && \
+git add gradle.properties && \
+git commit -m "chore: bump version to ${VERSION}" && \
+git push && \
+./gradlew build && \
+gh release create "v${VERSION}" "build/libs/fabric-mmcli-agent-modding-${VERSION}.jar" \
+  --title "${TITLE}" \
+  --notes "${NOTES}"
 ```
 
 ---
